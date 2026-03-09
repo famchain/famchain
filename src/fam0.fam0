@@ -1,0 +1,110 @@
+# MIT License
+#
+# Copyright (c) 2026 Christopher Gilliard
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
+# ──────────────────────────────────────────────────────────────────────────────
+# file: fam0.fam0 - first stage bootstrap tool (~232 bytes compiled)
+# Riscv-64 extended hex-to-binary converter
+# ──────────────────────────────────────────────────────────────────────────────
+
+B7 02 00 10 # lui	t0,0x10000               ; Setup UART
+97 04 00 00 # auipc	s1,0x0                   ; load program counter
+93 84 04 10 # addi	s1,s1,256 # 0x104        ; set s1 to offset for buffer
+13 89 04 00 # mv        s2,s1                    ; save pointer
+93 0F 00 00 # li        t6,0                     ; init in comment = 0
+93 09 00 00 # li        s3,0                     ; init nibble toggle = 0
+
+# Main loop
+03 CF 52 00 # lbu       t5,5(t0) # 0x10000005    ; Check UART status
+13 7F 1F 00 # andi      t5,t5,1                  ; mask
+E3 0C 0F FE # beqz	t5,0x18                  ; wait not ready for output
+03 C3 02 00 # lbu	t1,0(t0)                 ; read byte
+
+# Check end of comment
+13 0E D0 00 # li	t3,13                    ; ASCII '\r'
+63 14 C3 01 # bne	t1,t3,0x34               ; not equal skip
+93 0F 00 00 # li	t6,0                     ; set in comment = false
+13 0E A0 00 # li	t3,10                    ; ASCII '\n'
+63 14 C3 01 # bne	t1,t3,0x40               ; not equal skip
+93 0F 00 00 # li	t6,0                     ; set in comment = false
+
+# Check comment
+13 0E 30 02 # li	t3,35                    ; ASCII '#'
+63 14 C3 01 # bne	t1,t3,0x4c               ; if not equal skip
+93 0F 10 00 # li	t6,1                     ; set in comment = true
+13 0E 10 00 # li	t3,1                     ; in comment wait for input
+E3 84 CF FD # beq	t6,t3,0x18               ; jump to start of loop
+
+# Check end of input marker '.'
+13 0E E0 02 # li	t3,46                    ; ASCII '.'
+63 0A C3 05 # beq	t1,t3,0xac               ; if equal exit loop
+
+# Test for hex
+93 03 03 00 # mv	t2,t1                    ; keep original char in t2
+13 03 03 FD # addi	t1,t1,-48                ; subtract ASCII '0'
+13 0E A0 00 # li	t3,10                    ; load 10
+63 6E C3 01 # bltu	t1,t3,0x84               ; if char less than unsigned
+13 03 93 FF # addi	t1,t1,-7                 ; substract 7 to check A-F
+13 0E 00 01 # li	t3,16                    ; load 16
+63 44 C3 01 # blt	t1,t3,0x7c               ; less than 7 not hex
+6F F0 1F FA # j		0x18                     ; go to start of loop
+
+# Check lower bound
+13 0E A0 00 # li	t3,10                    ; load 10
+E3 4C C3 F9 # blt	t1,t3,0x18               ; It was between '9' and 'A'
+
+# Found a hex char (handle nibbles)
+13 0E 10 00 # li	t3,1
+63 88 C9 01 # beq	s3,t3,0x98               ; is odd, store low
+
+# High nibble case
+13 1A 43 00 # slli	s4,t1,0x4                ; s4 = (0-15) << 4
+93 09 10 00 # li	s3,1                     ; toggle state
+6F F0 5F F8 # j		0x18                     ; wait for input
+33 6A 6A 00 # or	s4,s4,t1                 ; s4 = (high << 4) | low
+23 00 49 01 # sb	s4,0(s2)                 ; store raw byte
+13 09 19 00 # addi	s2,s2,1                  ; Incr bin pointer
+93 09 00 00 # li	s3,0                     ; toggle state
+6F F0 1F F7 # j		0x18                     ; wait for input
+# End of loop
+
+# Output resulting binary
+93 8E 04 00 # mv	t4,s1                    ; t4 = pointer start buffer
+63 80 2E 03 # beq	t4,s2,0xd0               ; if end of buf exit
+
+03 C3 0E 00 # lbu	t1,0(t4)                 ; load char from buffer
+03 CF 52 00 # lbu	t5,5(t0)                 ; read UART status
+13 7F 0F 02 # andi	t5,t5,32                 ; mask
+E3 0C 0F FE # beqz	t5,0xb8                  ; wait if busy
+23 80 62 00 # sb	t1,0(t0)                 ; send hex char
+93 8E 1E 00 # addi	t4,t4,1                  ; increment buffer ptr
+6F F0 5F FE # j		0xb0                     ; repeat
+
+# Send exit signal to device
+B7 02 10 00 # lui	t0,0x100
+37 53 00 00 # lui	t1,0x5
+1B 03 53 55 # addiw	t1,t1,1365 # 0x5555
+23 A0 62 00 # sw	t1,0(t0) # 0x100000
+
+# If we don't exit, loop indefinitely
+73 00 50 10 # wfi
+6F F0 DF FF # j		0xe0
+.
