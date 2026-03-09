@@ -98,7 +98,7 @@ E3 0C 0F FE # beqz	t5,0xb8                  ; wait if busy
 93 8E 1E 00 # addi	t4,t4,1                  ; increment buffer ptr
 6F F0 5F FE # j		0xb0                     ; repeat
 
-# Send exit signal to device
+# Send exit signal to QEMU
 B7 02 10 00 # lui	t0,0x100
 37 53 00 00 # lui	t1,0x5
 1B 03 53 55 # addiw	t1,t1,1365 # 0x5555
