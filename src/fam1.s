@@ -55,21 +55,43 @@ end_capture:
 # ──────────────────────────────────────────────────────────────────────────────
 
 # Input x5/x6 start/end of input buffer. The function updates them in place.
-# Min clobber x27
+# Min clobber x24
 pass1:
 	mv		x29, x5
 	mv		x30, x6
+	mv		x25, x0
 pass1_loop:
 	beq		x29, x6, pass1_end_loop
 
-        lb		x28, 0(x29)      # x28 = *src
+        lb		x28, 0(x29)
 	addi		x29, x29, 1
 
+	# skip comments
 	li		x27, 35
 	beq		x27, x28, skip_comment
 
-        sb		x28, 0(x30)      # *dst = x28
+	# filter non-hex
+	mv		x27, x28 # original byte in x27
+	addi		x28, x28, -48
+
+	li		x26, 10
+	bltu		x28, x26, is_hex
+	addi		x28, x28, -7
+	li		x26, 16
+	bltu		x28, x26, is_hex
+	j		pass1_loop
+
+is_hex:
+	beqz		x25, handle_high
+	or		x24, x24, x28
+	sb		x24, 0(x30)
 	addi		x30, x30, 1
+	li		x25, 0
+	j		pass1_loop
+
+handle_high:
+	slli		x24, x28, 4
+	li		x25, 1
 	j		pass1_loop
 
 skip_comment:
