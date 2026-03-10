@@ -70,6 +70,14 @@ pass1_loop:
 	li		x27, 35
 	beq		x27, x28, skip_comment
 
+	# Check label ':' ASCII 58
+	li		x27, 58
+	beq		x27, x28, proc_label
+
+	# Check jal 'j' ASCII 106
+	li		x27, 106
+	beq		x27, x28, proc_jal
+
 	# filter non-hex
 	mv		x27, x28 # original byte in x27
 	addi		x28, x28, -48
@@ -107,6 +115,18 @@ skip_comment:
 	beq             x28, x27, pass1_loop
 	addi            x29, x29, 1
 	j		skip_comment
+
+proc_jal:
+	j 		pass1_loop
+
+proc_label:
+	beq             x29, x6, pass1_end_loop
+	lbu		x27, 0(x29)
+	addi		x29, x29, 1
+	slli		x27, x27, 3
+	add		x27, x27, x3
+	sd		x30, 0(x27)
+	j		pass1_loop
 
 pass1_end_loop:
 	mv		x5, x29
