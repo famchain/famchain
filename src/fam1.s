@@ -62,11 +62,27 @@ run_encode:
 start_encode:
     beq     x23, x15, start_output # End of source?
     lbu     x6, 0(x23)            # Read from Source
-    addi    x23, x23, 1           # Always advance source pointer
+    addi    x23, x23, 1           # Advance source pointer
 
     # --- Check for Comment Start '#' (ASCII 35) ---
     li      x8, 35                
     beq     x6, x8, skip_comment  
+
+    # Check for label ':' (ASCII 58)
+    li      x8, 58
+    bne     x6, x8, skip_label
+
+    beq     x23, x15, start_output # Safety check for end of buffer
+    lbu     x6, 0(x23)            # Read label
+    addi    x23, x23, 1           # Advance source pointer
+
+    # calculate offset
+    slli    x10, x6, 3             # x10 = char << 3
+    add     x10, x22, x10          # x10 = base_addr (x22) + offset
+    sd      x24, 0(x10)         
+
+    j       start_encode
+skip_label:
 
     # filter non hex
     mv      x7, x6                # Keep original char in x7
