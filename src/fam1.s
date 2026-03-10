@@ -44,17 +44,17 @@ capture_loop:
     
     # If dot, check if previous was \n (10) or \r (13)
     li      t3, 10
-    beq     t6, t3, run_encode    # Go to encode loop, NOT output
+    beq     t6, t3, run_encode    # Go to encode loop
     li      t3, 13
-    beq     t6, t3, run_encode    # Go to encode loop, NOT output
+    beq     t6, t3, run_encode    # Go to encode loop
 
 not_exit_seq:
     sb      t1, 0(s2)             # Store char to Source Buffer
     addi    s2, s2, 1             # Advance Capture Pointer
     mv      t6, t1                # Update "prev char"
-    j       capture_loop
+    j       capture_loop          # Repeat
 
-# --- Pass 1: Encode (Copying from Buffer 1 to Buffer 2) ---
+# --- Pass 1: Encode
 run_encode:
     mv      x23, s1               # x23 = Start of Source Buffer
     mv      x24, s2               # x24 = Start of Work Buffer (begins at s2)
@@ -69,16 +69,16 @@ start_encode:
     beq     t1, t3, skip_comment  
 
     # filter non hex
-    mv      t2, t1              # Keep original char in t2
-    addi t1, t1, -48            # t1 = char - '0'
+    mv      t2, t1                # Keep original char in t2
+    addi t1, t1, -48              # t1 = char - '0'
 
     # --- Check 0-9 ---
-    li      t3, 10              # Load 10 for comparison
-    bltu    t1, t3, is_hex      # If (char-'0') < 10, it's 0-9
+    li      t3, 10                # Load 10 for comparison
+    bltu    t1, t3, is_hex        # If (char-'0') < 10, it's 0-9
     
     # --- Check A-F ---
-    addi    t1, t1, -7          # t1 = char - '0' - 7 (Maps 'A' to 10)
-    li      t3, 16              # Load 16 for comparison
+    addi    t1, t1, -7            # t1 = char - '0' - 7 (Maps 'A' to 10)
+    li      t3, 16                # Load 16 for comparison
     
     # Check if it's between 10 and 15
     bltu    t1, t3, is_hex
@@ -89,21 +89,16 @@ is_hex:
     beq     s3, t3, store_low
 
     # handle high
-    slli s4, t1, 4
-    li s3, 1
-    j  start_encode
+    slli    s4, t1, 4             # shift left 4, store in s4
+    li      s3, 1                 # toggle
+    j       start_encode          # get next
 
 store_low:
-    or s4, s4, t1
-    sb s4, 0(x24)
-    addi x24, x24, 1
-    li s3, 0
-    j start_encode
-
-    # --- Standard Copy ---
-    #sb      t2, 0(x24)            # Write to Work Buffer
-    #addi    x24, x24, 1           # Advance Work Buffer Pointer
-    #j       start_encode
+    or      s4, s4, t1            # or with high nibble
+    sb      s4, 0(x24)            # store in buffer
+    addi    x24, x24, 1           # incr iterator
+    li      s3, 0                 # toggle
+    j       start_encode          # get next
 
 skip_comment:
     beq     x23, s2, start_output # Safety check for end of buffer
@@ -119,18 +114,13 @@ skip_comment:
     j       skip_comment          # Keep skipping until end of line
 
 
-# --- Pass 2: Output (Echo back the Work Buffer) ---
+# --- Pass 2: Output
 start_output:
     # Work Buffer exists from s2 to x24
     mv      t4, s2                # t4 = Pointer to start of Work Buffer
 output_loop:
     beq     t4, x24, exit         # Stop when we reach the end of Work Buffer
     lbu     t1, 0(t4)             # Load char from Work Buffer
-
-    # Translate \r (13) to \n (10) for terminal scrolling
-    li      t3, 13
-    bne     t1, t3, wait_tx
-    li      t1, 10
 
 wait_tx:
     lbu     t5, 5(t0)
@@ -141,7 +131,7 @@ wait_tx:
     addi    t4, t4, 1
     j       output_loop
 
-# --- 4. Shutdown ---
+# --- Shutdown ---
 exit:
     # Drain UART to ensure text prints before poweroff
     lbu     t5, 5(t0)
@@ -156,7 +146,7 @@ final_spin:
     wfi
     j       final_spin
 
-.align 4
+.align 8
 data:
     # Workspace follows this label
 
