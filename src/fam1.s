@@ -2,53 +2,46 @@
 .globl _start
 
 _start:
-    # 1. Setup a simple offset to encode
-    # Example: 200 bytes
-    li      a0, -8
-    
-    # 2. Call encoding logic
-    # Since we aren't using a stack, we use t6 to store the return address 
-    # instead of 'call' which uses 'ra' and expects a stack.
+    # --- Test 1: Offset 64 ---
+    li      a0, 64
     jal     t6, encode_jal
+    jal     t5, print_loop      # Use t5 as our 'return address'
 
-    # 3. Print the 32-bit result (in a0) as Hex to UART
-    # QEMU Virt UART is at 0x10000000
-    li      s0, 0x10000000      # UART Base Address
-    mv      s1, a0              # Save encoded instruction
-    li      s2, 8               # Counter for 8 hex digits
+    # --- Test 2: Offset -4 ---
+    li      a0, -4
+    jal     t6, encode_jal
+    jal     t5, print_loop
 
+    # --- Test 3: Offset -8 ---
+    li      a0, -8
+    jal     t6, encode_jal
+    jal     t5, print_loop
+
+x:
+    j       x                   # Infinite loop when done
 
 
 print_loop:
-    # Extract top 4 bits (nibble)
+    li      s0, 0x10000000      # UART Base Address
+    mv      s1, a0              # Value to print is in a0
+    li      s2, 8               # 8 hex digits
+    
+digit_loop:
     srli    t0, s1, 28          
     andi    t0, t0, 0xF         
-    
-    # Convert to ASCII
     li      t1, 10
     blt     t0, t1, is_digit
-    addi    t0, t0, 7           # Offset for A-F
+    addi    t0, t0, 7           
 is_digit:
-    addi    t0, t0, 48          # Offset for 0-9
-    
-    # Write to UART Transmitter Holding Register
+    addi    t0, t0, 48          
     sb      t0, 0(s0)           
-    
-    # Shift left for next nibble and loop
     slli    s1, s1, 4
     addi    s2, s2, -1
-    bnez    s2, print_loop
+    bnez    s2, digit_loop
 
-    # Final newline
-    li      t0, 10
+    li      t0, 10              # Print Newline
     sb      t0, 0(s0)
-
-halt:
-    j       halt
-
-li a0, 64   # Offset
-li a1, 0    # rd = x1 (ra)
-j combine
+    jr      t5                  # Return to caller using t5
 
 # --- JAL Encoding Function ---
 # Input:  a0 = offset
@@ -80,7 +73,6 @@ encode_jal:
     slli    t4, t4, 12
     
     # Combine
-combine:
     or      a0, t0, t1
     or      a0, a0, t2
     or      a0, a0, t3
