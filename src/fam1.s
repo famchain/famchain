@@ -44,14 +44,17 @@ cont_capture:
 	mv		x7, x30			# set last char
 	j		capture_loop		# repeat
 end_capture:
-
-	jal	x1, output			# output data
-	jal	x1, exit			# call exit function
+	jal		x1, output		# output data
+	jal		x1, exit		# call exit function
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Helper Functions
 # ──────────────────────────────────────────────────────────────────────────────
 
+# Input: x2 (UART base)
+# Input: x5 (start of work buffer)
+# Input: x6 (pointer to the end of work buffer)
+# Min clobber: x28
 output:
 	mv		x30, x5
 output_loop:
