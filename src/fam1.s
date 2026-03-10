@@ -24,20 +24,18 @@
 # file: fam1.s - second stage (asm impl)
 # ──────────────────────────────────────────────────────────────────────────────
 
-    # --- Initialization ---
     li      t0, 0x10000000        # UART Base
     la      x22, data             # Label Table Base
     li      t1, 2048              # Offset for Source Buffer
     add     s1, x22, t1           # s1 = Start of Source Buffer
     mv      s2, s1                # s2 = Moving pointer for Capture
     li      t6, 10                # Initialize "prev char" to \n
+    li      s3, 0                 # nibble toggle
 
 capture_loop:
-    # Wait for UART Data Ready
     lbu     t5, 5(t0)
     andi    t5, t5, 1
     beqz    t5, capture_loop
-    
     lbu     t1, 0(t0)             # Get current char (t1)
 
     # Check for Termination ('.' following a newline)
@@ -56,11 +54,10 @@ not_exit_seq:
     mv      t6, t1                # Update "prev char"
     j       capture_loop
 
-# --- 2. Pass 1: Encode (Copying from Buffer 1 to Buffer 2) ---
+# --- Pass 1: Encode (Copying from Buffer 1 to Buffer 2) ---
 run_encode:
     mv      x23, s1               # x23 = Start of Source Buffer
     mv      x24, s2               # x24 = Start of Work Buffer (begins at s2)
-    # Note: s2 is the END of Source Buffer from Capture Phase
 
 start_encode:
     beq     x23, s2, start_output # End of source?
@@ -71,10 +68,42 @@ start_encode:
     li      t3, 35                
     beq     t1, t3, skip_comment  
 
+    # filter non hex
+    mv      t2, t1              # Keep original char in t2
+    addi t1, t1, -48            # t1 = char - '0'
+
+    # --- Check 0-9 ---
+    li      t3, 10              # Load 10 for comparison
+    bltu    t1, t3, is_hex      # If (char-'0') < 10, it's 0-9
+    
+    # --- Check A-F ---
+    addi    t1, t1, -7          # t1 = char - '0' - 7 (Maps 'A' to 10)
+    li      t3, 16              # Load 16 for comparison
+    
+    # Check if it's between 10 and 15
+    bltu    t1, t3, is_hex
+    j       start_encode # Not hex
+
+is_hex:
+    li      t3, 1
+    beq     s3, t3, store_low
+
+    # handle high
+    slli s4, t1, 4
+    li s3, 1
+    j  start_encode
+
+store_low:
+    or s4, s4, t1
+    sb s4, 0(x24)
+    addi x24, x24, 1
+    li s3, 0
+    j start_encode
+
     # --- Standard Copy ---
-    sb      t1, 0(x24)            # Write to Work Buffer
-    addi    x24, x24, 1           # Advance Work Buffer Pointer
-    j       start_encode
+    #sb      t2, 0(x24)            # Write to Work Buffer
+    #addi    x24, x24, 1           # Advance Work Buffer Pointer
+    #j       start_encode
 
 skip_comment:
     beq     x23, s2, start_output # Safety check for end of buffer
@@ -90,7 +119,7 @@ skip_comment:
     j       skip_comment          # Keep skipping until end of line
 
 
-# --- 3. Pass 2: Output (Echo back the Work Buffer) ---
+# --- Pass 2: Output (Echo back the Work Buffer) ---
 start_output:
     # Work Buffer exists from s2 to x24
     mv      t4, s2                # t4 = Pointer to start of Work Buffer
