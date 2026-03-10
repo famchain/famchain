@@ -63,12 +63,32 @@ run_encode:
     # Note: s2 is the END of Source Buffer from Capture Phase
 
 start_encode:
-    beq     x23, s2, start_output # When x23 hits s2, Pass 1 is done
+    beq     x23, s2, start_output # End of source?
     lbu     t1, 0(x23)            # Read from Source
+    addi    x23, x23, 1           # Always advance source pointer
+
+    # --- Check for Comment Start '#' (ASCII 35) ---
+    li      t3, 35                
+    beq     t1, t3, skip_comment  
+
+    # --- Standard Copy ---
     sb      t1, 0(x24)            # Write to Work Buffer
-    addi    x23, x23, 1           # Advance Source Pointer
     addi    x24, x24, 1           # Advance Work Buffer Pointer
     j       start_encode
+
+skip_comment:
+    beq     x23, s2, start_output # Safety check for end of buffer
+    lbu     t1, 0(x23)            
+    addi    x23, x23, 1           
+    
+    # Check for Newline (10) or Carriage Return (13)
+    li      t3, 10                
+    beq     t1, t3, start_encode  # Resume encoding after newline
+    li      t3, 13                
+    beq     t1, t3, start_encode  # Resume encoding after CR
+    
+    j       skip_comment          # Keep skipping until end of line
+
 
 # --- 3. Pass 2: Output (Echo back the Work Buffer) ---
 start_output:
