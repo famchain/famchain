@@ -122,10 +122,10 @@ output_loop:
     beq     t4, x24, exit         # Stop when we reach the end of Work Buffer
     lbu     t1, 0(t4)             # Load char from Work Buffer
 
-wait_tx:
+begin_write:
     lbu     t5, 5(t0)
     andi    t5, t5, 0x20          # Mask THRE
-    beqz    t5, wait_tx
+    beqz    t5, begin_write
     sb      t1, 0(t0)             # Send to UART
 
     addi    t4, t4, 1
