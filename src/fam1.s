@@ -25,8 +25,10 @@
 # ──────────────────────────────────────────────────────────────────────────────
 
     lui     t0, 0x10000                   # UART
-    auipc   s1, 0                         # load PC
-    addi    s1, s1, 4096                  # Buffer at PC + 4096
+    la      s1, data                      # Load the address of 'data' into s1
+    mv      x22, s1                       # Use x22 for our table
+    addi    s1, s1, 1024
+    addi    s1, s1, 1024                  # Reserve 2048 bytes for the lookup
     mv      s2, s1                        # s2 = current pointer
     li      t6, 0                         # in comment
     li      s3, 0                         # nibble toggle
@@ -79,13 +81,13 @@ is_hex:
     li      t3, 1
     beq     s3, t3, store_low_nibble
 
-    # --- 2. High Nibble Case (s3 == 0) ---
+    # --- High Nibble Case (s3 == 0) ---
     slli    s4, t1, 4                     # s4 = (0-15) << 4
     li      s3, 1                         # Set state to 1 (waiting for low)
     j       wait_for_input                # Don't store yet!
 
 store_low_nibble:
-    # --- 3. Low Nibble Case (s3 == 1) ---
+    # --- Low Nibble Case (s3 == 1) ---
     or      s4, s4, t1                    # s4 = (high << 4) | low
     sb      s4, 0(s2)                     # STORE THE RAW BYTE
     addi    s2, s2, 1                     # Increment binary pointer
@@ -114,4 +116,4 @@ exit:
 final_spin:
     wfi                                   # Hardware fallback
     j       final_spin
-
+data:
