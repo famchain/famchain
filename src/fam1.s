@@ -24,123 +24,123 @@
 # file: fam1.s - second stage (asm impl)
 # ──────────────────────────────────────────────────────────────────────────────
 
-    li      t0, 0x10000000        # UART Base
+    li      x5, 0x10000000        # UART Base
     la      x22, data             # Label Table Base
-    li      t1, 2048              # Offset for Source Buffer
-    add     s1, x22, t1           # s1 = Start of Source Buffer
-    mv      s2, s1                # s2 = Moving pointer for Capture
-    li      t6, 10                # Initialize "prev char" to \n
-    li      s3, 0                 # nibble toggle
+    li      x6, 2048              # Offset for Source Buffer
+    add     x14, x22, x6           # x14 = Start of Source Buffer
+    mv      x15, x14                # x15 = Moving pointer for Capture
+    li      x11, 10                # Initialize "prev char" to \n
+    li      x16, 0                 # nibble toggle
 
 capture_loop:
-    lbu     t5, 5(t0)
-    andi    t5, t5, 1
-    beqz    t5, capture_loop
-    lbu     t1, 0(t0)             # Get current char (t1)
+    lbu     x10, 5(x5)
+    andi    x10, x10, 1
+    beqz    x10, capture_loop
+    lbu     x6, 0(x5)             # Get current char (x6)
 
     # Check for Termination ('.' following a newline)
-    li      t3, 46                # ASCII '.'
-    bne     t1, t3, not_exit_seq
+    li      x8, 46                # ASCII '.'
+    bne     x6, x8, not_exit_seq
     
     # If dot, check if previous was \n (10) or \r (13)
-    li      t3, 10
-    beq     t6, t3, run_encode    # Go to encode loop
-    li      t3, 13
-    beq     t6, t3, run_encode    # Go to encode loop
+    li      x8, 10
+    beq     x11, x8, run_encode    # Go to encode loop
+    li      x8, 13
+    beq     x11, x8, run_encode    # Go to encode loop
 
 not_exit_seq:
-    sb      t1, 0(s2)             # Store char to Source Buffer
-    addi    s2, s2, 1             # Advance Capture Pointer
-    mv      t6, t1                # Update "prev char"
+    sb      x6, 0(x15)             # Store char to Source Buffer
+    addi    x15, x15, 1             # Advance Capture Pointer
+    mv      x11, x6                # Update "prev char"
     j       capture_loop          # Repeat
 
 # --- Pass 1: Encode
 run_encode:
-    mv      x23, s1               # x23 = Start of Source Buffer
-    mv      x24, s2               # x24 = Start of Work Buffer (begins at s2)
+    mv      x23, x14               # x23 = Start of Source Buffer
+    mv      x24, x15               # x24 = Start of Work Buffer (begins at x15)
 
 start_encode:
-    beq     x23, s2, start_output # End of source?
-    lbu     t1, 0(x23)            # Read from Source
+    beq     x23, x15, start_output # End of source?
+    lbu     x6, 0(x23)            # Read from Source
     addi    x23, x23, 1           # Always advance source pointer
 
     # --- Check for Comment Start '#' (ASCII 35) ---
-    li      t3, 35                
-    beq     t1, t3, skip_comment  
+    li      x8, 35                
+    beq     x6, x8, skip_comment  
 
     # filter non hex
-    mv      t2, t1                # Keep original char in t2
-    addi t1, t1, -48              # t1 = char - '0'
+    mv      x7, x6                # Keep original char in x7
+    addi x6, x6, -48              # x6 = char - '0'
 
     # --- Check 0-9 ---
-    li      t3, 10                # Load 10 for comparison
-    bltu    t1, t3, is_hex        # If (char-'0') < 10, it's 0-9
+    li      x8, 10                # Load 10 for comparison
+    bltu    x6, x8, is_hex        # If (char-'0') < 10, it's 0-9
     
     # --- Check A-F ---
-    addi    t1, t1, -7            # t1 = char - '0' - 7 (Maps 'A' to 10)
-    li      t3, 16                # Load 16 for comparison
+    addi    x6, x6, -7            # x6 = char - '0' - 7 (Maps 'A' to 10)
+    li      x8, 16                # Load 16 for comparison
     
     # Check if it's between 10 and 15
-    bltu    t1, t3, is_hex
+    bltu    x6, x8, is_hex
     j       start_encode # Not hex
 
 is_hex:
-    li      t3, 1
-    beq     s3, t3, store_low
+    li      x8, 1
+    beq     x16, x8, store_low
 
     # handle high
-    slli    s4, t1, 4             # shift left 4, store in s4
-    li      s3, 1                 # toggle
+    slli    x17, x6, 4             # shift left 4, store in x17
+    li      x16, 1                 # toggle
     j       start_encode          # get next
 
 store_low:
-    or      s4, s4, t1            # or with high nibble
-    sb      s4, 0(x24)            # store in buffer
+    or      x17, x17, x6            # or with high nibble
+    sb      x17, 0(x24)            # store in buffer
     addi    x24, x24, 1           # incr iterator
-    li      s3, 0                 # toggle
+    li      x16, 0                 # toggle
     j       start_encode          # get next
 
 skip_comment:
-    beq     x23, s2, start_output # Safety check for end of buffer
-    lbu     t1, 0(x23)            
+    beq     x23, x15, start_output # Safety check for end of buffer
+    lbu     x6, 0(x23)            
     addi    x23, x23, 1           
     
     # Check for Newline (10) or Carriage Return (13)
-    li      t3, 10                
-    beq     t1, t3, start_encode  # Resume encoding after newline
-    li      t3, 13                
-    beq     t1, t3, start_encode  # Resume encoding after CR
+    li      x8, 10                
+    beq     x6, x8, start_encode  # Resume encoding after newline
+    li      x8, 13                
+    beq     x6, x8, start_encode  # Resume encoding after CR
     
     j       skip_comment          # Keep skipping until end of line
 
 
 # --- Pass 2: Output
 start_output:
-    # Work Buffer exists from s2 to x24
-    mv      t4, s2                # t4 = Pointer to start of Work Buffer
+    # Work Buffer exists from x15 to x24
+    mv      x9, x15                # x9 = Pointer to start of Work Buffer
 output_loop:
-    beq     t4, x24, exit         # Stop when we reach the end of Work Buffer
-    lbu     t1, 0(t4)             # Load char from Work Buffer
+    beq     x9, x24, exit         # Stop when we reach the end of Work Buffer
+    lbu     x6, 0(x9)             # Load char from Work Buffer
 
 begin_write:
-    lbu     t5, 5(t0)
-    andi    t5, t5, 0x20          # Mask THRE
-    beqz    t5, begin_write
-    sb      t1, 0(t0)             # Send to UART
+    lbu     x10, 5(x5)
+    andi    x10, x10, 0x20          # Mask THRE
+    beqz    x10, begin_write
+    sb      x6, 0(x5)             # Send to UART
 
-    addi    t4, t4, 1
+    addi    x9, x9, 1
     j       output_loop
 
 # --- Shutdown ---
 exit:
     # Drain UART to ensure text prints before poweroff
-    lbu     t5, 5(t0)
-    andi    t5, t5, 0x40          # Mask TEMT (Bit 6)
-    beqz    t5, exit
+    lbu     x10, 5(x5)
+    andi    x10, x10, 0x40          # Mask TEMT (Bit 6)
+    beqz    x10, exit
 
-    li      t2, 0x100000          # QEMU Virt Test Device
-    li      t1, 0x5555            # Shutdown command
-    sw      t1, 0(t2)
+    li      x7, 0x100000          # QEMU Virt Test Device
+    li      x6, 0x5555            # Shutdown command
+    sw      x6, 0(x7)
 
 final_spin:
     wfi
