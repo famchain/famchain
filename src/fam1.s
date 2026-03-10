@@ -79,10 +79,26 @@ start_encode:
     # calculate offset
     slli    x10, x6, 3             # x10 = char << 3
     add     x10, x22, x10          # x10 = base_addr (x22) + offset
-    sd      x24, 0(x10)         
+    sd      x24, 0(x10)
 
     j       start_encode
 skip_label:
+
+    # Check for jal 'j' (ASCII 106)
+    li      x8, 106
+    bne     x6, x8, skip_jal
+    addi    x23, x23, 1           # Advance source pointer
+
+jal_white_space:
+    beq     x23, x15, start_output # Safety check for end of buffer
+    lbu     x6, 0(x23)
+    addi    x23, x23, 1           # Advance source pointer
+    li      x7, 32  # space ' '
+    bne     x6, x7, jal_white_space_end  # end whitespace
+    j       jal_white_space
+jal_white_space_end:
+    
+skip_jal:
 
     # filter non hex
     mv      x7, x6                # Keep original char in x7
@@ -161,6 +177,18 @@ exit:
 final_spin:
     wfi
     j       final_spin
+
+# Helpers:
+
+# --- Hex to Integer Helper ---
+# Input: x6 (ASCII), Output: x10 (0-15)
+hex_to_int:
+    addi    x10, x6, -48             # x10 = char - '0'
+    li      t1, 10
+    bltu    x10, t1, hex_to_int_done # If 0-9, done
+    addi    x10, x10, -7             # Adjust for 'A'-'F' (Maps 17 to 10)
+hex_to_int_done:
+    ret
 
 .align 8
 data:
