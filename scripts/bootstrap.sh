@@ -12,3 +12,5 @@ cat src/fam0.fam0 | qemu-system-riscv64 \
 	| tee ./bin/fam0.bin > /dev/null
 
 cmp ./bin/fam0.bin ./fam0.seed || { echo "binaries don't match!"; exit 1; }
+
+echo "Bootstrap successful!";
