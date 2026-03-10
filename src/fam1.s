@@ -1,7 +1,6 @@
     lui     t0, 0x10000         # UART
-    auipc   s1, 0
-    addi    s1, s1, 1024        # Buffer at PC + 1024
-    mv      s2, s1              # s2 = current pointer
+    la      s1, buffer          # Load address of 'buffer' into s1
+    mv      s2, s1 
 
 wait_for_input:
     # --- 1. Read UART ---
@@ -45,4 +44,4 @@ exit:
 final_spin:
     wfi
     j       final_spin
-
+buffer:
