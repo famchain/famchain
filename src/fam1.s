@@ -26,74 +26,88 @@
 
     # --- Initialization ---
     li      t0, 0x10000000        # UART Base
-    la x22, data
+    la      x22, data             # Label Table Base
     li      t1, 2048              # Offset for Source Buffer
     add     s1, x22, t1           # s1 = Start of Source Buffer
-    mv      s2, s1                # s2 = Current Pointer for Capture
-    li      t6, 10
+    mv      s2, s1                # s2 = Moving pointer for Capture
+    li      t6, 10                # Initialize "prev char" to \n
 
 capture_loop:
-    # 1. Wait for UART
+    # Wait for UART Data Ready
     lbu     t5, 5(t0)
     andi    t5, t5, 1
     beqz    t5, capture_loop
     
     lbu     t1, 0(t0)             # Get current char (t1)
 
-    # --- THE FIX: Only exit if (current == '.' AND prev == '\n') ---
+    # Check for Termination ('.' following a newline)
     li      t3, 46                # ASCII '.'
-    bne     t1, t3, not_exit_seq  # If current is NOT '.', it's just data
+    bne     t1, t3, not_exit_seq
     
-    # It is a dot. Is the PREVIOUS char a newline?
-    li      t3, 10                # ASCII '\n'
-    beq     t6, t3, start_output  # EXIT if '\n' then '.'
-    li      t3, 13                # ASCII '\r' (Carriage Return)
-    beq     t6, t3, start_output  # EXIT if '\r' then '.'
+    # If dot, check if previous was \n (10) or \r (13)
+    li      t3, 10
+    beq     t6, t3, run_encode    # Go to encode loop, NOT output
+    li      t3, 13
+    beq     t6, t3, run_encode    # Go to encode loop, NOT output
 
 not_exit_seq:
-    # 2. Store current char to Buffer
-    sb      t1, 0(s2)
-    addi    s2, s2, 1
-    
-    # 3. Update "Previous Character" (t6) for next time
-    mv      t6, t1                
+    sb      t1, 0(s2)             # Store char to Source Buffer
+    addi    s2, s2, 1             # Advance Capture Pointer
+    mv      t6, t1                # Update "prev char"
     j       capture_loop
 
-    # --- 4. Start Output (Echo back the Buffer) ---
-start_output:
-    mv      t4, s1                # t4 = Pointer to start of captured buffer
-output_loop:
-    beq     t4, s2, prepare_exit  # Stop when we reach the end (s2)
-    lbu     t1, 0(t4)             # Load char from buffer
+# --- 2. Pass 1: Encode (Copying from Buffer 1 to Buffer 2) ---
+run_encode:
+    mv      x23, s1               # x23 = Start of Source Buffer
+    mv      x24, s2               # x24 = Start of Work Buffer (begins at s2)
+    # Note: s2 is the END of Source Buffer from Capture Phase
 
-    # --- Translate \r (13) to \n (10) for terminal scrolling ---
-    li      t3, 13                # Carriage Return
+start_encode:
+    beq     x23, s2, start_output # When x23 hits s2, Pass 1 is done
+    lbu     t1, 0(x23)            # Read from Source
+    sb      t1, 0(x24)            # Write to Work Buffer
+    addi    x23, x23, 1           # Advance Source Pointer
+    addi    x24, x24, 1           # Advance Work Buffer Pointer
+    j       start_encode
+
+# --- 3. Pass 2: Output (Echo back the Work Buffer) ---
+start_output:
+    # Work Buffer exists from s2 to x24
+    mv      t4, s2                # t4 = Pointer to start of Work Buffer
+output_loop:
+    beq     t4, x24, exit         # Stop when we reach the end of Work Buffer
+    lbu     t1, 0(t4)             # Load char from Work Buffer
+
+    # Translate \r (13) to \n (10) for terminal scrolling
+    li      t3, 13
     bne     t1, t3, wait_tx
-    li      t1, 10                # Convert to Line Feed
+    li      t1, 10
 
 wait_tx:
-    lbu     t5, 5(t0)             # Read Status
-    andi    t5, t5, 0x20          # Mask THRE (Bit 5: Register Empty)
-    beqz    t5, wait_tx           # Wait if busy
-    sb      t1, 0(t0)             # Send char to UART
+    lbu     t5, 5(t0)
+    andi    t5, t5, 0x20          # Mask THRE
+    beqz    t5, wait_tx
+    sb      t1, 0(t0)             # Send to UART
 
-    addi    t4, t4, 1             # Move to next char in buffer
+    addi    t4, t4, 1
     j       output_loop
 
-prepare_exit:
-    # --- 5. Drain UART & Shutdown ---
-    # Wait for the last character to physically leave the shift register
-wait_final:
-    lbu     t5, 5(t0)
-    andi    t5, t5, 0x40          # Mask TEMT (Bit 6: Transmitter Empty)
-    beqz    t5, wait_final
-
+# --- 4. Shutdown ---
 exit:
-    li      t0, 0x100000          # QEMU Virt Test/Poweroff device
+    # Drain UART to ensure text prints before poweroff
+    lbu     t5, 5(t0)
+    andi    t5, t5, 0x40          # Mask TEMT (Bit 6)
+    beqz    t5, exit
+
+    li      t2, 0x100000          # QEMU Virt Test Device
     li      t1, 0x5555            # Shutdown command
-    sw      t1, 0(t0)
+    sw      t1, 0(t2)
 
 final_spin:
     wfi
     j       final_spin
+
+.align 4
 data:
+    # Workspace follows this label
+
