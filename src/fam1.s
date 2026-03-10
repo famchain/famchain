@@ -77,6 +77,10 @@ pass1_loop:
 	li		x26, 10
 	bltu		x28, x26, is_hex
 	addi		x28, x28, -7
+
+	li		x26, 10
+	bltu		x28, x26, pass1_loop
+
 	li		x26, 16
 	bltu		x28, x26, is_hex
 	j		pass1_loop
