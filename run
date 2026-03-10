@@ -1,5 +1,6 @@
 #!/bin/sh
 
+rm bin/test.bin
 riscv64-unknown-elf-as -o bin/fam1.o src/fam1.s || exit 1
 riscv64-unknown-elf-objcopy -O binary bin/fam1.o bin/fam1.bin || exit 1
 

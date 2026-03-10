@@ -57,6 +57,25 @@ skip_start_comment:
     li      t3, 1
     beq     t6, t3, wait_for_input
 
+    # Check for label
+    li      t3, 58
+    beq     t1, t3, skip_label
+
+    # --- Read UART ---
+    #lbu     t5, 5(t0)                     # Check Status
+    #andi    t5, t5, 1
+    #beqz    t5, wait_for_input
+    #lbu     t1, 0(t0)                     # t1 = received char
+
+    # Calculate the table address: x22 + (t1 * 8)
+    #slli    t3, t1, 3               # t3 = t1 << 3 (multiply by 8)
+    #add     t3, x22, t3              # t3 = base_addr + offset
+
+    # Store the current Output Pointer (s2) into the table
+    #sd      s2, 0(t3)               # Store 64-bit address into label slot
+
+skip_label:
+
     # --- Check Termination ('.') ---
     li      t3, 46                        # ASCII '.'
     beq     t1, t3, start_output          # EXIT loop if dot detected
