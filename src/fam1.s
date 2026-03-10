@@ -24,115 +24,76 @@
 # file: fam1.s - second stage (asm impl)
 # ──────────────────────────────────────────────────────────────────────────────
 
-    lui     t0, 0x10000                   # UART
-    la      s1, data                      # Load the address of 'data' into s1
-    mv      x22, s1                       # Use x22 for our table
-    addi    s1, s1, 1024
-    addi    s1, s1, 1024                  # Reserve 2048 bytes for the lookup
-    mv      s2, s1                        # s2 = current pointer
-    li      t6, 0                         # in comment
-    li      s3, 0                         # nibble toggle
+    # --- Initialization ---
+    li      t0, 0x10000000        # UART Base
+    la x22, data
+    li      t1, 2048              # Offset for Source Buffer
+    add     s1, x22, t1           # s1 = Start of Source Buffer
+    mv      s2, s1                # s2 = Current Pointer for Capture
+    li      t6, 10
 
-wait_for_input:
-    # --- Read UART ---
-    lbu     t5, 5(t0)                     # Check Status
+capture_loop:
+    # 1. Wait for UART
+    lbu     t5, 5(t0)
     andi    t5, t5, 1
-    beqz    t5, wait_for_input
-    lbu     t1, 0(t0)                     # t1 = received char
- 
-    # check end of comment 
-    li      t3, 13
-    bne     t1, t3, skip_end_comment
-    li      t6, 0
-skip_end_comment:
-    li      t3, 10
-    bne     t1, t3, skip_end_comment2
-    li      t6, 0
-skip_end_comment2:
-
-    li      t3, 35
-    bne     t1, t3, skip_start_comment
-    li      t6, 1
-skip_start_comment:
-    li      t3, 1
-    beq     t6, t3, wait_for_input
-
-    # Check for label
-    li      t3, 58
-    beq     t1, t3, skip_label
-
-    # --- Read UART ---
-    #lbu     t5, 5(t0)                     # Check Status
-    #andi    t5, t5, 1
-    #beqz    t5, wait_for_input
-    #lbu     t1, 0(t0)                     # t1 = received char
-
-    # Calculate the table address: x22 + (t1 * 8)
-    #slli    t3, t1, 3               # t3 = t1 << 3 (multiply by 8)
-    #add     t3, x22, t3              # t3 = base_addr + offset
-
-    # Store the current Output Pointer (s2) into the table
-    #sd      s2, 0(t3)               # Store 64-bit address into label slot
-
-skip_label:
-
-    # --- Check Termination ('.') ---
-    li      t3, 46                        # ASCII '.'
-    beq     t1, t3, start_output          # EXIT loop if dot detected
-
-    # --- Normalize t1 (ASCII - 48) ---
-    mv      t2, t1                        # Keep original char in t2
-    addi t1, t1, -48                      # t1 = char - '0'
+    beqz    t5, capture_loop
     
-    # --- Check 0-9 ---
-    li      t3, 10                        # Load 10 for comparison
-    bltu    t1, t3, is_hex                # If (char-'0') < 10, it's 0-9
+    lbu     t1, 0(t0)             # Get current char (t1)
+
+    # --- THE FIX: Only exit if (current == '.' AND prev == '\n') ---
+    li      t3, 46                # ASCII '.'
+    bne     t1, t3, not_exit_seq  # If current is NOT '.', it's just data
     
-    # --- Check A-F ---
-    addi    t1, t1, -7                    # t1 = ch - '0' - 7 (Maps 'A' to 10)
-    li      t3, 16                        # Load 16 for comparison
+    # It is a dot. Is the PREVIOUS char a newline?
+    li      t3, 10                # ASCII '\n'
+    beq     t6, t3, start_output  # EXIT if '\n' then '.'
+    li      t3, 13                # ASCII '\r' (Carriage Return)
+    beq     t6, t3, start_output  # EXIT if '\r' then '.'
+
+not_exit_seq:
+    # 2. Store current char to Buffer
+    sb      t1, 0(s2)
+    addi    s2, s2, 1
     
-    # Check if it's between 10 and 15
-    bltu     t1, t3, check_lower_bound
-    j       wait_for_input                # Not hex
+    # 3. Update "Previous Character" (t6) for next time
+    mv      t6, t1                
+    j       capture_loop
 
-is_hex:
-    li      t3, 1
-    beq     s3, t3, store_low_nibble
-
-    # --- High Nibble Case (s3 == 0) ---
-    slli    s4, t1, 4                     # s4 = (0-15) << 4
-    li      s3, 1                         # Set state to 1 (waiting for low)
-    j       wait_for_input                # Don't store yet!
-
-store_low_nibble:
-    # --- Low Nibble Case (s3 == 1) ---
-    or      s4, s4, t1                    # s4 = (high << 4) | low
-    sb      s4, 0(s2)                     # STORE THE RAW BYTE
-    addi    s2, s2, 1                     # Increment binary pointer
-    li      s3, 0                         # Reset state to 0
-    j       wait_for_input
-
+    # --- 4. Start Output (Echo back the Buffer) ---
 start_output:
-    mv      t4, s1                        # t4 = Pointer to start of buffer
+    mv      t4, s1                # t4 = Pointer to start of captured buffer
 output_loop:
-    beq     t4, s2, exit                  # If reached end of buffer, term 
-    lbu     t1, 0(t4)                     # Load char from buffer
+    beq     t4, s2, prepare_exit  # Stop when we reach the end (s2)
+    lbu     t1, 0(t4)             # Load char from buffer
 
-wait_for_output:
-    lbu     t5, 5(t0)                     # Read UART Status
-    andi    t5, t5, 32                    # Mask 
-    beqz    t5, wait_for_output           # Wait if busy
-    sb      t1, 0(t0)                     # Send Hex Char
-    
-    addi    t4, t4, 1                     # Increment buffer pointer
-    j       output_loop                   # Repeat
+    # --- Translate \r (13) to \n (10) for terminal scrolling ---
+    li      t3, 13                # Carriage Return
+    bne     t1, t3, wait_tx
+    li      t1, 10                # Convert to Line Feed
+
+wait_tx:
+    lbu     t5, 5(t0)             # Read Status
+    andi    t5, t5, 0x20          # Mask THRE (Bit 5: Register Empty)
+    beqz    t5, wait_tx           # Wait if busy
+    sb      t1, 0(t0)             # Send char to UART
+
+    addi    t4, t4, 1             # Move to next char in buffer
+    j       output_loop
+
+prepare_exit:
+    # --- 5. Drain UART & Shutdown ---
+    # Wait for the last character to physically leave the shift register
+wait_final:
+    lbu     t5, 5(t0)
+    andi    t5, t5, 0x40          # Mask TEMT (Bit 6: Transmitter Empty)
+    beqz    t5, wait_final
 
 exit:
-    lui t0, 0x100                         # QEMU specific
-    li t1, 0x5555
-    sw t1, 0(t0)
+    li      t0, 0x100000          # QEMU Virt Test/Poweroff device
+    li      t1, 0x5555            # Shutdown command
+    sw      t1, 0(t0)
+
 final_spin:
-    wfi                                   # Hardware fallback
+    wfi
     j       final_spin
 data:
