@@ -54,6 +54,30 @@ end_capture:
 # Helper Functions
 # ──────────────────────────────────────────────────────────────────────────────
 
+skip_whitespace:
+    beq             x29, x6, skip_done
+    lbu     x28, 0(x29)
+    addi    x29, x29, 1
+    li      x31, 33
+    bltu    x28, x31, skip_whitespace
+skip_done:
+    ret
+
+hex_to_int:
+        addi    x11, x10, -48           # x11 = char - '0'
+        li      x31, 10                 # Limit for digits
+        bltu    x11, x31, hex_done      # If 0-9, we are done
+        
+        # If we are here, it's 'A'-'F' (or invalid)
+        # 'A' is 65. 65 - 48 = 17. We want 10, so subtract 7 more.
+        addi    x11, x11, -7            # x11 = char - 55
+        
+hex_done:
+        # Optional: Mask to 4 bits to ensure a clean nibble
+        andi    x11, x11, 0xF
+        ret
+
+
 # Input x5/x6 start/end of input buffer. The function updates them in place.
 # Min clobber x24
 pass1:
@@ -116,8 +140,41 @@ skip_comment:
 	addi            x29, x29, 1
 	j		skip_comment
 
+# Inputs:
+#    x29 pointer to current location in input array
+#    x30 pointer to current location in output array
+#proc_jal:
+#	beq		x29, x6, pass1_end_loop
+#	j 		pass1_loop
+
+# Inputs: x29 (src), x30 (work), x6 (limit), x7 (Shadow PC)
+# Clobbers: x10, x11, x28, x29, x30, x31
 proc_jal:
-	j 		pass1_loop
+    # 1. Skip whitespace after 'j' to find 'RD'
+    jal     x1, skip_whitespace   # returns first non-space in x28 (the hex digit)
+    beq     x29, x6, pass1_end_loop
+    
+    # 2. Parse 'RD' (Single hex digit)
+    mv      x10, x28              # x10 = ASCII hex digit
+    jal     x1, hex_to_int        # x11 = numeric value (0-15)
+    mv      x12, x11              # x12 = final rd
+
+    # 3. Skip whitespace to find 'Label'
+    jal     x1, skip_whitespace   # returns label char in x28 (e.g., 'a')
+    beq             x29, x6, pass1_end_loop
+
+    # 4. Construct Magic Word: [Label][00][RD][00]
+    slli    x31, x28, 24          # Label to Byte 3
+    slli    x11, x12, 8           # RD to Byte 1
+    or      x31, x31, x11         # Combine
+
+    # 5. Write and Advance
+    sw      x31, 0(x30)           
+    addi    x30, x30, 4           # Move Work Buffer
+    addi    x7, x7, 4             # Move Shadow PC
+    
+    j       pass1_loop
+
 
 proc_label:
 	beq             x29, x6, pass1_end_loop
