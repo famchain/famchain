@@ -2,6 +2,7 @@
 .globl _start
 
 _start:
+    li      a1, 1
     # --- Test 1: Offset 64 ---
     li      a0, 64
     jal     t6, encode_jal
@@ -48,7 +49,12 @@ is_digit:
 # Output: a0 = JAL machine code (rd=x1)
 encode_jal:
     li      t0, 0x6F            # JAL Opcode (1101111)
-    addi    t0, t0, 0x80        # Add rd = x1 (bit 7)
+
+    # 2. Insert the chosen rd (bits 11:7)
+    andi    a1, a1, 0x1F    # Safety: mask to 5 bits
+    slli    a1, a1, 7       # Shift to rd position
+    or      t0, t0, a1      # Combine opcode and rd
+
 
     # Scramble bits into J-type format
     # imm[20] -> inst[31]
