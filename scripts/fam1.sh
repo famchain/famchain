@@ -3,13 +3,13 @@
 riscv64-unknown-elf-as -o bin/fam1.o src/fam1.s || exit 1
 riscv64-unknown-elf-objcopy -O binary bin/fam1.o bin/fam1.bin || exit 1
 
-#qemu-system-riscv64 \
-#	-machine virt -nographic \
-#	-bios none \
-#	-device loader,file=./bin/fam1.bin,addr=0x80000000 \
-#	| tee ./bin/test.bin > /dev/null
+qemu-system-riscv64 \
+	-machine virt -nographic \
+	-bios none \
+	-device loader,file=./bin/fam1.bin,addr=0x80000000 \
+	#| tee ./bin/test.bin > /dev/null
 
-cat tmp/test.fam1 | qemu-system-riscv64 -machine virt -nographic  -bios none -device loader,file=./bin/fam1.bin,addr=0x80000000 | tee ./bin/test.bin > /dev/null
+#cat tmp/test.fam1 | qemu-system-riscv64 -machine virt -nographic  -bios none -device loader,file=./bin/fam1.bin,addr=0x80000000 | tee ./bin/test.bin > /dev/null
 
-cat tmp/test.fam1
-hexdump -C bin/test.bin | tr 'a-f' 'A-F'
+#cat tmp/test.fam1
+#hexdump -C bin/test.bin | tr 'a-f' 'A-F'
