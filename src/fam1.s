@@ -84,6 +84,9 @@ lb   x28, 0(x29)
 	li  x27, 58 # label :x
 	beq x27, x28, proc_label
 
+	li x27, 98 # 'b'
+	beq x27, x28, proc_branch
+
 	li  x27, 106 # 'j'
 	beq x27, x28, proc_jal
 
@@ -117,6 +120,13 @@ lbu  x27, 0(x29)
 	add  x27, x27, x3
 sd   x30, 0(x27)
 	j    pass1_loop
+
+	proc_branch:
+	li   x26, 0x80
+	sw   x26, 0(x30)         # Write the 4-byte Magic Wor
+	addi x30, x30, 4
+	j pass1_loop
+
 
 	proc_jal:
 	jal x1, skip_whitespace
