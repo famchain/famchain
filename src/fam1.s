@@ -242,25 +242,22 @@ lb   x13, 0(x30)
 	or   x29, x29, x14
 	jal  send_byte
 
-	srli    x14, x12, 1         # Shift right by 1
-	andi    x14, x14, 0x0F      # Mask to keep only these 4 bits
-	li      x15, 0              
-	or      x29, x14, x15 
-	jal  send_byte
+        slli x11, x11, 3
+        add x11, x11, x3
+        ld x15, 0(x11)
+	sub x15, x15, x30
+	addi x15, x15, 4
+	srli x15, x15, 1
+	srli x16, x15, 11
+	andi x16, x16, 0x0F
+	slli x16, x16, 4
 
-#	lbu  x27, 0(x29)
-#        addi x29, x29, 1
-#        slli x27, x27, 3
-#        add  x27, x27, x3
-#sd   x30, 0(x27)
-	slli x11, x11, 3
-	add x11, x11, x3
-	ld x15, 0(x11)
+        srli    x14, x12, 1         # Shift right by 1
+        andi    x14, x14, 0x0F      # Mask to keep only these 4 bits
+        or      x29, x14, x16
+        jal  send_byte
 
-	sub x29, x15, x30
-	addi x29, x29, 4
-	srli x29, x29, 1
-	#mv x29, x15
+	li x29, 0
 	jal  send_byte
 	li   x29, 0x0
 	jal  send_byte
