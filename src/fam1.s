@@ -208,11 +208,6 @@ begin_write:
 	andi x28, x28, 0x20          # mask
 	beqz x28, begin_write        # retry
 
-	li  x28, 13
-	bne x29, x28, not_cr
-	li  x29, 10
-
-not_cr:
 	sb   x29, 0(x4)              # send to UART
 	addi x30, x30, 1             # advance
 	j    output_loop
