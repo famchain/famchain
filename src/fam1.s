@@ -208,12 +208,32 @@ output:
 	mv x20, x1
 
 output_loop:
-	bge x30, x6, end_output
-	lbu x29, 0(x30)
+	bge  x30, x6, end_output
+	lw   x10, 0(x30)
+	andi x26, x10, 0xff
+	beqz x26, proc_patch
 
-begin_write:
-	jal send_byte
-	addi x30, x30, 1             # advance
+	li x27, 4
+
+send_4_bytes:
+	mv   x29, x10
+	jal  send_byte
+	srli x10, x10, 8
+	addi x27, x27, -1
+	bnez x27, send_4_bytes
+	addi x30, x30, 4
+	j    output_loop
+
+proc_patch:
+	li   x29, 0x1
+	jal  send_byte
+	li   x29, 0x2
+	jal  send_byte
+	li   x29, 0x3
+	jal  send_byte
+	li   x29, 0x4
+	jal  send_byte
+	addi x30, x30, 4
 	j    output_loop
 
 end_output:
