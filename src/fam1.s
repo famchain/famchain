@@ -272,17 +272,75 @@ lbu   x13, 0(x30)
 	jal send_byte
 	j   output_loop
 
-	proc_patch_branch:
-        li  x27, 4
-        mv  x29, x10 # Send 4 bytes
-        jal send_byte
-        mv  x29, x11
-        jal send_byte
-        mv  x29, x12
-        jal send_byte
-        mv  x29, x13
-        jal send_byte
-	j    output_loop
+proc_patch_branch:
+    # 1. LOOKUP LABEL
+    slli    x13, x13, 3         # Label * 8
+    add     x13, x13, x3        # x3 = Label Table Base
+    ld      x15, 0(x13)         # x15 = Target Address
+
+    # 2. CALCULATE OFFSET
+    sub     x15, x15, x30       # Target - PC
+    addi    x15, x15, 4         # Adjust for PC already advanced by 4
+    srai    x15, x15, 1         # Hardware offset = (Target-PC) >> 1
+
+    # --- STITCH BYTE 0 ---
+    # [Imm 11][Opcode 0x63]
+    li      x29, 0x63           # BEQ Opcode
+    srli    x14, x15, 10        # Bit 11 is at pos 10
+    andi    x14, x14, 1         # Isolate Bit 11
+    slli    x14, x14, 7         # Move to bit 7
+    or      x29, x29, x14
+    jal     send_byte
+
+    # --- STITCH BYTE 1 ---
+    # [Imm 4:1][Funct3 000][Imm 11 (bit 7 handled in B0)] 
+    # Wait, Byte 1 actually contains rs1 bits? No, let's follow the bit layout:
+    # Inst Bits 15:8 -> [rs1 bits 0][funct3 bits 2:0][imm bits 4:1]
+    
+    andi    x29, x15, 0x0F      # Imm bits 4:1 (at pos 3:0)
+    # funct3 is 0 for BEQ, so we skip it
+    slli    x14, x11, 7         # rs1 bit 0 -> bit 7 of the byte
+    or      x29, x29, x14
+    jal     send_byte
+
+    # --- STITCH BYTE 2 ---
+    # Inst Bits 23:16 -> [rs2 bits 3:0][rs1 bits 4:1]
+    srli    x29, x11, 1         # Get rs1 bits 4:1
+    andi    x29, x29, 0x0F
+    slli    x14, x12, 4         # rs2 bits 3:0 -> top nibble
+    or      x29, x29, x14
+    jal     send_byte
+
+    # --- STITCH BYTE 3 ---
+    # Inst Bits 31:24 -> [Imm 12][Imm 10:5][rs2 bit 4]
+    srli    x29, x12, 4         # rs2 bit 4 -> bit 0
+    andi    x29, x29, 1
+    
+    srli    x14, x15, 4         # Imm bits 10:5 (at pos 9:4)
+    andi    x14, x14, 0x3F      # Mask 6 bits
+    slli    x14, x14, 1         # Shift to bits 6:1
+    or      x29, x29, x14
+    
+    srli    x14, x15, 11        # Imm bit 12 (Sign)
+    andi    x14, x14, 1
+    slli    x14, x14, 7         # Shift to bit 7
+    or      x29, x29, x14
+    jal     send_byte
+
+    j       output_loop
+
+
+	#proc_patch_branch:
+        #li  x27, 4
+        #mv  x29, x10 # Send 4 bytes
+        #jal send_byte
+        #mv  x29, x11
+        #jal send_byte
+        #mv  x29, x12
+        #jal send_byte
+        #mv  x29, x13
+        #jal send_byte
+	#j    output_loop
 
 	proc_patch_jal:
 	mv   x29,    x12          # Send first byte
