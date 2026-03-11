@@ -31,6 +31,7 @@
 	mv		x6, x5			# x6 = pointer for capture
 	li		x7, 10			# last_char = '\n' (initial)
 
+
 capture_loop:
 	jal		x1, read_uart		# read next char
 	beqz		x29, cont_capture	# not a dot, continue 
@@ -54,14 +55,6 @@ end_capture:
 # Helper Functions
 # ──────────────────────────────────────────────────────────────────────────────
 
-skip_whitespace:
-    beq             x29, x6, skip_done
-    lbu     x28, 0(x29)
-    addi    x29, x29, 1
-    li      x31, 33
-    bltu    x28, x31, skip_whitespace
-skip_done:
-    ret
 
 hex_to_int:
         addi    x11, x10, -48           # x11 = char - '0'
@@ -140,41 +133,35 @@ skip_comment:
 	addi            x29, x29, 1
 	j		skip_comment
 
-# Inputs:
-#    x29 pointer to current location in input array
-#    x30 pointer to current location in output array
-#proc_jal:
-#	beq		x29, x6, pass1_end_loop
-#	j 		pass1_loop
-
-# Inputs: x29 (src), x30 (work), x6 (limit), x7 (Shadow PC)
-# Clobbers: x10, x11, x28, x29, x30, x31
 proc_jal:
-    # 1. Skip whitespace after 'j' to find 'RD'
-    jal     x1, skip_whitespace   # returns first non-space in x28 (the hex digit)
-    beq     x29, x6, pass1_end_loop
-    
-    # 2. Parse 'RD' (Single hex digit)
-    mv      x10, x28              # x10 = ASCII hex digit
-    jal     x1, hex_to_int        # x11 = numeric value (0-15)
-    mv      x12, x11              # x12 = final rd
+	beq             x29, x6, pass1_end_loop
+	lbu             x28, 0(x29)
+	addi		x29, x29, 1
+    	li x31, 10
+        beq             x28, x31, end_jal_line
+	li		x31, 13
+	beq             x28, x31, end_jal_line
 
-    # 3. Skip whitespace to find 'Label'
-    jal     x1, skip_whitespace   # returns label char in x28 (e.g., 'a')
-    beq             x29, x6, pass1_end_loop
+	j proc_jal
 
-    # 4. Construct Magic Word: [Label][00][RD][00]
-    slli    x31, x28, 24          # Label to Byte 3
-    slli    x11, x12, 8           # RD to Byte 1
-    or      x31, x31, x11         # Combine
+end_jal_line:
+        li              x24,0
+        sb              x24, 0(x30)
+        addi            x30, x30, 1
 
-    # 5. Write and Advance
-    sw      x31, 0(x30)           
-    addi    x30, x30, 4           # Move Work Buffer
-    addi    x7, x7, 4             # Move Shadow PC
-    
-    j       pass1_loop
+        li              x24,0
+        sb              x24, 0(x30)
+        addi            x30, x30, 1
 
+        li              x24,0
+        sb              x24, 0(x30)
+        addi            x30, x30, 1
+
+        li              x24,0 
+        sb              x24, 0(x30)
+        addi            x30, x30, 1
+
+	j pass1_loop
 
 proc_label:
 	beq             x29, x6, pass1_end_loop
@@ -190,6 +177,14 @@ pass1_end_loop:
 	mv		x6, x30
 	ret
 
+# Input: x30 (char to write)
+write_char:
+retry_write:
+	lbu             x10, 5(x2)
+	andi            x10, x10, 0x20          # mask
+        beqz            x10, retry_write # retry
+	sb              x30, 0(x2) 
+        ret
 
 
 # Input: x2 (UART base)
