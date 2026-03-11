@@ -70,7 +70,7 @@ end_capture:
 pass1:
 	mv x29, x5
 	mv x30, x6
-	mv x20, x1
+	mv x19, x1
 	li x21, 0
 
 pass1_loop:
@@ -79,7 +79,13 @@ pass1_loop:
 	addi x29, x29, 1
 
 	li  x27, 35 # Check for '#'
-	beq x27, x28, skip_comment # skip comment
+	beq x27, x28, skip_comment
+
+	li  x27, 58 # label :x
+	beq x27, x28, proc_label
+
+	li  x27, 106 # 'j'
+	beq x27, x28, proc_jal
 
 	jal  x1, is_hex_char
 	beqz x26, pass1_loop
@@ -89,22 +95,45 @@ pass1_loop:
 	or   x24, x24, x27
 	sb   x24, 0(x30)
 	addi x30, x30, 1
-	j pass1_loop
+	j    pass1_loop
 
 high_nibble:
 	li   x21, 1
 	slli x24, x27, 4
 	li   x25, 1
-
-#sb x28, 0(x30)
-#addi x30, x30, 1
-j pass1_loop
+	j    pass1_loop
 
 pass1_end_loop:
 	mv x5, x29
 	mv x6, x30
-	mv x1, x20
+	mv x1, x19
 	ret
+
+proc_label:
+	beq  x29, x6, pass1_end_loop
+	lbu  x27, 0(x29)
+	addi x29, x29, 1
+	slli x27, x27, 3
+	add  x27, x27, x3
+	sd   x30, 0(x27)
+	j    pass1_loop
+
+proc_jal:
+	jal x1, skip_whitespace
+	beq x29, x6, pass1_end_loop
+	jal x1, hex_to_int
+	add x29, x29, 1
+	jal x1, skip_whitespace
+
+	slli x26, x11, 16        # Register to Byte 2
+	slli x25, x27, 8         # Label to Byte 1
+	or   x26, x26, x25       # Combine (Byte 3 and 0 are already 0)
+
+	sw   x26, 0(x30)         # Write the 4-byte Magic Word
+	addi x30, x30, 4         # Advance buffer
+	j    pass1_loop          # Next token
+
+	j pass1_loop
 
 skip_comment:
 	beq  x29, x6, pass1_end_loop
@@ -115,6 +144,16 @@ skip_comment:
 	beq  x28, x27, pass1_loop
 	addi x29, x29, 1
 	j    skip_comment
+
+skip_whitespace:
+	beq  x29, x6, end_whitespace
+	lbu  x27, 0(x29)
+	addi x29, x29, 1
+	li   x28, 33
+	blt  x27, x28, skip_whitespace
+
+end_whitespace:
+	ret
 
 # Input x28
 # Output x26
@@ -137,6 +176,19 @@ not_hex:
 
 is_hex:
 	li x26, 1
+	ret
+
+hex_to_int:
+	addi x11, x27, -48           # x11 = char - '0'
+	li   x31, 10                 # Limit for digits
+	bltu x11, x31, hex_done      # If 0-9, we are done
+
+# If we are here, it's 'A'-'F' (or invalid)
+# 'A' is 65. 65 - 48 = 17. We want 10, so subtract 7 more.
+addi x11, x11, -7            # x11 = char - 55
+
+hex_done:
+	andi x11, x11, 0xF
 	ret
 
 # Input: x4 (UART base)
