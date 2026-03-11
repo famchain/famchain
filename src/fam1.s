@@ -55,7 +55,7 @@ cont_capture:
 	j    capture_loop            # repeat
 
 end_capture:
-
+	jal x1, pass1               # first pass
 	jal x1, output              # output data
 	jal exit
 
@@ -63,35 +63,55 @@ end_capture:
 # Helper functions
 # ──────────────────────────────────────────────────────────────────────────────
 
+# Input: x5 beginning of input
+# Input: x6 end of input
+# Output: None
+# Clobbers: x30, x29, x28
+pass1:
+	mv x29, x5
+	mv x30, x6
+
+pass1_loop:
+	beq x29, x6, pass1_end_loop
+	lb   x28, 0(x29)
+	addi x29, x29, 1
+	sb   x28, 0(x30)
+	addi x30, x30, 1
+	j pass1_loop
+
+pass1_end_loop:
+	mv x5, x29
+	mv x6, x30
+	ret
+
 # Input: x4 (UART base)
 # Input: x5 beginning of input
 # Input: x6 end of input
 # Output: NONE
 # Clobbers: x30, x29, x28
 output:
-        mv              x30, x5
+	mv x30, x5
 
-output_loop:    
-        beq             x30, x6, end_output
-        lbu             x29, 0(x30)
+output_loop:
+	beq x30, x6, end_output
+	lbu x29, 0(x30)
 
-begin_write:    
-        lbu             x28, 5(x4)
-        andi            x28, x28, 0x20          # mask
-        beqz            x28, begin_write        # retry
+begin_write:
+	lbu  x28, 5(x4)
+	andi x28, x28, 0x20          # mask
+	beqz x28, begin_write        # retry
 
-        li              x28, 13
-        bne             x29, x28, not_cr
-        li              x29, 10
+	li  x28, 13
+	bne x29, x28, not_cr
+	li  x29, 10
 
 not_cr:
-        sb              x29, 0(x4)              # send to UART
-        addi            x30, x30, 1             # advance
-        j               output_loop
+	sb   x29, 0(x4)              # send to UART
+	addi x30, x30, 1             # advance
+	j    output_loop
 
 end_output:
-        ret
-
+	ret
 
 # Input: x4 (UART base)
 # Output: x30 (unsigned char read) x29 (is_dot)
