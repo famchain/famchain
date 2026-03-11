@@ -245,19 +245,21 @@ lbu  x28, 5(x4)
 
 	output_loop:
 	bge  x30, x6, end_output
-lb   x10, 0(x30)
+lbu   x10, 0(x30)
 	addi x30, x30, 1
 	bge  x30, x6, end_output
-lb   x11, 0(x30)
+lbu   x11, 0(x30)
 	addi x30, x30, 1
 	bge  x30, x6, end_output
-lb   x12, 0(x30)
+lbu   x12, 0(x30)
 	addi x30, x30, 1
 	bge  x30, x6, end_output
-lb   x13, 0(x30)
+lbu   x13, 0(x30)
 	addi x30, x30, 1
 
-	beqz x10, proc_patch
+	beqz x10, proc_patch_jal
+	li x29, 0x80
+	beq x10, x29, proc_patch_branch
 
 	li  x27, 4
 	mv  x29, x10 # Send 4 bytes
@@ -270,7 +272,19 @@ lb   x13, 0(x30)
 	jal send_byte
 	j   output_loop
 
-	proc_patch:
+	proc_patch_branch:
+        li  x27, 4
+        mv  x29, x10 # Send 4 bytes
+        jal send_byte
+        mv  x29, x11
+        jal send_byte
+        mv  x29, x12
+        jal send_byte
+        mv  x29, x13
+        jal send_byte
+	j    output_loop
+
+	proc_patch_jal:
 	mv   x29,    x12          # Send first byte
 	andi x14, x12, 1          # Get LSB
 	slli x14, x14, 7          # Shift to bit 7
