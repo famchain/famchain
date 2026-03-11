@@ -70,18 +70,73 @@ end_capture:
 pass1:
 	mv x29, x5
 	mv x30, x6
+	mv x20, x1
+	li x21, 0
 
 pass1_loop:
-	beq x29, x6, pass1_end_loop
+	beq  x29, x6, pass1_end_loop
 	lb   x28, 0(x29)
 	addi x29, x29, 1
-	sb   x28, 0(x30)
+
+	li  x27, 35 # Check for '#'
+	beq x27, x28, skip_comment # skip comment
+
+	jal  x1, is_hex_char
+	beqz x26, pass1_loop
+
+	beqz x21, high_nibble
+	li   x21, 0
+	or   x24, x24, x27
+	sb   x24, 0(x30)
 	addi x30, x30, 1
 	j pass1_loop
+
+high_nibble:
+	li   x21, 1
+	slli x24, x27, 4
+	li   x25, 1
+
+#sb x28, 0(x30)
+#addi x30, x30, 1
+j pass1_loop
 
 pass1_end_loop:
 	mv x5, x29
 	mv x6, x30
+	mv x1, x20
+	ret
+
+skip_comment:
+	beq  x29, x6, pass1_end_loop
+	lb   x27, 0(x29)
+	li   x28, 10
+	beq  x28, x27, pass1_loop
+	li   x28, 13
+	beq  x28, x27, pass1_loop
+	addi x29, x29, 1
+	j    skip_comment
+
+# Input x28
+# Output x26
+# Ouptup x27 (hex value)
+# Clobbers x26, x27, x28
+is_hex_char:
+	mv   x27, x28
+	addi x27, x27, -48
+	li   x26, 10
+	bltu x27, x26, is_hex
+	addi x27, x27, -7
+	li   x26, 10
+	bltu x27, x26, not_hex
+	li   x26, 16
+	bltu x27, x26, is_hex
+
+not_hex:
+	li x26, 0
+	ret
+
+is_hex:
+	li x26, 1
 	ret
 
 # Input: x4 (UART base)
