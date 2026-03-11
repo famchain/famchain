@@ -191,6 +191,13 @@ hex_done:
 	andi x11, x11, 0xF
 	ret
 
+send_byte:
+	lbu  x28, 5(x4)
+	andi x28, x28, 0x20          # mask
+	beqz x28, send_byte # retry
+	sb   x29, 0(x4)              # send to UART
+	ret
+
 # Input: x4 (UART base)
 # Input: x5 beginning of input
 # Input: x6 end of input
@@ -198,21 +205,19 @@ hex_done:
 # Clobbers: x30, x29, x28
 output:
 	mv x30, x5
+	mv x20, x1
 
 output_loop:
-	beq x30, x6, end_output
+	bge x30, x6, end_output
 	lbu x29, 0(x30)
 
 begin_write:
-	lbu  x28, 5(x4)
-	andi x28, x28, 0x20          # mask
-	beqz x28, begin_write        # retry
-
-	sb   x29, 0(x4)              # send to UART
+	jal send_byte
 	addi x30, x30, 1             # advance
 	j    output_loop
 
 end_output:
+	mv x1, x20
 	ret
 
 # Input: x4 (UART base)
