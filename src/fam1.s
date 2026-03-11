@@ -122,7 +122,33 @@ sd   x30, 0(x27)
 	j    pass1_loop
 
 	proc_branch:
-	li   x26, 0x80
+	jal x1, skip_whitespace
+        beq x29, x6, pass1_end_loop
+	jal hex_to_int
+	mv x22, x11
+	add x29, x29, 1
+	jal x1, skip_whitespace
+	beq x29, x6, pass1_end_loop
+	jal hex_to_int
+	mv x23, x11
+        add x29, x29, 1
+	jal x1, skip_whitespace
+	beq x29, x6, pass1_end_loop
+	add x29, x29, 1
+
+        li   x26, 0x80
+        # Shift rs1 (x22) to Byte 2
+        slli x25, x22, 8 
+        or   x26, x26, x25
+        
+        # Shift rs2 (x23) to Byte 3
+        slli x25, x23, 16 
+        or   x26, x26, x25
+
+	slli x27, x27, 24
+	or   x26, x26, x27
+
+
 	sw   x26, 0(x30)         # Write the 4-byte Magic Wor
 	addi x30, x30, 4
 	j pass1_loop
