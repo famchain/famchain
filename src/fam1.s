@@ -141,6 +141,9 @@ proc_jal:
         beq             x28, x31, end_jal_line
 	li		x31, 13
 	beq             x28, x31, end_jal_line
+	mv x20, x1
+	jal x1, hex_to_int
+	mv x1, x20
 
 	j proc_jal
 
