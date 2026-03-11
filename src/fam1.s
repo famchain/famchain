@@ -257,9 +257,38 @@ lb   x13, 0(x30)
         or      x29, x14, x16
         jal  send_byte
 
-	li x29, 0
+        andi    x14, x15, 0x07      # Get 3 bits
+        slli    x14, x14, 5         # Shift to top of byte (7:5)
+
+        # 2. Offset bit 11 -> Byte bit 4
+        # (In x15, bit 11 is at bit 10)
+        srli    x16, x15, 10
+        andi    x16, x16, 0x01      # Get bit 11
+        slli    x16, x16, 4         # Move to bit 4
+
+        # 3. Offset bits 19:16 -> Byte bits 3:0
+        # (In x15, bit 16 is at bit 15)
+        srli    x17, x15, 15
+        andi    x17, x17, 0x0F      # Get 4 bits
+
+        # 4. Combine and Send
+        or      x29, x14, x16
+        or      x29, x29, x17
+
 	jal  send_byte
-	li   x29, 0x0
+
+    srli    x14, x15, 3
+    andi    x14, x14, 0x7F      # Mask 7 bits
+
+    # 2. Offset bit 20 (Sign bit) -> Byte bit 7
+    # (In x15, bit 20 is at bit 19)
+    srli    x16, x15, 19
+    andi    x16, x16, 0x01      # Get bit 20
+    slli    x16, x16, 7         # Move to bit 7
+
+    # 3. Combine and Send
+    or      x29, x14, x16
+
 	jal  send_byte
 	j    output_loop
 
