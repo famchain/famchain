@@ -25,22 +25,22 @@
 # ──────────────────────────────────────────────────────────────────────────────
 .equ DATA_OFFSET, (data - dataptr)
 
-_start:
+	_start:
 	li x4, 0x10000000  # UART base
 
 # load heap and stack pointer
-dataptr:
+	dataptr:
 	auipc x3, 0
-	addi  x3, x3, %lo(DATA_OFFSET)
+addi  x3, x3, %lo(DATA_OFFSET)
 	li    x2, 1
 	slli  x2, x2, 26
 	add   x2, x2, x3  # 64 MiB stack pointer/heap
 	li    x5, 2048
 	add   x5, x5, x3  # input buffer start
 	mv    x6, x5   # input buffer end
-	li    x27, 10   # last char (end if .)
+li    x27, 10   # last char (end if .)
 
-capture_loop:
+	capture_loop:
 	jal  x1, read_uart           # read next char
 	beqz x29, cont_capture       # not a dot, continue
 	li   x28, 10
@@ -48,13 +48,13 @@ capture_loop:
 	li   x28, 13
 	beq  x27, x28, end_capture     # CR. termination
 
-cont_capture:
+	cont_capture:
 	sb   x30, 0(x6)              # store in buffer
 	addi x6, x6, 1               # advance capture pointer
 	mv   x27, x30                 # set last char
 	j    capture_loop            # repeat
 
-end_capture:
+	end_capture:
 	jal x1, pass1               # first pass
 	jal x1, output              # output data
 	jal exit
@@ -67,15 +67,15 @@ end_capture:
 # Input: x6 end of input
 # Output: None
 # Clobbers: x30, x29, x28
-pass1:
+	pass1:
 	mv x29, x5
 	mv x30, x6
 	mv x19, x1
 	li x21, 0
 
-pass1_loop:
+	pass1_loop:
 	beq  x29, x6, pass1_end_loop
-	lb   x28, 0(x29)
+lb   x28, 0(x29)
 	addi x29, x29, 1
 
 	li  x27, 35 # Check for '#'
@@ -93,32 +93,32 @@ pass1_loop:
 	beqz x21, high_nibble
 	li   x21, 0
 	or   x24, x24, x27
-	sb   x24, 0(x30)
+sb   x24, 0(x30)
 	addi x30, x30, 1
 	j    pass1_loop
 
-high_nibble:
+	high_nibble:
 	li   x21, 1
 	slli x24, x27, 4
 	li   x25, 1
 	j    pass1_loop
 
-pass1_end_loop:
+	pass1_end_loop:
 	mv x5, x29
 	mv x6, x30
 	mv x1, x19
 	ret
 
-proc_label:
+	proc_label:
 	beq  x29, x6, pass1_end_loop
-	lbu  x27, 0(x29)
+lbu  x27, 0(x29)
 	addi x29, x29, 1
 	slli x27, x27, 3
 	add  x27, x27, x3
-	sd   x30, 0(x27)
+sd   x30, 0(x27)
 	j    pass1_loop
 
-proc_jal:
+	proc_jal:
 	jal x1, skip_whitespace
 	beq x29, x6, pass1_end_loop
 	jal x1, hex_to_int
@@ -127,7 +127,7 @@ proc_jal:
 
 	slli x26, x11, 16        # Register to Byte 2
 	slli x25, x27, 8         # Label to Byte 1
-	or   x26, x26, x25       # Combine (Byte 3 and 0 are already 0)
+or   x26, x26, x25       # Combine (Byte 3 and 0 are already 0)
 
 	sw   x26, 0(x30)         # Write the 4-byte Magic Word
 	addi x30, x30, 4         # Advance buffer
@@ -135,9 +135,9 @@ proc_jal:
 
 	j pass1_loop
 
-skip_comment:
+	skip_comment:
 	beq  x29, x6, pass1_end_loop
-	lb   x27, 0(x29)
+lb   x27, 0(x29)
 	li   x28, 10
 	beq  x28, x27, pass1_loop
 	li   x28, 13
@@ -145,21 +145,21 @@ skip_comment:
 	addi x29, x29, 1
 	j    skip_comment
 
-skip_whitespace:
+	skip_whitespace:
 	beq  x29, x6, end_whitespace
-	lbu  x27, 0(x29)
+lbu  x27, 0(x29)
 	addi x29, x29, 1
 	li   x28, 33
 	blt  x27, x28, skip_whitespace
 
-end_whitespace:
+	end_whitespace:
 	ret
 
 # Input x28
 # Output x26
 # Ouptup x27 (hex value)
 # Clobbers x26, x27, x28
-is_hex_char:
+	is_hex_char:
 	mv   x27, x28
 	addi x27, x27, -48
 	li   x26, 10
@@ -170,29 +170,29 @@ is_hex_char:
 	li   x26, 16
 	bltu x27, x26, is_hex
 
-not_hex:
+	not_hex:
 	li x26, 0
 	ret
 
-is_hex:
+	is_hex:
 	li x26, 1
 	ret
 
-hex_to_int:
+	hex_to_int:
 	addi x11, x27, -48           # x11 = char - '0'
 	li   x31, 10                 # Limit for digits
 	bltu x11, x31, hex_done      # If 0-9, we are done
 
 # If we are here, it's 'A'-'F' (or invalid)
 # 'A' is 65. 65 - 48 = 17. We want 10, so subtract 7 more.
-addi x11, x11, -7            # x11 = char - 55
+	addi x11, x11, -7            # x11 = char - 55
 
-hex_done:
+	hex_done:
 	andi x11, x11, 0xF
 	ret
 
-send_byte:
-	lbu  x28, 5(x4)
+	send_byte:
+lbu  x28, 5(x4)
 	andi x28, x28, 0x20          # mask
 	beqz x28, send_byte # retry
 	sb   x29, 0(x4)              # send to UART
@@ -203,47 +203,65 @@ send_byte:
 # Input: x6 end of input
 # Output: NONE
 # Clobbers: x30, x29, x28
-output:
+	output:
 	mv x30, x5
 	mv x20, x1
 
-output_loop:
+	output_loop:
 	bge  x30, x6, end_output
-	lw   x10, 0(x30)
-	andi x26, x10, 0xff
-	beqz x26, proc_patch
+lb   x10, 0(x30)
+	addi x30, x30, 1
+	bge  x30, x6, end_output
+lb   x11, 0(x30)
+	addi x30, x30, 1
+	bge  x30, x6, end_output
+lb   x12, 0(x30)
+	addi x30, x30, 1
+	bge  x30, x6, end_output
+lb   x13, 0(x30)
+	addi x30, x30, 1
 
-	li x27, 4
+	beqz x10, proc_patch
 
-send_4_bytes:
-	mv   x29, x10
+	li  x27, 4
+	mv  x29, x10 # Send 4 bytes
+	jal send_byte
+	mv  x29, x11
+	jal send_byte
+	mv  x29, x12
+	jal send_byte
+	mv  x29, x13
+	jal send_byte
+	j   output_loop
+
+	proc_patch:
+	mv   x29,    x12          # Send first byte
+	andi x14, x12, 1          # Get LSB
+	slli x14, x14, 7          # Shift to bit 7
+	li   x29, 0x6F
+	or   x29, x29, x14
 	jal  send_byte
-	srli x10, x10, 8
-	addi x27, x27, -1
-	bnez x27, send_4_bytes
-	addi x30, x30, 4
+
+	srli    x14, x12, 1         # Shift right by 1
+	andi    x14, x14, 0x0F      # Mask to keep only these 4 bits
+	li      x15, 0              
+	or      x29, x14, x15 
+	jal  send_byte
+
+	li   x29, 0x0
+	jal  send_byte
+	li   x29, 0x0
+	jal  send_byte
 	j    output_loop
 
-proc_patch:
-	li   x29, 0x1
-	jal  send_byte
-	li   x29, 0x2
-	jal  send_byte
-	li   x29, 0x3
-	jal  send_byte
-	li   x29, 0x4
-	jal  send_byte
-	addi x30, x30, 4
-	j    output_loop
-
-end_output:
+	end_output:
 	mv x1, x20
 	ret
 
 # Input: x4 (UART base)
 # Output: x30 (unsigned char read) x29 (is_dot)
 # Clobbers: x29
-read_uart:
+	read_uart:
 	lbu  x30, 5(x4)              # Read from UART
 	andi x30, x30, 1             # mask
 	beqz x30, read_uart          # if not ready read again
@@ -255,18 +273,18 @@ read_uart:
 	li  x29, 1
 	ret
 
-no_dot:
+	no_dot:
 	li x29, 0
 	ret
 
 # No inputs/Outputs/return
-exit:
+	exit:
 	li x30, 0x100000          # QEMU Virt Test Device
 	li x29, 0x5555            # Shutdown command
-	sw x29, 0(x30)
+sw x29, 0(x30)
 
-final_spin:
+	final_spin:
 	wfi
 	j final_spin
 
-data:
+	data:
