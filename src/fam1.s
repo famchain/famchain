@@ -248,7 +248,19 @@ lb   x13, 0(x30)
 	or      x29, x14, x15 
 	jal  send_byte
 
-	li   x29, 0x0
+#	lbu  x27, 0(x29)
+#        addi x29, x29, 1
+#        slli x27, x27, 3
+#        add  x27, x27, x3
+#sd   x30, 0(x27)
+	slli x11, x11, 3
+	add x11, x11, x3
+	ld x15, 0(x11)
+
+	sub x29, x15, x30
+	addi x29, x29, 4
+	srli x29, x29, 1
+	#mv x29, x15
 	jal  send_byte
 	li   x29, 0x0
 	jal  send_byte
