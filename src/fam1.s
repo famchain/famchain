@@ -90,6 +90,9 @@ lb   x28, 0(x29)
 	li  x27, 106 # 'j'
 	beq x27, x28, proc_jal
 
+	li x27, 115 # 's'
+	beq x27, x28, proc_store
+
 	jal  x1, is_hex_char
 	beqz x26, pass1_loop
 
@@ -111,6 +114,29 @@ sb   x24, 0(x30)
 	mv x6, x30
 	mv x1, x19
 	ret
+
+	proc_store:
+	beq  x29, x6, pass1_end_loop
+	lbu  x7, 0(x29)
+	addi x29, x29, 1
+
+	jal x1, skip_whitespace
+        beq x29, x6, pass1_end_loop
+        jal hex_to_int
+	mv x22, x11
+	add x29, x29, 1
+	jal x1, skip_whitespace
+        beq x29, x6, pass1_end_loop
+        jal hex_to_int
+        mv x22, x12
+	add x29, x29, 1
+
+	li x26, 86
+	sw   x26, 0(x30)         # Write the 4-byte Magic Wor
+        addi x30, x30, 4
+
+
+	j pass1_loop
 
 	proc_label:
 	beq  x29, x6, pass1_end_loop
