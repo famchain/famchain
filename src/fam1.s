@@ -90,6 +90,9 @@ lb   x28, 0(x29)
 	li  x27, 106 # 'j'
 	beq x27, x28, proc_jal
 
+	li x27, 108 # 'l'
+	beq x27, x28, proc_la
+
 	li x27, 115 # 's'
 	beq x27, x28, proc_store
 
@@ -99,7 +102,7 @@ lb   x28, 0(x29)
 	beqz x21, high_nibble
 	li   x21, 0
 	or   x24, x24, x27
-sb   x24, 0(x30)
+	sb   x24, 0(x30)
 	addi x30, x30, 1
 	j    pass1_loop
 
@@ -114,6 +117,29 @@ sb   x24, 0(x30)
 	mv x6, x30
 	mv x1, x19
 	ret
+
+	proc_la:
+	jal x1, skip_whitespace
+        beq x29, x6, pass1_end_loop
+        jal hex_to_int
+	mv x22, x11
+        add x29, x29, 1
+	jal x1, skip_whitespace
+        beq x29, x6, pass1_end_loop
+	add x29, x29, 1
+
+	li x26, 0x87
+        slli x25, x22, 8
+        or   x26, x26, x25
+
+        slli x25, x27, 16
+        or   x26, x26, x25
+
+
+	sw   x26, 0(x30)
+        addi x30, x30, 4
+
+	j pass1_loop
 
 	proc_store:
 	beq  x29, x6, pass1_end_loop
@@ -226,7 +252,6 @@ end_btype:
 	slli x27, x27, 24
 	or   x26, x26, x27
 
-
 	sw   x26, 0(x30)         # Write the 4-byte Magic Wor
 	addi x30, x30, 4
 	j pass1_loop
@@ -323,16 +348,16 @@ lbu  x28, 5(x4)
 
 	output_loop:
 	bge  x30, x6, end_output
-lbu   x10, 0(x30)
+	lbu   x10, 0(x30)
 	addi x30, x30, 1
 	bge  x30, x6, end_output
-lbu   x11, 0(x30)
+	lbu   x11, 0(x30)
 	addi x30, x30, 1
 	bge  x30, x6, end_output
-lbu   x12, 0(x30)
+	lbu   x12, 0(x30)
 	addi x30, x30, 1
 	bge  x30, x6, end_output
-lbu   x13, 0(x30)
+	lbu   x13, 0(x30)
 	addi x30, x30, 1
 
 	beqz x10, proc_patch_jal
@@ -356,10 +381,12 @@ lbu   x13, 0(x30)
         beq x10, x29, proc_patch_branch
 	li x29, 0x86
 	beq x10, x29, proc_patch_store
+	li x29, 0x87
+	beq x10, x29, proc_patch_la
 
 
 	li  x27, 4
-	mv  x29, x10 # Send 4 bytes
+	mv  x29, x10 
 	jal send_byte
 	mv  x29, x11
 	jal send_byte
@@ -368,6 +395,40 @@ lbu   x13, 0(x30)
 	mv  x29, x13
 	jal send_byte
 	j   output_loop
+
+
+proc_patch_la:
+        li  x27, 4
+        mv  x29, x10 # Send 4 bytes
+        jal send_byte
+        mv  x29, x11
+        jal send_byte
+        mv  x29, x12
+        jal send_byte 
+        mv  x29, x13
+        jal send_byte
+
+        # 1. LOOKUP LABEL
+	slli    x12, x12, 3         # Label * 8
+	add     x12, x12, x3        # x3 = Label Table Base
+	ld      x15, 0(x12)         # x15 = Target Address
+
+	# 2. CALCULATE OFFSET
+	sub     x15, x15, x30       # Target - PC
+	addi    x15, x15, 4         # Adjust for PC already advanced by 4
+	srai    x15, x15, 1         # Hardware offset = (Target-PC) >> 1
+
+	li x29, 0
+	jal send_byte
+        li x29, 0
+        jal send_byte
+        li x29, 0
+        jal send_byte
+        li x29, 0
+        jal send_byte
+
+        j   output_loop
+
 
 # Input:
 # x11 - rs2 (Data)
