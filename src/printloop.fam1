@@ -1,24 +1,26 @@
-37 02 00 10
-93 04 10 04
-93 02 B0 04
-#63 88 54 00 
-:s
-b 9 5 x
-j 1 e
-93 84 14 00
-j 0 s
-:x 93 04 A0 00 
-j 1 e
-j 1 q
-:q B7 03 10 00
- B7 54 00 00 
-9B 84 54 55
-23 A0 93 00
-:r 73 00 50 10
-j 0 r
-:e 03 44 52 00
-13 74 04 02
-E3 0C 04 FE
-23 00 92 00 
-67 80 00 00                                     
+37 02 00 10	# lui	tp,0x10000 ; setup UART
+93 04 10 04	# li	s1,65      ; lower range = 'A' ascii
+93 02 B0 04	# li	t0,75      ; upper range = 'J' ascii
+:s b 9 5 x	# beq	s1,t0,x    ; if s1 == t0 break out
+j 1 e		# jal	e          ; call send byte function print current value
+93 84 14 00	# addi  s1, s1, 1  ; incr the value
+j 0 s		# j     s          ; repeat
+:x 93 04 A0 00  # li s1,10         ; set s1 to '\n' ascii
+j 1 e           # jal x1, e        ; call print function
+j 1 q		# jal x1, q        ; call exit function
+
+# Exit function: exits qemu
+:q B7 03 10 00  # lui t2, 0x100
+ B7 54 00 00    # lui s1, 0x5
+9B 84 54 55     # addiw s1,s1,1365 # 0x5555
+23 A0 93 00     # sw s1,0(t2) # 0x100000
+:r 73 00 50 10  # wfi
+j 0 r           # j r
+
+# Send byte function: prints a byte to UART
+:e 03 44 52 00  # lbu s0,5(tp) 
+13 74 04 02     # andi s0,s0,32
+b 0 8 e         # beqz x8, e
+23 00 92 00     # sb s1,0(tp)
+67 80 00 00     # ret
 .
