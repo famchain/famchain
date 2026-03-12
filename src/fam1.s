@@ -178,9 +178,6 @@ lb   x28, 0(x29)
 
 	sw   x26, 0(x30)         # Write the 4-byte Magic Wor
         addi x30, x30, 4
-	li x26, 0
-	sw   x26, 0(x30)
-	addi x30, x30, 4
 
 	j pass1_loop
 
