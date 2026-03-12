@@ -135,7 +135,10 @@ lb   x28, 0(x29)
         slli x25, x27, 16
         or   x26, x26, x25
 
+	sw   x26, 0(x30)
+        addi x30, x30, 4
 
+	li x26, 0
 	sw   x26, 0(x30)
         addi x30, x30, 4
 
@@ -175,6 +178,9 @@ lb   x28, 0(x29)
 
 	sw   x26, 0(x30)         # Write the 4-byte Magic Wor
         addi x30, x30, 4
+	li x26, 0
+	sw   x26, 0(x30)
+	addi x30, x30, 4
 
 	j pass1_loop
 
@@ -398,16 +404,6 @@ lbu  x28, 5(x4)
 
 
 proc_patch_la:
-        li  x27, 4
-        mv  x29, x10 # Send 4 bytes
-        jal send_byte
-        mv  x29, x11
-        jal send_byte
-        mv  x29, x12
-        jal send_byte 
-        mv  x29, x13
-        jal send_byte
-
         # 1. LOOKUP LABEL
 	slli    x12, x12, 3         # Label * 8
 	add     x12, x12, x3        # x3 = Label Table Base
@@ -415,17 +411,64 @@ proc_patch_la:
 
 	# 2. CALCULATE OFFSET
 	sub     x15, x15, x30       # Target - PC
-	addi    x15, x15, 4         # Adjust for PC already advanced by 4
-	srai    x15, x15, 1         # Hardware offset = (Target-PC) >> 1
+	addi    x15, x15, 4         # Adjust for PC already advanced by 8
+	mv      x9, x15
 
-	li x29, 0
-	jal send_byte
-        li x29, 0
-        jal send_byte
-        li x29, 0
-        jal send_byte
-        li x29, 0
-        jal send_byte
+	li      x31, 2048           # The "Carry" constant
+	add     x15, x15, x31       # offset + 2048
+	srli    x15, x15, 12        # x15 = imm20 (The Page Number)
+
+
+	# Build the word: [imm20 << 12] | [rd << 7] | 0x17
+	slli    x16, x15, 12        # imm20 to top bits
+	slli    x17, x11, 7         # rd to bit 7
+	or      x16, x16, x17       # Combine
+	ori     x16, x16, 0x17      # Add AUIPC Opcode
+
+	# Send 4 bytes (Little Endian)
+	mv      x29, x16
+	jal     send_byte           # Byte 0
+	srli    x29, x16, 8
+	jal     send_byte           # Byte 1
+	srli    x29, x16, 16
+	jal     send_byte           # Byte 2
+	srli    x29, x16, 24
+	jal     send_byte           # Byte 3
+
+	#li x29, 0
+	#jal send_byte
+        #li x29, 0
+        #jal send_byte
+        #li x29, 0
+        #jal send_byte
+        #li x29, 0
+        #jal send_byte
+
+        # --- ENCODE ADDI ---
+        # 1. Mask strictly to the lower 12 bits of the raw offset
+        li      x31, 0xFFF
+        and     x16, x9, x31        # x16 = imm12 (Fine adjustment)
+
+        # 2. Build ADDI Word: [imm12 << 20] | [rs1 << 15] | [rd << 7] | 0x13
+        # rs1 (x18) and rd (x17) are BOTH the target register (x11)
+        slli    x17, x16, 20        # imm12 -> bits 31:20
+        slli    x18, x11, 15        # rs1 = destination register
+        or      x17, x17, x18
+        # funct3 is 000 (bits 14:12), no OR needed
+        slli    x18, x11, 7         # rd = destination register
+        or      x17, x17, x18
+        ori     x17, x17, 0x13      # Opcode 0x13 (OP-IMM)
+
+        # 3. Send 4 bytes (Little Endian)
+        mv      x29, x17
+        jal     send_byte           # Byte 0 (13)
+        srli    x29, x17, 8
+        jal     send_byte           # Byte 1 (rd/part of imm)
+        srli    x29, x17, 16
+        jal     send_byte           # Byte 2 (rs1/part of imm)
+        srli    x29, x17, 24
+        jal     send_byte           # Byte 3 (top of imm)
+
 
         j   output_loop
 
