@@ -1,7 +1,7 @@
 37 02 00 10	# lui	tp,0x10000 ; setup UART
 93 04 10 04	# li	s1,65      ; lower range = 'A' ascii
 93 02 B0 04	# li	t0,75      ; upper range = 'J' ascii
-:s b 9 5 x	# beq	s1,t0,x    ; if s1 == t0 break out
+:s beq 9 5 x	# beq	s1,t0,x    ; if s1 == t0 break out
 j 1 e		# jal	e          ; call send byte function print current value
 93 84 14 00	# addi  s1, s1, 1  ; incr the value
 j 0 s		# j     s          ; repeat
@@ -20,7 +20,7 @@ j 0 r           # j r
 # Send byte function: prints a byte to UART
 :e 03 44 52 00  # lbu s0,5(tp) 
 13 74 04 02     # andi s0,s0,32
-b 0 8 e         # beqz x8, e
+beq 0 8 e         # beqz x8, e
 23 00 92 00     # sb s1,0(tp)
 67 80 00 00     # ret
 .

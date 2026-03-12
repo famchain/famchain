@@ -122,6 +122,9 @@ sd   x30, 0(x27)
 	j    pass1_loop
 
 	proc_branch:
+	beq  x29, x6, pass1_end_loop
+	lbu  x9, 0(x29)
+	add x29, x29, 2
 	jal x1, skip_whitespace
         beq x29, x6, pass1_end_loop
 	jal hex_to_int
@@ -136,7 +139,15 @@ sd   x30, 0(x27)
 	beq x29, x6, pass1_end_loop
 	add x29, x29, 1
 
+
+	li x8, 101 # ASCII 'e'
+	bne x9, x8, skip_e
         li   x26, 0x80
+	j end_btype
+skip_e:
+	li x26, 0x81
+end_btype:
+	
         # Shift rs1 (x22) to Byte 2
         slli x25, x22, 8 
         or   x26, x26, x25
@@ -258,8 +269,13 @@ lbu   x13, 0(x30)
 	addi x30, x30, 1
 
 	beqz x10, proc_patch_jal
+	li x8, 0
 	li x29, 0x80
 	beq x10, x29, proc_patch_branch
+	addi x8, x8, 1
+	li x29, 0x81
+        beq x10, x29, proc_patch_branch
+
 
 	li  x27, 4
 	mv  x29, x10 # Send 4 bytes
@@ -328,19 +344,6 @@ proc_patch_branch:
     jal     send_byte
 
     j       output_loop
-
-
-	#proc_patch_branch:
-        #li  x27, 4
-        #mv  x29, x10 # Send 4 bytes
-        #jal send_byte
-        #mv  x29, x11
-        #jal send_byte
-        #mv  x29, x12
-        #jal send_byte
-        #mv  x29, x13
-        #jal send_byte
-	#j    output_loop
 
 	proc_patch_jal:
 	mv   x29,    x12          # Send first byte
