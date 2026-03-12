@@ -128,13 +128,27 @@ sb   x24, 0(x30)
 	jal x1, skip_whitespace
         beq x29, x6, pass1_end_loop
         jal hex_to_int
-        mv x22, x12
+        mv x23, x11
 	add x29, x29, 1
 
-	li x26, 86
+	li x26, 0x86
+
+
+        # Shift rs1 (x22) to Byte 2
+        slli x25, x22, 8
+        or   x26, x26, x25
+
+        # Shift rs2 (x23) to Byte 3
+        slli x25, x23, 16
+        or   x26, x26, x25
+
+	addi x7, x7, -48
+        slli x25, x7, 24
+        or   x26, x26, x25
+
+
 	sw   x26, 0(x30)         # Write the 4-byte Magic Wor
         addi x30, x30, 4
-
 
 	j pass1_loop
 
@@ -340,6 +354,8 @@ lbu   x13, 0(x30)
  	addi x8, x8, 1
         li x29, 0x85
         beq x10, x29, proc_patch_branch
+	li x29, 0x86
+	beq x10, x29, proc_patch_store
 
 
 	li  x27, 4
@@ -352,6 +368,55 @@ lbu   x13, 0(x30)
 	mv  x29, x13
 	jal send_byte
 	j   output_loop
+
+# Input:
+# x11 - rs2 (Data)
+# x12 - rs1 (Base Pointer)
+# x13 - size (1=sb, 2=sh, 4=sw, 8=sd)
+
+proc_patch_store:
+    # --- STEP 1: Determine funct3 from size ---
+    li      x14, 0              # Default sb (0x0)
+    li      x15, 2
+    beq     x13, x15, set_sh    # if 2 -> sh
+    li      x15, 4
+    beq     x13, x15, set_sw    # if 4 -> sw
+    li      x15, 8
+    beq     x13, x15, set_sd    # if 8 -> sd
+    j       encode              # else sb
+set_sh: li x14, 1; j encode
+set_sw: li x14, 2; j encode
+set_sd: li x14, 3
+
+encode:
+    # --- BYTE 0: Opcode ---
+    # Bits 6:0 = 0100011 (0x23). Bit 7 = imm[0] (0).
+    li      x29, 0x23
+    jal     send_byte
+
+    # --- BYTE 1: [rs1[0]] [funct3] [imm 4:1] ---
+    # imm[4:1] is 0000. funct3 (x14) is at bits 6:4. rs1[0] is at bit 7.
+    andi    x29, x12, 1         # Get LSB of rs1
+    slli    x29, x29, 7         # Move to bit 7
+    slli    x15, x14, 4         # Move funct3 to bits 6:4
+    or      x29, x29, x15
+    jal     send_byte
+
+    # --- BYTE 2: [rs2[3:0]] [rs1[4:1]] ---
+    # rs1[4:1] moved to bits 3:0. rs2[3:0] moved to bits 7:4.
+    srli    x29, x12, 1         # rs1 bits 4:1
+    andi    x15, x11, 0xF       # rs2 bits 3:0
+    slli    x15, x15, 4         # Move to bits 7:4
+    or      x29, x29, x15
+    jal     send_byte
+
+    # --- BYTE 3: [imm 11:5] [rs2[4]] ---
+    # imm is 0. rs2[4] is bit 0. (For x0-x15, bit 4 is 0).
+    srli    x29, x11, 4         # Get bit 4 of rs2 (0 if x < 16)
+    jal     send_byte
+
+    j       output_loop 
+
 
 proc_patch_branch:
     # 1. LOOKUP LABEL
