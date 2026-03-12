@@ -309,15 +309,21 @@ proc_patch_branch:
     jal     send_byte
 
     # --- STITCH BYTE 1 ---
-    # [Imm 4:1][Funct3 000][Imm 11 (bit 7 handled in B0)] 
-    # Wait, Byte 1 actually contains rs1 bits? No, let's follow the bit layout:
-    # Inst Bits 15:8 -> [rs1 bits 0][funct3 bits 2:0][imm bits 4:1]
+    # Byte 1 structure: [rs1 bit 0 (pos 7)] [funct3 (pos 6:4)] [imm 4:1 (pos 3:0)]
+
+    andi    x29, x15, 0x0F      # Extract Imm[4:1] (at pos 3:0)
     
-    andi    x29, x15, 0x0F      # Imm bits 4:1 (at pos 3:0)
-    # funct3 is 0 for BEQ, so we skip it
+    # Process funct3 (passed in x8)
+    andi    x14, x8, 0x07       # Mask funct3 to ensure only 3 bits
+    slli    x14, x14, 4         # Shift funct3 to positions 6:4
+    or      x29, x29, x14       # Merge into x29
+    
+    # Process rs1
     slli    x14, x11, 7         # rs1 bit 0 -> bit 7 of the byte
-    or      x29, x29, x14
-    jal     send_byte
+    or      x29, x29, x14       # Final merge
+    
+    jal     send_byte           # Send the assembled Byte 1
+
 
     # --- STITCH BYTE 2 ---
     # Inst Bits 23:16 -> [rs2 bits 3:0][rs1 bits 4:1]
