@@ -124,7 +124,9 @@ sd   x30, 0(x27)
 	proc_branch:
 	beq  x29, x6, pass1_end_loop
 	lbu  x9, 0(x29)
-	add x29, x29, 2
+	add x29, x29, 1
+	lbu  x7, 0(x29) 
+	add x29, x29, 1
 	jal x1, skip_whitespace
         beq x29, x6, pass1_end_loop
 	jal hex_to_int
@@ -152,11 +154,22 @@ skip_e:
 skip_n:
         li x8, 108 # ASCII 'l'
         bne x9, x8, skip_l
+	li x8, 117 # ASCII 'u'
+	bne x7, x8, skip_l_u
+	li x26, 0x84
+	j end_btype	
+	skip_l_u:
         li x26, 0x82
         j end_btype
 skip_l:
         li x8, 103 # ASCII 'g'
         bne x9, x8, skip_g
+
+	li x8, 117 # ASCII 'u'
+        bne x7, x8, skip_g_u
+        li x26, 0x85
+        j end_btype
+        skip_g_u:
         li x26, 0x83
         j end_btype
 skip_g:
@@ -295,8 +308,12 @@ lbu   x13, 0(x30)
 	addi x8, x8, 1
         li x29, 0x83
         beq x10, x29, proc_patch_branch
-
-
+ 	addi x8, x8, 1
+        li x29, 0x84
+        beq x10, x29, proc_patch_branch
+ 	addi x8, x8, 1
+        li x29, 0x85
+        beq x10, x29, proc_patch_branch
 
 
 	li  x27, 4
