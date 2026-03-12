@@ -145,7 +145,21 @@ sd   x30, 0(x27)
         li   x26, 0x80
 	j end_btype
 skip_e:
+	li x8, 110 # ASCII 'n'
+	bne x9, x8, skip_n
 	li x26, 0x81
+	j end_btype
+skip_n:
+        li x8, 108 # ASCII 'l'
+        bne x9, x8, skip_l
+        li x26, 0x82
+        j end_btype
+skip_l:
+        li x8, 103 # ASCII 'g'
+        bne x9, x8, skip_g
+        li x26, 0x83
+        j end_btype
+skip_g:
 end_btype:
 	
         # Shift rs1 (x22) to Byte 2
@@ -275,6 +289,14 @@ lbu   x13, 0(x30)
 	addi x8, x8, 1
 	li x29, 0x81
         beq x10, x29, proc_patch_branch
+	addi x8, x8, 3
+        li x29, 0x82
+        beq x10, x29, proc_patch_branch
+	addi x8, x8, 1
+        li x29, 0x83
+        beq x10, x29, proc_patch_branch
+
+
 
 
 	li  x27, 4
