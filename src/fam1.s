@@ -138,7 +138,7 @@ lb   x28, 0(x29)
 	sw   x26, 0(x30)
         addi x30, x30, 4
 
-	li x26, 0
+	li x26, 0x88
 	sw   x26, 0(x30)
         addi x30, x30, 4
 
@@ -466,6 +466,7 @@ proc_patch_la:
         srli    x29, x17, 24
         jal     send_byte           # Byte 3 (top of imm)
 
+	addi x30, x30, 4 # skip next four bytes
 
         j   output_loop
 
