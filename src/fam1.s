@@ -115,32 +115,32 @@ proc_branch:
 	add		x29, x29, 1
 	li		x8, 101 # ASCII 'e'
 	bne		x9, x8, skip_e
-	li		x26, 0x81
+	li		x26, 0x88
 	j		end_btype
 skip_e:
 	li		x8, 110 # ASCII 'n'
 	bne		x9, x8, skip_n
-	li		x26, 0x82
+	li		x26, 0x89
 	j		end_btype
 skip_n:
 	li		x8, 108 # ASCII 'l'
 	bne		x9, x8, skip_l
 	li		x8, 117 # ASCII 'u'
 	bne		x7, x8, skip_l_u
-	li		x26, 0x85
+	li		x26, 0x8A
 	j		end_btype
 skip_l_u:
-	li		x26, 0x83
+	li		x26, 0x8B
 	j		end_btype
 skip_l:
 	li		x8, 103 # ASCII 'g'
 	bne		x9, x8, skip_g
 	li		x8, 117 # ASCII 'u'
 	bne		x7, x8, skip_g_u
-	li		x26, 0x86
+	li		x26, 0x8C
 	j		end_btype
 skip_g_u:
-	li		x26, 0x84
+	li		x26, 0x8D
 	j		end_btype
 skip_g:
 end_btype:
@@ -218,9 +218,16 @@ pass2_loop:
 
 	bnez		x7, skip_data
 
-	# jal
+	# Patching
 	li		x10, 0x80
 	beq		x28, x10, proc_patch_jal
+	li		x10, 0x88
+	blt		x28, x10, skip_branch_patch
+	li		x10, 0x8F
+	bge		x28, x10, skip_branch_patch
+	j		proc_patch_branch
+skip_branch_patch:
+
 	bnez		x28, skip_data
 	li		x7, 1
 	j		pass2_loop
@@ -253,6 +260,20 @@ pass2_end_loop:
 	mv	      x6, x30		 # update end ptr to output
 	mv	      x1, x20		 # return address restore
 	ret
+
+proc_patch_branch:
+	lbu		x11, 0(x29)
+	lbu		x12, 1(x29)
+	lbu		x13, 2(x29)
+	sb		x28, 0(x30)
+	sb		x11, 1(x30)
+	sb		x12, 2(x30)
+	sb		x13, 3(x30)
+	addi		x30, x30, 4
+	addi		x29, x29, 3
+
+
+	j		pass2_loop
 
 proc_patch_jal:
 	bge	     x29, x6, pass2_end_loop # pass complete
