@@ -46,23 +46,84 @@ pass1:
 	mv		x29, x5
 	mv		x30, x6
 	mv		x20, x1
-pass1_loop:
+	li		x21, 0			# set low nibble
 
+pass1_loop:
 	bge		x29, x6, pass1_end_loop # pass complete
 	lbu		x28, 0(x29)		# load byte
 	addi		x29, x29, 1		# incr in iter
 	li		x10, 32			# load white space limit
 	ble		x28, x10, pass1_loop	# skip whitespace
+	li		x10, 35			# ASCII '#' (comments)
+	beq		x28, x10, skip_comment	# skip comments
+        li		x10, 58                 # ASCII ':' (label)
+        beq		x28, x10, proc_label    # process label
+        li		x10, 106                # ASCII 'j' (jal)
+        beq		x28, x10, proc_jal      # process jal
 
-	sb		x28, 0(x30)		# store value
-	addi		x30, x30, 1		# incr out iter
-	j		pass1_loop
+	jal		x1, is_hex_char		# check if its hex
+	beqz		x26, pass1_loop		# skip
+
+	# Hex encoding
+	beqz		x21, high_nibble
+        li		x21, 0
+        or		x24, x24, x27
+        sb		x24, 0(x30)
+        addi		x30, x30, 1
+        j		pass1_loop
+
+high_nibble:
+        li		x21, 1
+        slli		x24, x27, 4
+        li		x25, 1
+        j		pass1_loop
+
+
+# Parse jal. Format: j<rd> <label>
+# e.g. j1 x # jump to label :x storing ra in x1
+proc_jal:
+        bge             x29, x6, pass1_end_loop # pass complete
+        lbu             x27, 0(x29)             # load byte
+        jal             hex_to_int              # read hex digit
+        addi            x29, x29, 1             # incr in iter
+        jal             skip_whitesp            # skip whitespace
+        addi            x29, x29, 1             # incr in iter
+        slli            x26, x11, 16            # Register to Byte 2
+        slli            x25, x27, 8             # Label to Byte 1
+        or              x26, x26, x25           # Combine
+	li		x25, 0x80		# Load sentinel
+	or		x26, x26, x25		# Combine
+        sw              x26, 0(x30)             # Write the data
+        addi            x30, x30, 4             # incr out iter
+        j               pass1_loop
+
 pass1_end_loop:
-
 	mv		x5, x29			# update start ptr to output
 	mv		x6, x30			# update end ptr to output
 	mv		x1, x20
 	ret
+
+proc_label:
+        bge             x29, x6, pass1_end_loop # pass complete
+        lbu             x27, 0(x29)             # read label
+        addi            x29, x29, 1             # incr in iter
+        add             x27, x27, x3            # point to table
+        sd              x30, 0(x27)             # store cur offset
+        j               pass1_loop
+
+skip_comment:
+        bge             x29, x6, pass1_end_loop # pass complete
+        lbu             x28, 0(x29)             # load byte
+        addi            x29, x29, 1             # incr in iter
+        li              x13, 10                 # ASCII '\n'
+        beq             x28, x13, end_comment   # newline
+        li              x13, 13                 # ASCII '\r'
+        beq             x28, x13, end_comment   # cr
+        j               skip_comment
+
+end_comment:
+        j               pass1_loop
+
 
 pass2:
 	ret
@@ -108,6 +169,47 @@ output_loop:
 end_output:
 	mv		x1, x20
 	ret
+
+skip_whitesp:
+        bge             x29, x6, end_whitesp
+        lbu             x27, 0(x29)
+        addi            x29, x29, 1
+        li              x28, 33
+        blt             x27, x28, skip_whitesp # repeat
+
+end_whitesp:
+        ret
+
+is_hex_char:
+	mv		x27, x28
+	addi		x27, x27, -48
+	li		x26, 10
+	bltu		x27, x26, is_hex
+	addi		x27, x27, -7
+	li		x26, 10
+	bltu		x27, x26, not_hex
+	li		x26, 16
+	bltu		x27, x26, is_hex
+
+not_hex:
+        li x26, 0 
+        ret  
+
+is_hex:
+        li x26, 1
+        ret
+
+
+hex_to_int:
+        addi            x11, x27, -48           # x11 = char - '0'
+        li              x31, 10                 # Limit for digits
+        bltu            x11, x31, hex_done      # If 0-9, we are done
+        addi            x11, x11, -7            # x11 = char - 55
+
+hex_done:
+        andi            x11, x11, 0xF           # wipe out illegal bits
+        ret
+
 
 init_io:
 	li		x4, 0x10000000		# UART base
