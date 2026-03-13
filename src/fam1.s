@@ -78,6 +78,12 @@ high_nibble:
 	li		x25, 1
 	j		pass1_loop
 
+pass1_end_loop:
+        mv              x5, x29                 # update start ptr to output
+        mv              x6, x30                 # update end ptr to output
+        mv              x1, x20                 # return address restore
+        ret
+
 
 # Parse jal. Format: j<rd> <label>
 # e.g. j1 x # jump to label :x storing ra in x1
@@ -97,18 +103,14 @@ proc_jal:
 	addi		x30, x30, 4		# incr out iter
 	j		pass1_loop
 
-pass1_end_loop:
-	mv		x5, x29			# update start ptr to output
-	mv		x6, x30			# update end ptr to output
-	mv		x1, x20			# return address restore
-	ret
-
 proc_label:
 	bge	     x29, x6, pass1_end_loop # pass complete
 	lbu	     x27, 0(x29)	     # read label
 	addi	    x29, x29, 1	     # incr in iter
+	slli x27, x27, 3
 	add	     x27, x27, x3	    # point to table
-	sd	      x30, 0(x27)	     # store cur offset
+	sub          x31, x30, x6
+	sd	      x31, 0(x27)	     # store cur offset
 	j	       pass1_loop
 
 skip_comment:
@@ -124,9 +126,125 @@ skip_comment:
 end_comment:
 	j	       pass1_loop
 
-
 pass2:
-	ret
+        mv              x29, x5
+        mv              x30, x6
+        mv              x20, x1
+	li		x7, 0
+
+pass2_loop:
+        bge             x29, x6, pass2_end_loop # pass complete
+        lbu             x28, 0(x29)             # load byte
+        addi            x29, x29, 1             # incr in iter
+
+	bnez		x7, skip_data
+
+	# jal
+	li		x10, 0x80
+	beq		x28, x10, proc_patch_jal
+	bnez		x28, skip_data
+	li		x7, 1
+
+skip_data:
+        sb              x28, 0(x30)
+        addi            x30, x30, 1
+	j		pass2_loop
+
+pass2_end_loop:
+        mv              x5, x29                 # update start ptr to output
+        mv              x6, x30                 # update end ptr to output
+        mv              x1, x20                 # return address restore
+        ret
+
+# 80 61 01 00
+proc_patch_jal:
+	bge             x29, x6, pass2_end_loop # pass complete
+        lbu             x11, 0(x29)             # load byte
+	addi		x29, x29, 1
+	bge             x29, x6, pass2_end_loop # pass complete
+        lbu             x12, 0(x29)             # load byte
+        addi            x29, x29, 1
+	bge             x29, x6, pass2_end_loop # pass complete
+	addi		x29, x29, 1
+
+        slli x11, x11, 3
+        add x11, x11, x3
+        ld x15, 0(x11)
+        sub x31, x30, x6
+        sub x15, x15, x31
+
+	# At this point, the correct offset in bytes is here in x15
+	# and the register is in x11
+
+        # x15 = total offset in bytes (e.g., 8)
+        srli    x15, x15, 1         # Drop bit 0 (always 0)
+
+        andi           x14, x12, 1
+        slli           x14, x14, 7
+        li             x31, 0x6F
+        or             x31, x31, x14
+        sb             x31, 0(x30)
+        addi            x30, x30, 1
+
+
+        
+        # --- BYTE 1 ---
+        # Instruction bits 15:8 = imm[19:12]
+        # In x15, these are bits 18:11
+        srli    x14, x15, 11
+        andi    x14, x14, 0xFF      # Mask 8 bits
+        sb      x14, 0(x30)
+        addi    x30, x30, 1
+
+        # --- BYTE 2 ---
+        # Instruction bit 20 = imm[11]
+        # Instruction bits 23:21 = imm[3:1]
+        srli    x14, x15, 10
+        andi    x14, x14, 1         # Get imm[11]
+        slli    x14, x14, 4         # Move to bit 20 position (bit 4 of this byte)
+        
+        andi    x16, x15, 0x7       # Get imm[3:1]
+        slli    x16, x16, 5         # Move to bits 23:21 position (bits 7:5 of this byte)
+        
+        or      x31, x14, x16
+        sb      x31, 0(x30)
+        addi    x30, x30, 1
+
+        # --- BYTE 3 ---
+        # Instruction bits 30:24 = imm[10:4]
+        # Instruction bit 31 = imm[20] (Sign)
+        srli    x14, x15, 3
+        andi    x14, x14, 0x7F      # Get imm[10:4]
+        
+        srli    x16, x15, 19
+        andi    x16, x16, 1         # Get imm[20]
+        slli    x16, x16, 7         # Move to bit 31 position (bit 7 of this byte)
+        
+        or      x31, x14, x16
+        sb      x31, 0(x30)
+        addi    x30, x30, 1
+
+
+
+	# first byte appears correct
+	#andi		x14, x12, 1
+	#slli		x14, x14, 7
+	#li		x31, 0x6F
+	#or		x31, x31, x14
+	#sb		x31, 0(x30)
+	#addi            x30, x30, 1
+
+
+	# need to get the next bytes
+	#li x31, 0
+        #sb              x31, 0(x30)
+        #addi            x30, x30, 1
+        #sb              x31, 0(x30)
+       	#addi            x30, x30, 1
+	#sb		x31, 0(x30)
+	#addi		x30, x30, 1
+
+	j		pass2_loop
 
 capture:
 	mv		x20, x1
@@ -163,6 +281,7 @@ output:
 output_loop:
 	bge		x5, x6, end_output
 	lbu		x29, 0(x5)
+	mv		x31, x29
 	jal		write_byte
 	addi		x5, x5, 1
 	j		output_loop
@@ -228,7 +347,7 @@ write_byte:
 	lbu		x28, 5(x4)
 	andi		x28, x28, 0x20		# mask
 	beqz		x28, write_byte		# retry
-	sb		x29, 0(x4)		# send to UART
+	sb		x31, 0(x4)		# send to UART
 	ret
 
 exit:
