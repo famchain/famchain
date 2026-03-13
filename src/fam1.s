@@ -52,6 +52,7 @@ pass1_loop:
 	bge		x29, x6, pass1_end_loop # pass complete
 	lbu		x28, 0(x29)		# load byte
 	addi		x29, x29, 1		# incr in iter
+	beqz		x28, zero_byte          # pass through zero byte
 	li		x10, 32			# load white space limit
 	ble		x28, x10, pass1_loop	# skip whitespace
 	li		x10, 35			# ASCII '#' (comments)
@@ -76,6 +77,11 @@ high_nibble:
 	li		x21, 1
 	slli		x24, x27, 4
 	li		x25, 1
+	j		pass1_loop
+
+zero_byte:
+	sb		x28, 0(x30)
+	addi		x30, x30, 1
 	j		pass1_loop
 
 pass1_end_loop:
@@ -144,7 +150,7 @@ pass2_loop:
 	beq		x28, x10, proc_patch_jal
 	bnez		x28, skip_data
 	li		x7, 1
-
+	j		pass2_loop
 skip_data:
         sb              x28, 0(x30)
         addi            x30, x30, 1
@@ -306,6 +312,7 @@ skip_whitesp:
 	bge	     x29, x6, end_whitesp
 	lbu	     x27, 0(x29)
 	addi	    x29, x29, 1
+	beqz		x27, end_whitesp
 	li	      x28, 33
 	blt	     x27, x28, skip_whitesp # repeat
 
