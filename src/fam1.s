@@ -61,7 +61,8 @@ pass1_loop:
 	beq		x28, x10, proc_label    # process label
 	li		x10, 106		# ASCII 'j' (jal)
 	beq		x28, x10, proc_jal      # process jal
-
+	li		x10, 98			# ASCII 'b' (branch)
+	beq		x28, x10, proc_branch	# beq,bne,blt,bge,bltu,bgeu
 	jal		x1, is_hex_char		# check if its hex
 	beqz		x26, pass1_loop		# skip
 
@@ -89,6 +90,79 @@ pass1_end_loop:
         mv              x6, x30                 # update end ptr to output
         mv              x1, x20                 # return address restore
         ret
+
+# Parse branch instructions:
+# beq 1 2 label
+# bne 3 4 label
+proc_branch:
+	beq  x29, x6, pass1_end_loop
+	lbu  x9, 0(x29)
+	add x29, x29, 1
+	lbu  x7, 0(x29)
+	add x29, x29, 1
+	jal x1, skip_whitesp
+	beq x29, x6, pass1_end_loop
+	jal hex_to_int
+	mv x22, x11
+	add x29, x29, 1
+	jal x1, skip_whitesp
+	beq x29, x6, pass1_end_loop
+	jal hex_to_int
+	mv x23, x11
+	add x29, x29, 1
+	jal x1, skip_whitesp
+	beq x29, x6, pass1_end_loop
+	add x29, x29, 1
+	li x8, 101 # ASCII 'e'
+	bne x9, x8, skip_e
+	li   x26, 0x81
+	j end_btype
+skip_e:
+	li x8, 110 # ASCII 'n'
+	bne x9, x8, skip_n
+	li x26, 0x82
+	j end_btype
+skip_n:
+	li x8, 108 # ASCII 'l'
+        bne x9, x8, skip_l
+        li x8, 117 # ASCII 'u'
+        bne x7, x8, skip_l_u
+        li x26, 0x85
+        j end_btype
+        skip_l_u:
+        li x26, 0x83
+        j end_btype
+skip_l:
+        li x8, 103 # ASCII 'g'
+bne x9, x8, skip_g
+
+        li x8, 117 # ASCII 'u'
+        bne x7, x8, skip_g_u
+        li x26, 0x86
+        j end_btype
+        skip_g_u:
+        li x26, 0x84
+        j end_btype
+skip_g:
+end_btype:
+
+        # Shift rs1 (x22) to Byte 2
+        slli x25, x22, 8
+        or   x26, x26, x25
+
+        # Shift rs2 (x23) to Byte 3
+        slli x25, x23, 16
+        or   x26, x26, x25
+
+        slli x27, x27, 24
+        or   x26, x26, x27
+
+        sw   x26, 0(x30)         # Write the 4-byte Magic Wor
+        addi x30, x30, 4
+        j pass1_loop
+
+	
+
 
 
 # Parse jal. Format: j<rd> <label>
@@ -375,7 +449,6 @@ exit:
 final_spin:
 	wfi
 	j		final_spin
-
 
 data:
 

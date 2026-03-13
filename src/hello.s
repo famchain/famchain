@@ -17,7 +17,6 @@ write_byte:
         sb              x31, 0(x4)              # send to UART
         ret
 
-
 main:
 	mv		x20, x1
         li              x4, 0x10000000          # UART base
