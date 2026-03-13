@@ -24,7 +24,7 @@
 # file: fam1.s - second stage (asm impl)
 # ──────────────────────────────────────────────────────────────────────────────
 .equ DATA_OFFSET, (data - dataptr)
-	li		x4, 0x10000000		# UART base
+	jal		init_io
 
 # Setup stack and heap pointers
 dataptr:
@@ -35,100 +35,107 @@ dataptr:
 	li		x5, 2048		# Reserve for labels
 	add		x5, x5, x3		# Input buffer
 	mv		x6, x5			# End input buffer
-	li		x27, 10			# Last char
 
-# Main capture loop
+	jal		capture
+	jal		pass1
+	jal		pass2
+	jal		output
+	jal		exit
+
+pass1:
+	mv		x29, x5
+	mv		x30, x6
+	mv		x20, x1
+pass1_loop:
+
+        bge             x29, x6, pass1_end_loop # pass complete
+        lbu             x28, 0(x29)             # load byte
+        addi            x29, x29, 1             # incr in iter
+	sb              x28, 0(x30)             # store value
+        addi            x30, x30, 1             # incr out iter
+	j		pass1_loop
+pass1_end_loop:
+
+	mv		x5, x29			# update start ptr to output
+        mv		x6, x30			# update end ptr to output
+	mv		x1, x20
+	ret
+
+pass2:
+	ret
+
+capture:
+	mv		x20, x1
+	li		x17, 10			# last byte
 capture_loop:
-	jal		x1, read_uart		# Read next char
-	beqz		x29, do_capture		# not a dot, continue
-	li		x29, 10			# LF terminator
-	beq		x27, x29, cont_term_chk # Check for end
-	li		x29, 13			# CR terminator
-	beq		x27, x29, cont_term_chk # Check for end
-	j		cont_capture		# Not start of line
-cont_term_chk:
-	jal		x1, read_uart		# Read next char
-	li		x29, 101		# Load ASCII 'e'
-	bne		x30, x29, skip_end      # not .end
-	j		end_capture		# .end found
-skip_end:
-	li		x29, 100		# Load ASCII 'd'
-	bne		x30, x29, skip_data	# not .data
-	li		x30, 0xFF		# data marker
-	j		do_capture
-skip_data:
-	li		x29, 116		# Load ASCII 't'
-	bne		x30, x29, skip_text	# not .text
-	li		x30, 0xFE		# text marker
-	j		do_capture
-skip_text:
-do_capture:
-	sb		x30, 0(x6)		# store in buffer
-	addi		x6, x6, 1		# advance pointer
-	mv		x27, x30		# set last char
-	j		capture_loop		# repeat
-
+	jal		read_byte
+	li		x21, 46			# Load ASCII '.'
+	bne		x30, x21, not_end
+	li		x21, 10
+	beq		x17, x21, test_e
+	li		x21, 13
+	beq		x17, x21, test_e
+	j		not_end
+test_e:
+	jal		read_byte
+	li		x21, 100
+	bne		x30, x21, skip_d
+	li		x30, 0x0
+	j		not_end
+skip_d:
+	li		x21, 101
+	beq		x30, x21, end_capture
+not_end:
+	sb		x30, 0(x6)
+	addi		x6, x6, 1
+	mv		x17, x30		# Update last byte
+	j		capture_loop
 end_capture:
-	jal		output			# output
-	jal		exit			# exit
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Functions
-# ──────────────────────────────────────────────────────────────────────────────
-
-# Send a byte of data to UART
-# inputs:
-# x29: byte to send
-# x4: UART address
-# clobbers: x28
-send_byte:
-	lbu		x28, 5(x4)
-	andi		x28, x28, 0x20		# mask
-	beqz		x28, send_byte		# retry
-	sb		x29, 0(x4)		# send to UART
+	mv		x1, x20
 	ret
 
 output:
-	mv		x30, x5			# Copy input to x30
-	mv		x20, x1			# Save ra
-
-# Main output loop, capture 4 bytes and process
+	mv		x20, x1
 output_loop:
-	bge		x30, x6, end_output
-	lbu		x10, 0(x30)
-	addi		x30, x30, 1
-
-	mv		x29, x10
-	jal		send_byte
+	bge		x5, x6, end_output
+	lbu		x29, 0(x5)
+	jal		write_byte
+	addi		x5, x5, 1
 	j		output_loop
 end_output:
 	mv		x1, x20
-	ret 
+	ret
+
+init_io:
+        li              x4, 0x10000000                  # UART base
+        ret
 
 # Input: x4 (UART base)
 # Output: x30 (unsigned char read) x29 (is_dot)
-read_uart:
-	lbu		x30, 5(x4)              # Read from UART
-	andi		x30, x30, 1             # mask
-	beqz		x30, read_uart          # if not ready read again
-	lbu		x30, 0(x4)              # Get current char, store x30
+read_byte:
+        lbu             x30, 5(x4)              # Read from UART
+        andi            x30, x30, 1             # mask
+        beqz            x30, read_byte          # if not ready read again
+        lbu             x30, 0(x4)              # Get current char, store x30
+        ret   
 
-	# Check for section start
-	li		x29, 46			# Check for '.' ASCII 46.
-	bne		x29, x30, no_dot
-	li		x29, 1
-	ret   
+write_byte:
+        lbu             x28, 5(x4)
+        andi            x28, x28, 0x20          # mask
+        beqz            x28, write_byte          # retry
+        sb              x29, 0(x4)              # send to UART
+        ret
 
-no_dot:
-	li		x29, 0
-	ret  
 
 exit:
-	li		x30, 0x100000		# QEMU Virt Test Device
-	li		x29, 0x5555		# Shutdown command
-	sw		x29, 0(x30)
-        
+        li              x30, 0x100000           # QEMU Virt Test Device
+        li              x29, 0x5555             # Shutdown command
+        sw              x29, 0(x30)
+
 final_spin:
-	wfi
-	j final_spin
+        wfi
+        j final_spin
+
+
 data:
+
