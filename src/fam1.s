@@ -148,6 +148,28 @@ pass2_loop:
 skip_data:
         sb              x28, 0(x30)
         addi            x30, x30, 1
+
+        bge             x29, x6, pass2_end_loop # pass complete
+        lbu             x28, 0(x29)             # load byte
+        addi            x29, x29, 1             # incr in iter
+	sb              x28, 0(x30)
+	addi            x30, x30, 1
+
+        bge             x29, x6, pass2_end_loop # pass complete
+        lbu             x28, 0(x29)             # load byte
+        addi            x29, x29, 1             # incr in iter
+        sb              x28, 0(x30)
+        addi            x30, x30, 1
+
+        bge             x29, x6, pass2_end_loop # pass complete
+        lbu             x28, 0(x29)             # load byte
+        addi            x29, x29, 1             # incr in iter
+        sb              x28, 0(x30)
+        addi            x30, x30, 1
+
+
+
+
 	j		pass2_loop
 
 pass2_end_loop:
