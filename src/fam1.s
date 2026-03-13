@@ -104,24 +104,24 @@ proc_jal:
 	j		pass1_loop
 
 proc_label:
-	bge	     x29, x6, pass1_end_loop # pass complete
-	lbu	     x27, 0(x29)	     # read label
-	addi	    x29, x29, 1	     # incr in iter
-	slli x27, x27, 3
-	add	     x27, x27, x3	    # point to table
-	sub          x31, x30, x6
-	sd	      x31, 0(x27)	     # store cur offset
-	j	       pass1_loop
+	bge		x29, x6, pass1_end_loop	# pass complete
+	lbu		x27, 0(x29)		# read label
+	addi		x29, x29, 1		# incr in iter
+	slli		x27, x27, 3		# shift left for dw size
+	add		x27, x27, x3		# point to table
+	sub		x31, x30, x6		# subtract start ptr
+	sd		x31, 0(x27)		# store cur offset
+	j		pass1_loop
 
 skip_comment:
-	bge	     x29, x6, pass1_end_loop # pass complete
-	lbu	     x28, 0(x29)	     # load byte
-	addi	    x29, x29, 1	     # incr in iter
-	li	      x13, 10		 # ASCII '\n'
-	beq	     x28, x13, end_comment   # newline
-	li	      x13, 13		 # ASCII '\r'
-	beq	     x28, x13, end_comment   # cr
-	j	       skip_comment
+	bge		x29, x6, pass1_end_loop	# pass complete
+	lbu		x28, 0(x29)		# load byte
+	addi		x29, x29, 1		# incr in iter
+	li		x13, 10			# ASCII '\n'
+	beq		x28, x13, end_comment   # newline
+	li		x13, 13			# ASCII '\r'
+	beq		x28, x13, end_comment	# cr
+	j		skip_comment
 
 end_comment:
 	j	       pass1_loop
@@ -156,7 +156,6 @@ pass2_end_loop:
         mv              x1, x20                 # return address restore
         ret
 
-# 80 61 01 00
 proc_patch_jal:
 	bge             x29, x6, pass2_end_loop # pass complete
         lbu             x11, 0(x29)             # load byte
@@ -168,94 +167,87 @@ proc_patch_jal:
 	addi		x29, x29, 1
 
 
-	mv x17, x12 # store original register in x17 incase we need non adj
-        slli x11, x11, 3
-        add x11, x11, x3
-        ld x15, 0(x11)
-        sub x31, x30, x6
-        sub x15, x15, x31
-	li   x21, 0x1FFFFF      # 21-bit mask (JAL uses 20 bits + implicit 0)
-        and  x15, x15, x21      
-
-
-        # x15 = the 21-bit offset (e.g., -4 = 0x1FFFFC)
-        # x17 = the rd register index (e.g., 10 for x10)
+        slli		x11, x11, 3
+        add		x11, x11, x3
+        ld		x15, 0(x11)
+        sub		x31, x30, x6
+        sub		x15, x15, x31
+	li		x21, 0x1FFFFF		# 21-bit mask 
+        and		x15, x15, x21      
 
         srli    x15, x15, 1         # Discard bit 0 (always zero)
 
         # ─────────────────────────────────────────────────────────────
         # BYTE 0: [rd[0] | opcode[6:0]]
         # ─────────────────────────────────────────────────────────────
-        andi    x14, x17, 0x01      # Get bit 0 of rd
-        slli    x14, x14, 7         # Move to bit 7
-        li      x31, 0x6F           # JAL opcode
-        or      x31, x31, x14
-        sb      x31, 0(x30)
-        addi    x30, x30, 1
+        andi		x14, x12, 0x01		# Get bit 0 of rd
+        slli		x14, x14, 7		# Move to bit 7
+        li		x31, 0x6F		# JAL opcode
+        or		x31, x31, x14
+        sb		x31, 0(x30)
+        addi		x30, x30, 1
 
         # ─────────────────────────────────────────────────────────────
         # BYTE 1: [imm[15:12] | rd[4:1]]
         # Note: imm[15:12] in the instruction are bits 14:11 of our x15
         # ─────────────────────────────────────────────────────────────
-        srli    x14, x17, 1         # Get bits 4:1 of rd
-        andi    x14, x14, 0x0F      # Mask to 4 bits
+        srli		x14, x12, 1		# Get bits 4:1 of rd
+        andi		x14, x14, 0x0F		# Mask to 4 bits
+        srli		x16, x15, 11		# Get imm[15:12] from x15
+        andi		x16, x16, 0x0F		# Mask to 4 bits
+        slli		x16, x16, 4		# Move to bits 7:4
         
-        srli    x16, x15, 11        # Get imm[15:12] from x15
-        andi    x16, x16, 0x0F      # Mask to 4 bits
-        slli    x16, x16, 4         # Move to bits 7:4
-        
-        or      x31, x14, x16
-        sb      x31, 0(x30)
-        addi    x30, x30, 1
+        or		x31, x14, x16
+        sb		x31, 0(x30)
+        addi		x30, x30, 1
 
         # ─────────────────────────────────────────────────────────────
         # BYTE 2: [imm[3:1] | imm[11] | imm[19:16]]
         # Note: mapped from x15 bits [2:0], [10], [18:15]
         # ─────────────────────────────────────────────────────────────
-        srli    x14, x15, 15        # Get imm[19:16]
-        andi    x14, x14, 0x0F      # Mask to 4 bits (bottom of byte)
+        srli		x14, x15, 15		# Get imm[19:16]
+        andi		x14, x14, 0x0F		# Mask to 4 bits (bottom)
         
-        srli    x16, x15, 10        # Get imm[11]
-        andi    x16, x16, 0x01      # Mask 1 bit
-        slli    x16, x16, 4         # Move to bit 4
+        srli		x16, x15, 10		# Get imm[11]
+        andi		x16, x16, 0x01		# Mask 1 bit
+        slli		x16, x16, 4		# Move to bit 4
         
-        andi    x17, x15, 0x07      # Get imm[3:1]
-        slli    x17, x17, 5         # Move to bits 7:5
+        andi		x12, x15, 0x07		# Get imm[3:1]
+        slli		x12, x12, 5		# Move to bits 7:5
         
-        or      x31, x14, x16
-        or      x31, x31, x17
-        sb      x31, 0(x30)
-        addi    x30, x30, 1
+        or		x31, x14, x16
+        or		x31, x31, x12
+        sb		x31, 0(x30)
+        addi		x30, x30, 1
 
         # ─────────────────────────────────────────────────────────────
         # BYTE 3: [imm[20] | imm[10:4]]
         # Note: mapped from x15 bits [19], [9:3]
         # ─────────────────────────────────────────────────────────────
-        srli    x14, x15, 3         # Get imm[10:4]
-        andi    x14, x14, 0x7F      # Mask 7 bits
+        srli		x14, x15, 3		# Get imm[10:4]
+        andi		x14, x14, 0x7F		# Mask 7 bits
         
-        srli    x16, x15, 19        # Get imm[20] (Sign bit)
-        andi    x16, x16, 0x01      # Mask 1 bit
-        slli    x16, x16, 7         # Move to bit 7
+        srli		x16, x15, 19		# Get imm[20] (Sign bit)
+        andi		x16, x16, 0x01		# Mask 1 bit
+        slli		x16, x16, 7		# Move to bit 7
         
-        or      x31, x14, x16
-        sb      x31, 0(x30)
-        addi    x30, x30, 1
-
-        j       pass2_loop
+        or		x31, x14, x16
+        sb		x31, 0(x30)
+        addi		x30, x30, 1
+        j		pass2_loop
 
 
 capture:
 	mv		x20, x1
-	li		x17, 10			# last byte
+	li		x12, 10			# last byte
 capture_loop:
 	jal		read_byte
 	li		x21, 46			# Load ASCII '.'
 	bne		x30, x21, not_end
 	li		x21, 10
-	beq		x17, x21, test_e
+	beq		x12, x21, test_e
 	li		x21, 13
-	beq		x17, x21, test_e
+	beq		x12, x21, test_e
 	j		not_end
 test_e:
 	jal		read_byte
@@ -269,7 +261,7 @@ skip_d:
 not_end:
 	sb		x30, 0(x6)
 	addi		x6, x6, 1
-	mv		x17, x30		# Update last byte
+	mv		x12, x30		# Update last byte
 	j		capture_loop
 end_capture:
 	mv		x1, x20
