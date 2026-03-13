@@ -167,84 +167,83 @@ proc_patch_jal:
 	bge             x29, x6, pass2_end_loop # pass complete
 	addi		x29, x29, 1
 
+
+	mv x17, x12 # store original register in x17 incase we need non adj
         slli x11, x11, 3
         add x11, x11, x3
         ld x15, 0(x11)
         sub x31, x30, x6
         sub x15, x15, x31
-
-	# At this point, the correct offset in bytes is here in x15
-	# and the register is in x11
-
-        # x15 = total offset in bytes (e.g., 8)
-        srli    x15, x15, 1         # Drop bit 0 (always 0)
-
-        andi           x14, x12, 1
-        slli           x14, x14, 7
-        li             x31, 0x6F
-        or             x31, x31, x14
-        sb             x31, 0(x30)
-        addi            x30, x30, 1
+	li   x21, 0x1FFFFF      # 21-bit mask (JAL uses 20 bits + implicit 0)
+        and  x15, x15, x21      
 
 
-        
-        # --- BYTE 1 ---
-        # Instruction bits 15:8 = imm[19:12]
-        # In x15, these are bits 18:11
-        srli    x14, x15, 11
-        andi    x14, x14, 0xFF      # Mask 8 bits
-        sb      x14, 0(x30)
+        # x15 = the 21-bit offset (e.g., -4 = 0x1FFFFC)
+        # x17 = the rd register index (e.g., 10 for x10)
+
+        srli    x15, x15, 1         # Discard bit 0 (always zero)
+
+        # ─────────────────────────────────────────────────────────────
+        # BYTE 0: [rd[0] | opcode[6:0]]
+        # ─────────────────────────────────────────────────────────────
+        andi    x14, x17, 0x01      # Get bit 0 of rd
+        slli    x14, x14, 7         # Move to bit 7
+        li      x31, 0x6F           # JAL opcode
+        or      x31, x31, x14
+        sb      x31, 0(x30)
         addi    x30, x30, 1
 
-        # --- BYTE 2 ---
-        # Instruction bit 20 = imm[11]
-        # Instruction bits 23:21 = imm[3:1]
-        srli    x14, x15, 10
-        andi    x14, x14, 1         # Get imm[11]
-        slli    x14, x14, 4         # Move to bit 20 position (bit 4 of this byte)
+        # ─────────────────────────────────────────────────────────────
+        # BYTE 1: [imm[15:12] | rd[4:1]]
+        # Note: imm[15:12] in the instruction are bits 14:11 of our x15
+        # ─────────────────────────────────────────────────────────────
+        srli    x14, x17, 1         # Get bits 4:1 of rd
+        andi    x14, x14, 0x0F      # Mask to 4 bits
         
-        andi    x16, x15, 0x7       # Get imm[3:1]
-        slli    x16, x16, 5         # Move to bits 23:21 position (bits 7:5 of this byte)
+        srli    x16, x15, 11        # Get imm[15:12] from x15
+        andi    x16, x16, 0x0F      # Mask to 4 bits
+        slli    x16, x16, 4         # Move to bits 7:4
         
         or      x31, x14, x16
         sb      x31, 0(x30)
         addi    x30, x30, 1
 
-        # --- BYTE 3 ---
-        # Instruction bits 30:24 = imm[10:4]
-        # Instruction bit 31 = imm[20] (Sign)
-        srli    x14, x15, 3
-        andi    x14, x14, 0x7F      # Get imm[10:4]
+        # ─────────────────────────────────────────────────────────────
+        # BYTE 2: [imm[3:1] | imm[11] | imm[19:16]]
+        # Note: mapped from x15 bits [2:0], [10], [18:15]
+        # ─────────────────────────────────────────────────────────────
+        srli    x14, x15, 15        # Get imm[19:16]
+        andi    x14, x14, 0x0F      # Mask to 4 bits (bottom of byte)
         
-        srli    x16, x15, 19
-        andi    x16, x16, 1         # Get imm[20]
-        slli    x16, x16, 7         # Move to bit 31 position (bit 7 of this byte)
+        srli    x16, x15, 10        # Get imm[11]
+        andi    x16, x16, 0x01      # Mask 1 bit
+        slli    x16, x16, 4         # Move to bit 4
+        
+        andi    x17, x15, 0x07      # Get imm[3:1]
+        slli    x17, x17, 5         # Move to bits 7:5
+        
+        or      x31, x14, x16
+        or      x31, x31, x17
+        sb      x31, 0(x30)
+        addi    x30, x30, 1
+
+        # ─────────────────────────────────────────────────────────────
+        # BYTE 3: [imm[20] | imm[10:4]]
+        # Note: mapped from x15 bits [19], [9:3]
+        # ─────────────────────────────────────────────────────────────
+        srli    x14, x15, 3         # Get imm[10:4]
+        andi    x14, x14, 0x7F      # Mask 7 bits
+        
+        srli    x16, x15, 19        # Get imm[20] (Sign bit)
+        andi    x16, x16, 0x01      # Mask 1 bit
+        slli    x16, x16, 7         # Move to bit 7
         
         or      x31, x14, x16
         sb      x31, 0(x30)
         addi    x30, x30, 1
 
+        j       pass2_loop
 
-
-	# first byte appears correct
-	#andi		x14, x12, 1
-	#slli		x14, x14, 7
-	#li		x31, 0x6F
-	#or		x31, x31, x14
-	#sb		x31, 0(x30)
-	#addi            x30, x30, 1
-
-
-	# need to get the next bytes
-	#li x31, 0
-        #sb              x31, 0(x30)
-        #addi            x30, x30, 1
-        #sb              x31, 0(x30)
-       	#addi            x30, x30, 1
-	#sb		x31, 0(x30)
-	#addi		x30, x30, 1
-
-	j		pass2_loop
 
 capture:
 	mv		x20, x1
