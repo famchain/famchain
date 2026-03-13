@@ -51,6 +51,9 @@ pass1_loop:
         bge             x29, x6, pass1_end_loop # pass complete
         lbu             x28, 0(x29)             # load byte
         addi            x29, x29, 1             # incr in iter
+	li		x10, 32                 # load white space limit
+        ble		x28, x10, pass1_loop    # skip whitespace
+
 	sb              x28, 0(x30)             # store value
         addi            x30, x30, 1             # incr out iter
 	j		pass1_loop
