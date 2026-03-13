@@ -173,9 +173,6 @@ skip_data:
         sb              x28, 0(x30)
         addi            x30, x30, 1
 
-
-
-
 	j		pass2_loop
 
 pass2_end_loop:
