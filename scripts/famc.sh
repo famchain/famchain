@@ -10,6 +10,17 @@ riscv64-unknown-elf-objcopy -O binary bin/famc.o bin/famc.bin || exit 1
 
 echo "test.fam input:"
 cat tmp/test.fam
-echo "test.bin output:"
-hexdump -v -e '4/1 "%02X " "\n"' bin/test.bin
+#echo "test.bin output:"
+#hexdump -v -e '4/1 "%02X " "\n"' bin/test.bin
+MAGIC=$(head -c 4 bin/test.bin | xxd -p)
+
+if [ "$MAGIC" = "13000000" ]; then
+    echo "test.bin output:"
+    hexdump -v -e '4/1 "%02X " "\n"' bin/test.bin
+else
+    echo "Error compiling test file:"
+    cat bin/test.bin
+    # Optional: remove the garbage binary so you don't accidentally run it
+    rm bin/test.bin
+fi
 

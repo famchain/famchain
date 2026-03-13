@@ -24,6 +24,18 @@
 # famc.s - fam compiler (asm impl)
 # ──────────────────────────────────────────────────────────────────────────────
 .equ DATA_OFFSET, (data - dataptr)
+
+.macro ALLOC_STACK size
+	addi		sp, sp, -\size		# Allocate bytes on stack
+	blt		sp, gp, stack_panic	# panic if stack overflow
+	sd		ra, 0(sp)		# Always store ra
+.endm
+
+.macro DEALLOC_STACK size
+	ld		ra, 0(sp)		# Restore ra
+	addi		sp, sp, \size		# Deallocate bytes on stack
+.endm
+
 _start:
 	jal		init_io
 
@@ -47,8 +59,7 @@ pass1:
 	ret
 
 read_data:
-	addi		sp, sp, -16		# allocate 16 bytes on stack
-	sd		ra, 0(sp)		# store ra
+	ALLOC_STACK	16
 	sd		s0, 8(sp)		# store s0
 
 
@@ -63,17 +74,24 @@ read_loop:
 end_read_loop:
 	mv		a0, s0			# set return value to s0
 
-	ld		ra, 0(sp)		# restore ra
 	ld		s0, 8(sp)		# restore s0
-	addi		sp, sp, 16		# free stack space
+	DEALLOC_STACK	16
 	ret					# return
 
 write_data:
-	addi		sp, sp, -16		# reserve 16 bytes
-	sd		ra, 0(sp)		# store ra
+	ALLOC_STACK	16
 	sd		s0, 8(sp)		# store s0
 
 	mv		s0, a0			# copy first arg to s0
+
+	# Write a nop header (0x13, 0x00, 0x00, 0x00)
+	li		a0, 0x13
+	jal		write_byte
+	li		a0, 0x00
+	jal		write_byte
+	jal		write_byte
+	jal		write_byte
+
 
 	# Iterate through array
 write_loop:	
@@ -84,9 +102,8 @@ write_loop:
 	j		write_loop		# repeat
 end_write_loop:
 
-	ld		ra, 0(sp)		# restore ra
 	ld		s0, 8(sp)		# restore s0
-	addi		sp, sp, 16		# free 16 bytes
+	DEALLOC_STACK	16
 	ret
 
 read_byte:
@@ -106,6 +123,9 @@ write_byte:
 init_io:
 	li		x4, 0x10000000		# UART base
 	ret
+
+stack_panic:
+	j		exit
 
 exit:
 	li		t0, 0x100000		# QEMU Virt Test Device
