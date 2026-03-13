@@ -48,19 +48,19 @@ pass1:
 	mv		x20, x1
 pass1_loop:
 
-        bge             x29, x6, pass1_end_loop # pass complete
-        lbu             x28, 0(x29)             # load byte
-        addi            x29, x29, 1             # incr in iter
-	li		x10, 32                 # load white space limit
-        ble		x28, x10, pass1_loop    # skip whitespace
+	bge		x29, x6, pass1_end_loop # pass complete
+	lbu		x28, 0(x29)		# load byte
+	addi		x29, x29, 1		# incr in iter
+	li		x10, 32			# load white space limit
+	ble		x28, x10, pass1_loop	# skip whitespace
 
-	sb              x28, 0(x30)             # store value
-        addi            x30, x30, 1             # incr out iter
+	sb		x28, 0(x30)		# store value
+	addi		x30, x30, 1		# incr out iter
 	j		pass1_loop
 pass1_end_loop:
 
 	mv		x5, x29			# update start ptr to output
-        mv		x6, x30			# update end ptr to output
+	mv		x6, x30			# update end ptr to output
 	mv		x1, x20
 	ret
 
@@ -110,34 +110,33 @@ end_output:
 	ret
 
 init_io:
-        li              x4, 0x10000000                  # UART base
-        ret
+	li		x4, 0x10000000		# UART base
+	ret
 
 # Input: x4 (UART base)
 # Output: x30 (unsigned char read) x29 (is_dot)
 read_byte:
-        lbu             x30, 5(x4)              # Read from UART
-        andi            x30, x30, 1             # mask
-        beqz            x30, read_byte          # if not ready read again
-        lbu             x30, 0(x4)              # Get current char, store x30
-        ret   
+	lbu		x30, 5(x4)		# Read from UART
+	andi		x30, x30, 1		# mask
+	beqz		x30, read_byte		# if not ready read again
+	lbu		x30, 0(x4)		# Get current char, store x30
+	ret   
 
 write_byte:
-        lbu             x28, 5(x4)
-        andi            x28, x28, 0x20          # mask
-        beqz            x28, write_byte          # retry
-        sb              x29, 0(x4)              # send to UART
-        ret
-
+	lbu		x28, 5(x4)
+	andi		x28, x28, 0x20		# mask
+	beqz		x28, write_byte		# retry
+	sb		x29, 0(x4)		# send to UART
+	ret
 
 exit:
-        li              x30, 0x100000           # QEMU Virt Test Device
-        li              x29, 0x5555             # Shutdown command
-        sw              x29, 0(x30)
+	li		x30, 0x100000		# QEMU Virt Test Device
+	li		x29, 0x5555		# Shutdown command
+	sw		x29, 0(x30)
 
 final_spin:
-        wfi
-        j final_spin
+	wfi
+	j		final_spin
 
 
 data:
