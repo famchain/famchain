@@ -47,19 +47,26 @@ pass1:
 	ret
 
 read_data:
-	mv		t0, ra
-	li		t1, 4
-	mv		t2, gp
+	addi		sp, sp, -16		# allocate 16 bytes on stack
+	sd		ra, 0(sp)		# store ra
+	sd		s0, 8(sp)		# store s0
+
+
+	mv		s0, gp			# point to start of heap
 read_loop:
-	jal		read_byte
-	beq		a0, t1, end_read_loop
-	sb              a0, 0(t2)
-	addi		t2, t2, 1
-	j		read_loop
+	jal		read_byte		# call read byte
+	li		t0, 4			# set to ASCII \004 (EOT)
+	beq		a0, t0, end_read_loop	# exit if EOT
+	sb              a0, 0(s0)		# save read byte
+	addi		s0, s0, 1		# update iterator
+	j		read_loop		# repeat
 end_read_loop:
-	mv		a0, t2
-	mv		ra, t0
-	ret
+	mv		a0, s0			# set return value to s0
+
+	ld		ra, 0(sp)		# restore ra
+	ld		s0, 8(sp)		# restore s0
+	addi		sp, sp, 16		# free stack space
+	ret					# return
 
 write_data:
 	addi		sp, sp, -16		# reserve 16 bytes
