@@ -44,8 +44,7 @@ skip_start_comment:
 
 store:
 	xori    s3, s3, 1
-	li	t3, 1
-	beq	s3, t3, store_low
+	bnez	s3, store_low	
 	slli	t4, t1, 4
 	j	loop
 
