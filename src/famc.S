@@ -25,6 +25,15 @@
 # ──────────────────────────────────────────────────────────────────────────────
 .equ DATA_OFFSET, (data - dataptr)
 
+.macro LOAD_ADDRESS reg, label
+    .local _base
+_base:
+    # Calculate the offset between the label and THIS specific instruction
+    .equ _offset, (\label - _base)
+    auipc   \reg, %hi(_offset)
+    addi    \reg, \reg, %lo(_offset)
+.endm
+
 .macro ALLOC_STACK size
 	addi		sp, sp, -\size		# Allocate bytes on stack
 	blt		sp, gp, stack_panic	# panic if stack overflow
@@ -34,6 +43,11 @@
 .macro DEALLOC_STACK size
 	ld		ra, 0(sp)		# Restore ra
 	addi		sp, sp, \size		# Deallocate bytes on stack
+.endm
+
+.macro BUMP_HEAP size
+	addi		gp, gp, \size		# update gp
+	bgt		gp, sp, stack_panic     # stack overflow
 .endm
 
 _start:
@@ -48,9 +62,11 @@ dataptr:
 	andi		sp, sp, -16
 
 	jal		read_data
-	mv		a1, a0
-	mv		a0, gp
 	jal		pass1
+
+#bump: 
+#	BUMP_HEAP 1024
+#	j bump
 	jal		write_data
 	jal		exit
 
@@ -68,11 +84,12 @@ read_loop:
 	jal		read_byte		# call read byte
 	li		t0, 4			# set to ASCII \004 (EOT)
 	beq		a0, t0, end_read_loop	# exit if EOT
-	sb              a0, 0(s0)		# save read byte
-	addi		s0, s0, 1		# update iterator
+	sb              a0, 0(gp)		# save read byte
+	BUMP_HEAP	1			# add one byte to heap ptr
 	j		read_loop		# repeat
 end_read_loop:
-	mv		a0, s0			# set return value to s0
+	mv		a0, s0			# return start of input
+	mv		a1, gp                  # return end of input
 
 	ld		s0, 8(sp)		# restore s0
 	DEALLOC_STACK	16
@@ -124,7 +141,33 @@ init_io:
 	li		x4, 0x10000000		# UART base
 	ret
 
+print_str:
+    mv      t1, a0           # Move pointer to t1
+1:  lbu     a0, 0(t1)        # Load next char
+    beqz    a0, 2f           # If null, return (forward jump to 2)
+    
+    # We don't use ALLOC_STACK here because print_str 
+    # is a leaf-like helper; it just calls write_byte.
+    # But wait! write_byte clobbers ra. 
+    # Let's use your s0 trick or save ra.
+    
+    addi    sp, sp, -16
+    sd      ra, 0(sp)
+    sd      t1, 8(sp)        # Save our pointer
+    
+    jal     write_byte
+    
+    ld      t1, 8(sp)
+    ld      ra, 0(sp)
+    addi    sp, sp, 16
+    
+    addi    t1, t1, 1        # Next char
+    j       1b               # Loop back
+2:	ret
+
 stack_panic:
+	LOAD_ADDRESS	a0, msg_stack_overflow
+	jal		print_str
 	j		exit
 
 exit:
@@ -137,5 +180,6 @@ final_spin:
 	j		final_spin
 
 
+msg_stack_overflow: .string "stack overflow!\n"
 data:
 
