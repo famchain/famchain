@@ -80,7 +80,6 @@ _base\@:
         ld              t3, 32(sp)
         ld              a0, 40(sp)
         DEALLOC_STACK   48
-
 .endm
 
 .macro ALLOC_STACK	size
