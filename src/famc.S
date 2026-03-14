@@ -32,6 +32,19 @@ _base\@:
     addi    \reg, \reg, %lo(_offset\@)
 .endm
 
+.macro PRINT label
+        LOAD_ADDRESS    a0, \label
+        jal             print_str
+.endm 
+
+.macro PRINTLN label
+	LOAD_ADDRESS	a0, \label
+	jal		print_str
+	li		a0, '\n'
+	jal		write_byte
+	
+.endm
+
 .macro ALLOC_STACK size
 	addi		sp, sp, -\size		# Allocate bytes on stack
 	blt		sp, gp, stack_panic	# panic if stack overflow
@@ -49,19 +62,15 @@ _base\@:
 .endm
 
 _start:
-	jal		init_io
-
-dataptr:
-	LOAD_ADDRESS	gp data
-	li		sp, 1
+	jal		init_io			# Setup io (UART)
+	LOAD_ADDRESS	gp data			# Load heap ptr
+	li		sp, 1			
 	slli		sp, sp, 26
-	add		sp, sp, gp
-	andi		sp, sp, -16
-
-	jal		read_data
-	jal		pass1
-
-	jal		write_data
+	add		sp, sp, gp		# Init stack at heap + 64 MiB
+	andi		sp, sp, -16		# Align stack to 16 bytes
+	jal		read_data		# Read input file
+	jal		pass1			# First pass
+	jal		write_data		# Write output file
 	jal		exit
 
 
@@ -72,16 +81,15 @@ read_data:
 	ALLOC_STACK	16
 	sd		s0, 8(sp)		# store s0
 
-
 	mv		s0, gp			# point to start of heap
-read_loop:
+1:
 	jal		read_byte		# call read byte
 	li		t0, 4			# set to ASCII \004 (EOT)
-	beq		a0, t0, end_read_loop	# exit if EOT
+	beq		a0, t0, 2f		# exit if EOT
 	sb              a0, 0(gp)		# save read byte
 	BUMP_HEAP	1			# add one byte to heap ptr
-	j		read_loop		# repeat
-end_read_loop:
+	j		1b			# repeat
+2:
 	mv		a0, s0			# return start of input
 	mv		a1, gp                  # return end of input
 
@@ -94,7 +102,6 @@ write_data:
 	sd		s0, 8(sp)		# store s0
 
 	mv		s0, a0			# copy first arg to s0
-
 	# Write a nop header (0x13, 0x00, 0x00, 0x00)
 	li		a0, 0x13
 	jal		write_byte
@@ -149,8 +156,7 @@ print_str:
 	ret
 
 stack_panic:
-	LOAD_ADDRESS	a0, msg_stack_overflow
-	jal		print_str
+	PRINTLN msg_stack_overflow
 	j		exit
 
 exit:
@@ -162,6 +168,6 @@ exit:
 	j		1b
 
 
-msg_stack_overflow: .string "stack overflow!\n"
+msg_stack_overflow: .string "stack overflow!"
 data:
 
