@@ -75,8 +75,30 @@ _start:
 	slli		sp, sp, 26		# 64 MiB
 	add		sp, sp, gp		# Init stack at heap + 64 MiB
 	andi		sp, sp, -16		# Align stack to 16 bytes
+	jal		read_data
 	jal		write_data
 	jal		exit
+
+read_data:
+	ALLOC_STACK	16
+	sd		s0, 8(sp)		# store s0
+
+	mv		s0, gp			# set s0 to gp
+1:
+	jal		read_byte		# read next byte
+	li		t0, 4			# load EOT
+	beq		a0, t0, 2f		# if EOT exit loop
+	sb		a0, 0(gp)		# store byte
+	BUMP_HEAP	1			# increment heap
+	j		1b			# repeat
+2:
+
+	mv		a0, s0			# save start of input
+	mv		a1, gp			# save end of input
+
+	ld		s0, 8(sp)		# restore s0
+	DEALLOC_STACK	16
+	ret
 
 write_nop:
 	ALLOC_STACK	16
@@ -90,9 +112,25 @@ write_nop:
 	ret
 
 write_data:
-	ALLOC_STACK	16
+	ALLOC_STACK	32
+	sd		s0, 8(sp)
+	sd		s1, 16(sp)
+
+	mv		s0, a0
+	mv		s1, a1
 	jal		write_nop
-	DEALLOC_STACK	16
+
+1:
+	beq		s0, s1, 2f
+	lbu		a0, 0(s0)
+	jal		write_byte
+	addi		s0, s0, 1
+	j		1b
+2:
+	ld		s0, 8(sp)
+	ld		s1, 16(sp)
+	
+	DEALLOC_STACK	32
 	ret
 
 read_byte:
