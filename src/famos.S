@@ -138,6 +138,7 @@ handle_int:
 
     # Clear UART hardware by reading the byte
     li      t1, UART_BASE
+    li      t0, 0xc200004
     lbu     x0, 0(t1)
 
     sw      a1, 0(t0)       # Complete
