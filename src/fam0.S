@@ -3,7 +3,7 @@ _start:
 	auipc	s1, 0x0
 	addi	s1, s1, 256
 	mv	s2, s1
-	li	t6, 0
+	li	s5, 0
 	li 	s3, 0
 
 # Loop
@@ -17,19 +17,19 @@ loop:
 	# Check end of comment
 	li	t3, '\n'
 	bne	t1, t3, not_backn
-	li	t6, 0
+	li	s5, 0
 not_backn:
 
 	# Check start comment
 	li	t3, '#'
 	bne	t1, t3, skip_start_comment
-	li	t6, 1
+	li	s5, 1
 skip_start_comment:
 
 	li	t3, 4 # End of message
 	beq	t1, t3, end_loop
 
-	bnez	t6, loop
+	bnez	s5, loop
 
 	# skip whitespace
 	li	t3, 33
@@ -47,13 +47,13 @@ store:
 	li	t3, 1
 	beq	s3, t3, store_low
 	li	s3, 1
-	slli	s4, t1, 4
+	slli	t4, t1, 4
 	j	loop
 
 store_low:
 	li	s3, 0
-	or	s4, s4, t1
-	sb	s4, 0(s2)
+	or	t4, t4, t1
+	sb	t4, 0(s2)
 	addi	s2, s2, 1
 	j	loop
 end_loop:
