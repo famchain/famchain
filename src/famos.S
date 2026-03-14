@@ -20,6 +20,11 @@ _base\@:
 .endm
 
 _start:
+	#LOAD_ADDRESS	t0 boot_lock
+	#li		t1, 1
+	#amoswap.w.aq	t2, t1, (t0)
+	#bnez		t2, halt_core
+
 	jal		init_plic
 	li		a0, 'x'
 	jal		write_byte
@@ -51,9 +56,11 @@ _start:
     csrs    mstatus, t0
 
 
-
+halt_core:
 1:	wfi
 	j		1b	
+
+
 
 
 init_plic:
@@ -113,3 +120,5 @@ handle_int:
     sw      a1, 0(s10)       # Write ID back to complete
     mret
 
+
+boot_lock: .word 0

@@ -7,5 +7,6 @@ qemu-system-riscv64 \
 	-machine virt \
 	-nographic \
 	-bios none \
+	-smp 2 \
 	-device loader,file=./bin/famos.bin,addr=0x80000000 
 
