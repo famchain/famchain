@@ -32,6 +32,7 @@
 .equ	UART_WR_MASK,	0x20
 .equ	UART_LSR,	5
 .equ	UART_RBR,	0
+.set	DEBUG,		1
 
 .macro LOAD_ADDRESS reg, label
 _base\@:
@@ -42,15 +43,44 @@ _base\@:
 .endm
 
 .macro PRINT label
+	ALLOC_STACK	48
+	sd		t0, 8(sp)
+	sd		t1, 16(sp)
+	sd		t2, 24(sp)
+	sd		t3, 32(sp)
+	sd		a0, 40(sp)
+
 	LOAD_ADDRESS	a0, \label
 	jal		print_str
+
+	ld		t0, 8(sp)
+	ld		t1, 16(sp)
+	ld		t2, 24(sp)
+	ld		t3, 32(sp)
+	ld		a0, 40(sp)
+	DEALLOC_STACK	48
 .endm
 
 .macro PRINTLN label
-	LOAD_ADDRESS	a0, \label
-	jal		print_str
+        ALLOC_STACK     48
+        sd              t0, 8(sp)
+        sd              t1, 16(sp)
+        sd              t2, 24(sp)
+        sd              t3, 32(sp)
+        sd              a0, 40(sp)
+
+        LOAD_ADDRESS    a0, \label
+        jal             print_str
 	li		a0, '\n'
 	jal		write_byte
+
+        ld              t0, 8(sp)
+        ld              t1, 16(sp)
+        ld              t2, 24(sp)
+        ld              t3, 32(sp)
+        ld              a0, 40(sp)
+        DEALLOC_STACK   48
+
 .endm
 
 .macro ALLOC_STACK	size
@@ -82,7 +112,7 @@ _start:
 	jal		exit
 
 pass1:
-	ALLOC_STACK	16
+	ALLOC_STACK	32
 
         mv              t0, a0
         mv              t1, a1
@@ -100,7 +130,7 @@ pass1:
 	mv a0, tp
 	mv a1, t2
 
-	DEALLOC_STACK	16
+	DEALLOC_STACK	32
 	ret
 
 read_data:
@@ -176,14 +206,14 @@ write_byte:
 	ret
 
 print_str:
-	li		t4, UART_BASE
+	li		t3, UART_BASE
 	mv		t1, a0
 1:      lbu		t0, 0(t1)
 	beqz		t0, 2f
-	lbu		t2, UART_LSR(t4)	# check status
+	lbu		t2, UART_LSR(t3)	# check status
 	andi		t2, t2, UART_WR_MASK	# mask
-	beqz		t2, write_byte		# retry
-	sb		t0, UART_RBR(t4)	# send to UART
+	beqz		t2, 1b			# retry
+	sb		t0, UART_RBR(t3)	# send to UART
 	addi		t1, t1, 1		# Next char
 	j		1b			# Loop back
 2:  
@@ -204,4 +234,5 @@ exit:
 	j	       1b
 
 msg_stack_overflow: .string "stack overflow!"
+debug_msg: .string "including debugging info."
 data:
