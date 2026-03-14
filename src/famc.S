@@ -75,9 +75,33 @@ _start:
 	slli		sp, sp, 26		# 64 MiB
 	add		sp, sp, gp		# Init stack at heap + 64 MiB
 	andi		sp, sp, -16		# Align stack to 16 bytes
+	mv		tp, sp			# Use tp for output buffer
 	jal		read_data
+	jal		pass1
 	jal		write_data
 	jal		exit
+
+pass1:
+	ALLOC_STACK	16
+
+        mv              t0, a0
+        mv              t1, a1
+	mv		t2, tp
+
+1:
+        beq             t0, t1, 2f
+        lbu             t3, 0(t0)
+	sb		t3, 0(t2)
+	addi		t2, t2, 1
+        addi            t0, t0, 1
+        j               1b
+2:
+
+	mv a0, tp
+	mv a1, t2
+
+	DEALLOC_STACK	16
+	ret
 
 read_data:
 	ALLOC_STACK	16

@@ -11,8 +11,8 @@ riscv64-unknown-elf-objcopy -O binary bin/famc.o bin/famc.bin || exit 1
         -device loader,file=./bin/famc.bin,addr=0x80000000 | \
         tee ./bin/test.bin > /dev/null
 
-echo "test.fam input:"
-cat tmp/test.fam
+#echo "test.fam input:"
+#cat tmp/test.fam
 MAGIC=$(head -c 4 bin/test.bin | xxd -p)
 
 if [ "$MAGIC" = "13000000" ]; then
@@ -23,4 +23,5 @@ else
     cat bin/test.bin
     rm bin/test.bin
 fi
+
 
