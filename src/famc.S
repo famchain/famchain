@@ -51,7 +51,6 @@ _base\@:
         jal             print_str
         li              a0, '\n'
         jal             write_byte
-
 .endm
 
 .macro ALLOC_STACK size
@@ -115,6 +114,25 @@ write_byte:
         sb              a0, UART_RBR(t0)	# send to UART
         ret
 
+print_str:
+	li		t4, UART_BASE
+        mv              t1, a0
+1:      lbu             t0, 0(t1)
+        beqz            t0, 2f
+        lbu             t2, UART_LSR(t4)               # check status
+        andi            t2, t2, UART_WR_MASK            # mask
+        beqz            t2, write_byte          # retry
+        sb              t0, UART_RBR(t4)               # send to UART
+        addi            t1, t1, 1               # Next char
+        j               1b                      # Loop back
+2:  
+        ret 
+
+
+stack_panic:
+        PRINTLN msg_stack_overflow
+        j               exit
+
 
 exit:
 	li		t0, EXIT_ADDR		# load exit addr
@@ -124,4 +142,6 @@ exit:
 	wfi
 	j               1b
 
+msg_stack_overflow: .string "stack overflow!"
+hello: .string "hello!"
 data:
