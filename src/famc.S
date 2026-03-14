@@ -105,13 +105,13 @@ write_data:
 
 
 	# Iterate through array
-write_loop:	
-	beq		s0, a1, end_write_loop	# exit when at end ptr
+1:	
+	beq		s0, a1, 2f		# exit when at end ptr
 	lbu		a0, 0(s0)		# load next entry into arg
 	jal		write_byte		# write value
 	addi		s0, s0, 1		# move to next char
-	j		write_loop		# repeat
-end_write_loop:
+	j		1b			# repeat
+2:
 
 	ld		s0, 8(sp)		# restore s0
 	DEALLOC_STACK	16
@@ -157,10 +157,9 @@ exit:
 	li		t0, 0x100000		# QEMU Virt Test Device
 	li		t1, 0x5555		# Shutdown command
 	sw		t1, 0(t0)
-
-final_spin:
+1:
 	wfi
-	j		final_spin
+	j		1b
 
 
 msg_stack_overflow: .string "stack overflow!\n"
