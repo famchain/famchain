@@ -112,11 +112,13 @@ skip_enable:
 
 .align 4
 trap_handler:
+    csrr    t1, mhartid
     csrr    t0, mcause
     bltz    t0, handle_int  # If negative, it's an interrupt
 
     # Handle Exception (ebreak)
     li      a0, 'E'         # Print 'E' for every core that hits ebreak
+    add     a0, a0, t1
     jal     write_byte
     csrr    t1, mepc
     addi    t1, t1, 4       # Advance PC past ebreak
@@ -134,6 +136,7 @@ handle_int:
     beqz    a1, 2f          # If 0, nothing to do (spurious)
 
     li      a0, '!'
+    add     a0, a0, t1
     jal     write_byte      # Print '!' for keypress
 
     # Clear UART hardware by reading the byte
