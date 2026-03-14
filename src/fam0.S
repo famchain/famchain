@@ -5,7 +5,7 @@ _start:
 	addi	s1, s1, 256
 	mv	s2, s1
 	li	s4, 0
-	li 	s3, 0
+	li 	s3, 1
 
 # Loop
 loop:
@@ -43,14 +43,13 @@ skip_start_comment:
 	j	loop
 
 store:
+	xori    s3, s3, 1
 	li	t3, 1
 	beq	s3, t3, store_low
-	li	s3, 1
 	slli	t4, t1, 4
 	j	loop
 
 store_low:
-	li	s3, 0
 	or	t4, t4, t1
 	sb	t4, 0(s2)
 	addi	s2, s2, 1
