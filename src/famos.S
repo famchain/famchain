@@ -55,9 +55,10 @@ _start:
     	mv              a0, s0          # Pass ID to init function
 	jal             init_plic
 
-    # 4. Enable Interrupts in CSRs
-    li              t0, 0x800       # MEIE (External Interrupts)
-    csrs            mie, t0
+	li      t0, 0x808       # 0x800 (External) + 0x008 (Software)
+	csrs    mie, t0
+
+
     li              t0, 8           # MIE (Global Interrupt Enable)
     csrs            mstatus, t0
 
@@ -68,6 +69,10 @@ _start:
 
     # 6. TEST: Every core hits ebreak (Exception)
     ebreak
+
+    li      t0, 0x02000004
+    li      t1, 1
+    sw      t1, 0(t0) 
 
 	li		a0, '0'
 	add		a0, a0, s0
@@ -127,6 +132,14 @@ trap_handler:
 
 handle_int:
     # Calculate THIS core's Claim register (Physical mhartid * 0x1000)
+
+csrr   t0, mcause
+slli t1, t0, 1
+srli t1, t1, 1
+
+li t2, 3
+beq t1, t2, handle_clint_ipi
+
     csrr    t1, mhartid
     li      t0, 0x0c200004
     slli    t1, t1, 12
@@ -145,6 +158,26 @@ handle_int:
     lbu     x0, 0(t1)
 
     sw      a1, 0(t0)       # Complete
+
+    li      t2, 0x0200000C   # CLINT MSIP for Hart 3 (0x02000000 + 3*4)
+    li      t3, 1
+    sw      t3, 0(t2)
+
 2:  mret
+
+handle_clint_ipi:
+    # 1. STOP THE INFINITE LOOP (Clear the MSIP bit)
+    csrr    t1, mhartid
+    li      t0, 0x02000000   # CLINT Base
+    slli    t1, t1, 2        # Physical ID * 4
+    add     t0, t0, t1
+    sw      x0, 0(t0)        # Write 0 to clear the interrupt
+
+    # 2. Print 'S' for Software Interrupt
+    li      a0, 'S'
+    csrr    t1, mhartid
+    add     a0, a0, t1
+    jal     write_byte
+    mret
 
 boot_lock:
