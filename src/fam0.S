@@ -35,6 +35,11 @@ skip_start_comment:
 
 	bnez	t6, loop
 
+	# skip whitespace
+	li	t3, 33
+	blt	t1, t3, loop
+
+
 	sb	t1, 0(s2)
 	addi	s2, s2, 1
 
