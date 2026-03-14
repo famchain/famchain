@@ -84,10 +84,32 @@ write_byte:
 # --- The Trap Handler ---
 .align 4                 # This is critical: mtvec target MUST be 4-byte aligned
 trap_handler:
-    li      a0, '!'      # Print '!' when any trap occurs
+    csrr    t0, mcause      # Why are we here?
+    bltz    t0, handle_int  # If bit 63 is 1, it's an Interrupt (Hardware)
+    
+    # --- It's an Exception (like ebreak) ---
+    li      a0, 'E'         # 'E' for Exception
+    jal     write_byte
+    csrr    t1, mepc
+    addi    t1, t1, 4       # Skip the ebreak
+    csrw    mepc, t1
+    mret
+
+handle_int:
+    # --- It's a Hardware Interrupt ---
+    # 1. Claim from PLIC
+    li      s10, PLIC_MCLAIM
+    lw      a1, 0(s10)       # Get ID (10)
+
+    # 2. Clear the UART (Crucial: Read the key)
+    li      t1, UART_BASE
+    lbu     t2, 0(t1)        # Read key to clear hardware flag
+    
+    # 3. Print the '!'
+    li      a0, '!'
     jal     write_byte
 
-    csrr    t0, mepc
-    addi    t0, t0, 4
-    csrw    mepc, t0
-    mret                 # Return from trap (Machine Return)
+    # 4. Complete to PLIC
+    sw      a1, 0(s10)       # Write ID back to complete
+    mret
+
