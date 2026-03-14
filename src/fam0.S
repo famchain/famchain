@@ -39,10 +39,26 @@ skip_start_comment:
 	li	t3, 33
 	blt	t1, t3, loop
 
+	addi	t1, t1, -48 # Subtract '0'
+	li	t3, 10
+	bltu	t1, t3, store
+	addi	t1, t1, -7
+	li	t3, 16
+	bltu	t1, t3, store
+	j	loop
+store:
 
-	sb	t1, 0(s2)
+	li	t3, 1
+	beq	s3, t3, store_low
+	li	s3, 1
+	slli	s4, t1, 4
+	j	loop
+
+store_low:
+	li	s3, 0
+	or	s4, s4, t1
+	sb	s4, 0(s2)
 	addi	s2, s2, 1
-
 	j	loop
 end_loop:
 
@@ -54,14 +70,8 @@ retry:
 	lbu	t1, 5(t0)
 	andi	t1, t1, 0x20
 	beqz	t1, retry
-	li	t4, '\r'
-	beq	t3, t4, convert
 	sb	t3, 0(t0)
 	j	output
-convert:
-	li	t3, '\n'
-	sb	t3, 0(t0)
-	j output	
 end_output:
 
 	li	t0, 0x100000	# QEMU Virt Test Device
