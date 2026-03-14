@@ -23,15 +23,13 @@
 # ──────────────────────────────────────────────────────────────────────────────
 # famc.s - fam compiler (asm impl)
 # ──────────────────────────────────────────────────────────────────────────────
-.equ DATA_OFFSET, (data - dataptr)
 
 .macro LOAD_ADDRESS reg, label
-    .local _base
-_base:
-    # Calculate the offset between the label and THIS specific instruction
-    .equ _offset, (\label - _base)
-    auipc   \reg, %hi(_offset)
-    addi    \reg, \reg, %lo(_offset)
+_base\@:
+    # Uses \@ to make a unique constant name for every expansion
+    .equ _offset\@, (\label - _base\@)
+    auipc   \reg, %hi(_offset\@)
+    addi    \reg, \reg, %lo(_offset\@)
 .endm
 
 .macro ALLOC_STACK size
@@ -54,8 +52,7 @@ _start:
 	jal		init_io
 
 dataptr:
-	auipc		gp, %hi(DATA_OFFSET)
-	addi		gp, gp, %lo(DATA_OFFSET)
+	LOAD_ADDRESS	gp data
 	li		sp, 1
 	slli		sp, sp, 26
 	add		sp, sp, gp
@@ -64,9 +61,6 @@ dataptr:
 	jal		read_data
 	jal		pass1
 
-#bump: 
-#	BUMP_HEAP 1024
-#	j bump
 	jal		write_data
 	jal		exit
 
@@ -142,28 +136,17 @@ init_io:
 	ret
 
 print_str:
-    mv      t1, a0           # Move pointer to t1
-1:  lbu     a0, 0(t1)        # Load next char
-    beqz    a0, 2f           # If null, return (forward jump to 2)
-    
-    # We don't use ALLOC_STACK here because print_str 
-    # is a leaf-like helper; it just calls write_byte.
-    # But wait! write_byte clobbers ra. 
-    # Let's use your s0 trick or save ra.
-    
-    addi    sp, sp, -16
-    sd      ra, 0(sp)
-    sd      t1, 8(sp)        # Save our pointer
-    
-    jal     write_byte
-    
-    ld      t1, 8(sp)
-    ld      ra, 0(sp)
-    addi    sp, sp, 16
-    
-    addi    t1, t1, 1        # Next char
-    j       1b               # Loop back
-2:	ret
+	mv		t1, a0
+1:	lbu		t0, 0(t1)
+	beqz		t0, 2f
+	lbu		t2, 5(x4)		# check status
+	andi		t2, t2, 0x20		# mask
+	beqz		t2, write_byte		# retry
+	sb		t0, 0(x4)		# send to UART
+	addi		t1, t1, 1		# Next char
+        j		1b			# Loop back
+2:
+	ret
 
 stack_panic:
 	LOAD_ADDRESS	a0, msg_stack_overflow
