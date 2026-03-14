@@ -15,10 +15,6 @@ loop:
 	lbu	t1, 0(t0)
 
 	# Check end of comment
-	li	t3, '\r'
-	bne	t1, t3, not_backr
-	li	t6, 0
-not_backr:
 	li	t3, '\n'
 	bne	t1, t3, not_backn
 	li	t6, 0
@@ -30,7 +26,7 @@ not_backn:
 	li	t6, 1
 skip_start_comment:
 
-	li	t3, '.' # End of message
+	li	t3, 4 # End of message
 	beq	t1, t3, end_loop
 
 	bnez	t6, loop
