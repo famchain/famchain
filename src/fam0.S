@@ -1,74 +1,108 @@
+# MIT License
+#
+# Copyright (c) 2026 Christopher Gilliard
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
+# ──────────────────────────────────────────────────────────────────────────────
+# file: fam0.S - first stage bootstrap tool (188 bytes compiled - GNU as src)
+# RISC-V 64-bit Hex-to-Binary Converter (Bootstrapping Seed)
+# ──────────────────────────────────────────────────────────────────────────────
+
+.section .text
+.global _start
+
 _start:
-	li	s6, 10		# constant used twice
-	li	s5, 0x10000000
-	auipc	s1, 0x0
-	addi	s1, s1, 256
-	mv	s2, s1
-	li	s4, 0
-	li 	s3, 1
+	li	s6, 10		# Constant: Newline (\n) and Hex limit (10)
+	li	s5, 0x10000000	# Constant: UART base address
+	auipc	s1, 0x0		# Get current Program Counter
+	addi	s1, s1, 256	# s1 = Start of binary output buffer (PC + 256)
+	mv	s2, s1		# s2 = High-water mark pointer (iterator)
+	li	s4, 0		# s4 = In-comment flag (0 = false)
+	li 	s3, 1		# s3 = Nibble toggle (1 = waiting for High)
 
-# Loop
+# Main input processing loop
 loop:
-	# read byte
-	lbu	t5, 5(s5)
-	andi	t5, t5, 1
-	beqz	t5, loop
-	lbu	t1, 0(s5)
+	# UART poll: check for incoming byte
+	lbu	t5, 5(s5)	# Read Line Status Register
+	andi	t5, t5, 1	# Mask: Data Ready bit
+	beqz	t5, loop	# Wait if no data
+	lbu	t1, 0(s5)	# Read byte from Receive Buffer
 
-	# Check end of comment
-	bne	t1, s6, not_backn # check newline
-	li	s4, 0
-
+	# Logic: Handle line comments
+	bne	t1, s6, not_backn # If not newline, skip reset
+	li	s4, 0		  # At '\n', set in-comment = false
 not_backn:
-	# Check start comment
-	li	t3, '#'
+	li	t3, '#'		# Load comment start delimiter
 	bne	t1, t3, skip_start_comment
-	li	s4, 1
-
+	li	s4, 1		# At '#', set in-comment = true
 skip_start_comment:
-	li	t3, 4 # End of message
-	beq	t1, t3, end_loop
 
+	# Logic: Check for End of Transmission (ASCII 4)
+	li	t3, 4 		
+	beq	t1, t3, end_loop # Exit input loop if EOT received
+
+	# If currently inside a comment, ignore all characters
 	bnez	s4, loop
 
-	# skip whitespace
-	li	t3, 33
-	blt	t1, t3, loop
+	# Logic: Skip whitespace and control codes
+	li	t3, 33		# ASCII 32 is space
+	blt	t1, t3, loop	# Ignore if <= space
 
-	addi	t1, t1, -48 # Subtract '0'
-	bltu	t1, s6, store # if less than 10
-	addi	t1, t1, -7
+	# Logic: ASCII Hex to Binary Nibble conversion
+	addi	t1, t1, -48 	# Normalize '0' to 0
+	bltu	t1, s6, store 	# If 0-9, it's a valid hex digit
+	addi	t1, t1, -7	# Normalize 'A'-'F' (55-48=7 offset)
 	li	t3, 16
-	bltu	t1, t3, store
-	j	loop
+	bltu	t1, t3, store 	# If 10-15, it's a valid hex digit
+	j	loop		# Otherwise, skip invalid hex char
 
+# Logic: Pack two 4-bit nibbles into one 8-bit byte
 store:
-	xori    s3, s3, 1
-	bnez	s3, store_low	
-	slli	t4, t1, 4
+	xori    s3, s3, 1	# Toggle high/low state
+	bnez	s3, store_low	# If now 1, we just finished the low nibble
+	slli	t4, t1, 4	# Store high nibble in t4
 	j	loop
 
 store_low:
-	or	t4, t4, t1
-	sb	t4, 0(s2)
-	addi	s2, s2, 1
+	or	t4, t4, t1	# Combine high and low nibbles
+	sb	t4, 0(s2)	# Store resulting byte in buffer
+	addi	s2, s2, 1	# Increment high-water pointer
 	j	loop
 end_loop:
 
+# Final Output: Stream the constructed binary back through the UART
 output:
-	beq	s1, s2, end_output
-	lbu	t3, 0(s1)
-	addi	s1, s1, 1
+	beq	s1, s2, end_output # Stop when read pointer matches write pointer
+	lbu	t3, 0(s1)	   # Load byte from buffer
+	addi	s1, s1, 1	   # Increment read pointer
 
 retry:
-	lbu	t1, 5(s5)
-	andi	t1, t1, 0x20
-	beqz	t1, retry
-	sb	t3, 0(s5)
+	lbu	t1, 5(s5)	# Check Line Status Register
+	andi	t1, t1, 0x20	# Mask: Transmitter Holding Register Empty
+	beqz	t1, retry	# Wait until UART is ready to send
+	sb	t3, 0(s5)	# Send byte to UART
 	j	output
 
+# Shutdown simulation
 end_output:
-	li	s5, 0x100000	# QEMU Virt Test Device
-	li	t1, 0x5555	# Shutdown command
-        sw	t1, 0(s5)
+	li	s5, 0x100000	# QEMU Virt Test Device address
+	li	t1, 0x5555	# Power-off command
+        sw	t1, 0(s5)	# Exit simulation
 
