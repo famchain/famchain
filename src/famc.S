@@ -42,53 +42,52 @@ _base\@:
 .endm
 
 .macro PRINT label
-        LOAD_ADDRESS    a0, \label
-        jal             print_str
+	LOAD_ADDRESS	a0, \label
+	jal		print_str
 .endm
 
 .macro PRINTLN label
-        LOAD_ADDRESS    a0, \label
-        jal             print_str
-        li              a0, '\n'
-        jal             write_byte
+	LOAD_ADDRESS	a0, \label
+	jal		print_str
+	li		a0, '\n'
+	jal		write_byte
 .endm
 
-.macro ALLOC_STACK size
-        addi            sp, sp, -\size          # Allocate bytes on stack
-        blt             sp, gp, stack_panic     # panic if stack overflow
-        sd              ra, 0(sp)               # Always store ra
+.macro ALLOC_STACK	size
+	addi		sp, sp, -\size		# Allocate bytes on stack
+	blt		sp, gp, stack_panic	# panic if stack overflow
+	sd		ra, 0(sp)		# Always store ra
 .endm
 
 .macro DEALLOC_STACK size
-        ld              ra, 0(sp)               # Restore ra
-        addi            sp, sp, \size           # Deallocate bytes on stack
+	ld		ra, 0(sp)		# Restore ra
+	addi		sp, sp, \size		# Deallocate bytes on stack
 .endm
 
-.macro BUMP_HEAP size
-        addi            gp, gp, \size           # update gp
-        bgt             gp, sp, stack_panic     # stack overflow
+.macro BUMP_HEAP	size
+	addi		gp, gp, \size		# update gp
+	bgt		gp, sp, stack_panic	# stack overflow
 .endm
 
 _start:
-        LOAD_ADDRESS    gp data                 # Load heap ptr
-        li              sp, 1
-        slli            sp, sp, 26
-        add             sp, sp, gp              # Init stack at heap + 64 MiB
-        andi            sp, sp, -16             # Align stack to 16 bytes
-
+	LOAD_ADDRESS	gp data			# Load heap ptr
+	li		sp, 1			# Setup stack pointer
+	slli		sp, sp, 26		# 64 MiB
+	add		sp, sp, gp		# Init stack at heap + 64 MiB
+	andi		sp, sp, -16		# Align stack to 16 bytes
 	jal		write_data
 	jal		exit
 
 write_nop:
-        ALLOC_STACK     16
-        li              a0, 0x13
-        jal             write_byte
-        li              a0, 0x00
-        jal             write_byte
-        jal             write_byte
-        jal             write_byte
-        DEALLOC_STACK   16
-        ret
+	ALLOC_STACK	16
+	li		a0, 0x13
+	jal		write_byte
+	li		a0, 0x00
+	jal		write_byte
+	jal		write_byte
+	jal		write_byte
+	DEALLOC_STACK	16
+	ret
 
 write_data:
 	ALLOC_STACK	16
@@ -99,39 +98,39 @@ write_data:
 read_byte:
 	li		t0, UART_BASE
 1:
-        lbu             t1, UART_LSR(t0)	# Read from UART
-        andi            t1, t1, UART_RD_MASK	# mask
-        beqz            t1, 1b			# if not ready read again
-        lbu             a0, UART_RBR(t0)	# Get current char, store x30
-        ret
+	lbu		t1, UART_LSR(t0)	# Read from UART
+	andi		t1, t1, UART_RD_MASK	# mask
+	beqz		t1, 1b			# if not ready read again
+	lbu		a0, UART_RBR(t0)	# Get current char, store x30
+	ret
 
 write_byte:
 	li		t0, UART_BASE
 1:
-        lbu             t1, UART_LSR(t0)
-        andi            t1, t1, UART_WR_MASK	# mask
-        beqz            t1, 1b			# retry
-        sb              a0, UART_RBR(t0)	# send to UART
-        ret
+	lbu		t1, UART_LSR(t0)
+	andi		t1, t1, UART_WR_MASK	# mask
+	beqz		t1, 1b			# retry
+	sb		a0, UART_RBR(t0)	# send to UART
+	ret
 
 print_str:
 	li		t4, UART_BASE
-        mv              t1, a0
-1:      lbu             t0, 0(t1)
-        beqz            t0, 2f
-        lbu             t2, UART_LSR(t4)               # check status
-        andi            t2, t2, UART_WR_MASK            # mask
-        beqz            t2, write_byte          # retry
-        sb              t0, UART_RBR(t4)               # send to UART
-        addi            t1, t1, 1               # Next char
-        j               1b                      # Loop back
+	mv		t1, a0
+1:      lbu		t0, 0(t1)
+	beqz		t0, 2f
+	lbu		t2, UART_LSR(t4)	# check status
+	andi		t2, t2, UART_WR_MASK	# mask
+	beqz		t2, write_byte		# retry
+	sb		t0, UART_RBR(t4)	# send to UART
+	addi		t1, t1, 1		# Next char
+	j		1b			# Loop back
 2:  
-        ret 
+	ret 
 
 
 stack_panic:
-        PRINTLN msg_stack_overflow
-        j               exit
+	PRINTLN		msg_stack_overflow
+	j		exit
 
 
 exit:
@@ -140,8 +139,7 @@ exit:
 	sw		t1, UART_RBR(t0)
 1:
 	wfi
-	j               1b
+	j	       1b
 
 msg_stack_overflow: .string "stack overflow!"
-hello: .string "hello!"
 data:
