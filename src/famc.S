@@ -148,22 +148,17 @@ _start:
 	jal		write_data
 	j		exit
 
-parse:
-	ALLOC_STACK	32
-	sd		t0, 8(sp)
-	sd		t1, 16(sp)
-	sd		t2, 24(sp)
+lexer_next_token:
 
+parse:
+	ALLOC_STACK	16
 	mv		t0, a0
 	mv		t1, a1
 	mv		t2, tp
 
-1:
-	beq		t0, t1, 2f
+1:	beq		t0, t1, 2f
 	lbu		t3, 0(t0)
 	sb		t3, 0(t2)
-
-	PRINTLN "abc def ghi" 
 
 	addi		t2, t2, 1
 	addi		t0, t0, 1
@@ -172,10 +167,7 @@ parse:
 2:	mv a0, tp 
 	mv a1, t2 
 
-	ld		t0, 8(sp)
-	ld		t1, 16(sp)
-	ld		t2, 24(sp)
-	DEALLOC_STACK	32
+	DEALLOC_STACK	16
 	ret
 
 read_data:
@@ -250,6 +242,26 @@ print_str:
 	j		1b			# Loop back
 2:
 	ret 
+
+print_hex:
+    mv    t0, a0            # Save original value
+    li    t1, 60            # Shift amount (start at high nibble)
+1:
+    srl   t2, t0, t1        # Shift right to isolate nibble
+    andi  t2, t2, 0xF       # Mask 4 bits
+    li    a0, 10
+    blt   t2, a0, 2f        # If nibble < 10, it's 0-9
+    addi  t2, t2, 7         # Adjust for A-F (ASCII 'A' - '9' - 1)
+2:
+    addi  a0, t2, 48        # Convert to ASCII ('0' is 48)
+    jal   write_byte        # Output via UART
+    addi  t1, t1, -4        # Move to next nibble
+    bgez  t1, 1b            # Loop until all 16 nibbles printed
+    
+    li    a0, '\n'          # Final newline
+    jal   write_byte
+    ret
+
 
 read_byte:
 	li		t0, UART_BASE		
