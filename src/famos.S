@@ -65,21 +65,27 @@ skip_others_events:
 	j 1b
 
 init_uart:
-    # 1. Global Priority for UART (ID 10)
+    # 1. Global Priority
     li      t0, PLIC_PRIO_10
     li      t1, 1
     sw      t1, 0(t0)
 
-    # 2. Enable UART for Hart 0's M-Mode Context (Offset 0)
+    # 2. DYNAMIC Enable: Enable UART for the ACTUAL winner
+    csrr    t3, mhartid      # Get the physical ID of the winner
+    slli    t4, t3, 1        # Context = Hart * 2 (M-Mode)
+    slli    t2, t4, 7        # Offset = Context * 128
+    
     li      t0, PLIC_MENABLE
+    add     t0, t0, t2       # Now we point to the WINNER'S enable register
     li      t1, (1 << 10)
     sw      t1, 0(t0)
 
-    # 3. Enable UART Hardware Interrupts (IER)
+    # 3. UART Hardware
     li      t0, UART_BASE
-    li      t1, 1           # Data Ready
+    li      t1, 1
     sb      t1, 1(t0)
     ret
+
 
 init_others:
 	ret
@@ -122,21 +128,27 @@ handle_int:
     csrr    t0, mcause
     slli    t1, t0, 1
     srli    t1, t1, 1
-    
-    # If ID 11 (External), only Hart 0 needs to check its mailbox
+
+    # 1. Check for External Interrupt (11)
     li      t2, 11
     bne     t1, t2, 1f
 
-    # Calculate Hart 0's M-Mode Claim/Complete (since Hart 0 owns UART)
-    li      t0, 0x0c200004
-    lw      a0, 0(t0)        # Claim
-    beqz    a0, 1f
-    
-    # Clear UART
+    # 2. Look at OUR OWN mailbox (The Winner's mailbox)
+    csrr    t1, mhartid
+    slli    t1, t1, 1           # ContextID = HartID * 2
+    slli    t1, t1, 12          # Offset = ContextID * 4096 (0x1000)
+    li      t0, 0x0c200004      # Base for Context 0
+    add     t0, t0, t1          # t0 = OUR unique Claim/Complete register
+
+    # 3. Claim
+    lw      a0, 0(t0)
+    beqz    a0, 1f              # Spurious? Exit.
+
+    # 4. Handle UART
     li      t1, UART_BASE
     lbu     x0, 0(t1)
-    
-    # Complete
+
+    # 5. Complete
     sw      a0, 0(t0)
 
 1:  mret
