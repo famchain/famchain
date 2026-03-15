@@ -140,6 +140,13 @@ wait_read:
 
 # Read complete!
 
+# Load the first byte of the disk buffer
+LOAD_ADDRESS t1, disk_buffer
+lbu      a0, 0(t1)       # Get the first character from the 512 bytes
+#addi     a0, a0, '0'
+jal      write_byte      # Print it to the UART
+
+
 
 		li a0, 's'
 		jal write_byte
