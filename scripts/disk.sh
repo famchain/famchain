@@ -19,4 +19,3 @@ qemu-system-riscv64 \
     -device loader,file=./bin/disk.bin,addr=0x80000000 \
     -drive file=./tmp/disk.img,if=none,format=raw,id=dr0 \
     -device virtio-blk-device,drive=dr0,bus=virtio-mmio-bus.0
-
