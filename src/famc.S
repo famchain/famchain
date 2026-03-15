@@ -21,7 +21,7 @@
 # SOFTWARE.
 
 # ──────────────────────────────────────────────────────────────────────────────
-# famc.s - fam compiler (GNU as src)
+# famc.S - fam compiler (GNU as src)
 # ──────────────────────────────────────────────────────────────────────────────
 
 # System Constants
@@ -32,14 +32,29 @@
 .equ	UART_WR_MASK,	0x20
 .equ	UART_LSR,	5
 .equ	UART_RBR,	0
-.set	DEBUG,		1
 
 .macro LOAD_ADDRESS reg, label
 _base\@:
-    # Uses \@ to make a unique constant name for every expansion
-    .equ _offset\@, (\label - _base\@)
-    auipc   \reg, %hi(_offset\@)
-    addi    \reg, \reg, %lo(_offset\@)
+	# Uses \@ to make a unique constant name for every expansion
+	.equ _offset\@, (\label - _base\@)
+	auipc	\reg, %hi(_offset\@)
+	addi	\reg, \reg, %lo(_offset\@)
+.endm
+
+.macro ALLOC_STACK	size
+	addi		sp, sp, -\size		# Allocate bytes on stack
+	blt		sp, gp, stack_panic	# panic if stack overflow
+	sd		ra, 0(sp)		# Always store ra
+.endm
+
+.macro DEALLOC_STACK size
+	ld		ra, 0(sp)		# Restore ra
+	addi		sp, sp, \size		# Deallocate bytes on stack
+.endm
+
+.macro BUMP_HEAP	size
+	addi		gp, gp, \size		# update gp
+	bgt		gp, sp, stack_panic	# stack overflow
 .endm
 
 .macro PRINT label
@@ -62,40 +77,24 @@ _base\@:
 .endm
 
 .macro PRINTLN label
-        ALLOC_STACK     48
-        sd              t0, 8(sp)
-        sd              t1, 16(sp)
-        sd              t2, 24(sp)
-        sd              t3, 32(sp)
-        sd              a0, 40(sp)
+	ALLOC_STACK	48
+	sd		t0, 8(sp)
+	sd		t1, 16(sp)
+	sd		t2, 24(sp)
+	sd		t3, 32(sp)
+	sd		a0, 40(sp)
 
-        LOAD_ADDRESS    a0, \label
-        jal             print_str
+	LOAD_ADDRESS	a0, \label
+	jal		print_str
 	li		a0, '\n'
 	jal		write_byte
 
-        ld              t0, 8(sp)
-        ld              t1, 16(sp)
-        ld              t2, 24(sp)
-        ld              t3, 32(sp)
-        ld              a0, 40(sp)
-        DEALLOC_STACK   48
-.endm
-
-.macro ALLOC_STACK	size
-	addi		sp, sp, -\size		# Allocate bytes on stack
-	blt		sp, gp, stack_panic	# panic if stack overflow
-	sd		ra, 0(sp)		# Always store ra
-.endm
-
-.macro DEALLOC_STACK size
-	ld		ra, 0(sp)		# Restore ra
-	addi		sp, sp, \size		# Deallocate bytes on stack
-.endm
-
-.macro BUMP_HEAP	size
-	addi		gp, gp, \size		# update gp
-	bgt		gp, sp, stack_panic	# stack overflow
+	ld		t0, 8(sp)
+	ld		t1, 16(sp)
+	ld		t2, 24(sp)
+	ld		t3, 32(sp)
+	ld		a0, 40(sp)
+	DEALLOC_STACK	48
 .endm
 
 _start:
@@ -105,30 +104,36 @@ _start:
 	add		sp, sp, gp		# Init stack at heap + 64 MiB
 	andi		sp, sp, -16		# Align stack to 16 bytes
 	mv		tp, sp			# Use tp for output buffer
+
 	jal		read_data
-	jal		pass1
+	jal		parse
 	jal		write_data
-	jal		exit
+	j		exit
 
-pass1:
+parse:
 	ALLOC_STACK	32
+	sd		t0, 8(sp)
+	sd		t1, 16(sp)
+	sd		t2, 24(sp)
 
-        mv              t0, a0
-        mv              t1, a1
+	mv		t0, a0
+	mv		t1, a1
 	mv		t2, tp
 
 1:
-        beq             t0, t1, 2f
-        lbu             t3, 0(t0)
+	beq		t0, t1, 2f
+	lbu		t3, 0(t0)
 	sb		t3, 0(t2)
 	addi		t2, t2, 1
-        addi            t0, t0, 1
-        j               1b
-2:
+	addi		t0, t0, 1
+	j		1b
 
-	mv a0, tp
-	mv a1, t2
+2:	mv a0, tp 
+	mv a1, t2 
 
+	ld		t0, 8(sp)
+	ld		t1, 16(sp)
+	ld		t2, 24(sp)
 	DEALLOC_STACK	32
 	ret
 
@@ -137,16 +142,13 @@ read_data:
 	sd		s0, 8(sp)		# store s0
 
 	mv		s0, gp			# set s0 to gp
-1:
-	jal		read_byte		# read next byte
+1:	jal		read_byte		# read next byte
 	li		t0, 4			# load EOT
 	beq		a0, t0, 2f		# if EOT exit loop
 	sb		a0, 0(gp)		# store byte
 	BUMP_HEAP	1			# increment heap
 	j		1b			# repeat
-2:
-
-	mv		a0, s0			# save start of input
+2:	mv		a0, s0			# save start of input
 	mv		a1, gp			# save end of input
 
 	ld		s0, 8(sp)		# restore s0
@@ -172,7 +174,7 @@ write_data:
 	mv		s0, a0
 	mv		s1, a1
 	jal		write_nop
-
+	
 1:
 	beq		s0, s1, 2f
 	lbu		a0, 0(s0)
@@ -186,28 +188,18 @@ write_data:
 	DEALLOC_STACK	32
 	ret
 
-read_byte:
-	li		t0, UART_BASE
-1:
-	lbu		t1, UART_LSR(t0)	# Read from UART
-	andi		t1, t1, UART_RD_MASK	# mask
-	beqz		t1, 1b			# if not ready read again
-	lbu		a0, UART_RBR(t0)	# Get current char, store x30
-	ret
+stack_panic:		
+	LOAD_ADDRESS	a0 msg_stack_overflow
+	jal		print_str
+	li		a0, '\n'
+	jal		write_byte
+	j		exit
 
-write_byte:
-	li		t0, UART_BASE
-1:
-	lbu		t1, UART_LSR(t0)
-	andi		t1, t1, UART_WR_MASK	# mask
-	beqz		t1, 1b			# retry
-	sb		a0, UART_RBR(t0)	# send to UART
-	ret
 
 print_str:
 	li		t3, UART_BASE
 	mv		t1, a0
-1:      lbu		t0, 0(t1)
+1:	lbu		t0, 0(t1)
 	beqz		t0, 2f
 	lbu		t2, UART_LSR(t3)	# check status
 	andi		t2, t2, UART_WR_MASK	# mask
@@ -215,23 +207,33 @@ print_str:
 	sb		t0, UART_RBR(t3)	# send to UART
 	addi		t1, t1, 1		# Next char
 	j		1b			# Loop back
-2:  
+2:
 	ret 
 
+read_byte:
+	li		t0, UART_BASE		
+1:	
+	lbu		t1, UART_LSR(t0)	# Read from UART
+	andi		t1, t1, UART_RD_MASK	# mask
+	beqz		t1, 1b			# if not ready read again
+	lbu		a0, UART_RBR(t0)	# Get current char, store x30
+	ret	
 
-stack_panic:
-	PRINTLN		msg_stack_overflow
-	j		exit
+write_byte:
+	li		t0, UART_BASE
+1:	lbu		t1, UART_LSR(t0)
+	andi		t1, t1, UART_WR_MASK	# mask
+	beqz		t1, 1b			# retry
+	sb		a0, UART_RBR(t0)	# send to UART
+	ret
 
-
-exit:
+exit:	
 	li		t0, EXIT_ADDR		# load exit addr
 	li		t1, EXIT_PASS		# shutdown command
 	sw		t1, UART_RBR(t0)
-1:
-	wfi
-	j	       1b
+1:	wfi
+	j		1b
 
 msg_stack_overflow: .string "stack overflow!"
-debug_msg: .string "including debugging info."
+msg: .string "Hello world!"
 data:
