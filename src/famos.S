@@ -114,6 +114,10 @@ trap_handler:
     li      a0, 'a'
     add     a0, a0, tp
     jal     write_byte
+    li      a0, 'A'
+    csrr    t1, mhartid
+    add     a0, a0, t1
+    jal write_byte
 
     csrr    t0, mcause
     bltz    t0, handle_int
