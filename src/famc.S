@@ -154,8 +154,8 @@ parse:
 	ALLOC_STACK	16
 
 	mv		s6, a0
-	li              a0, 0xAC88
-        jal             print_hex
+	li		a0, 0xAC88
+	jal		print_hex
 	mv 		a0, s6
 
 
@@ -254,35 +254,55 @@ print_str:
 
 print_hex:
 	ALLOC_STACK	32
-	sd              s0, 8(sp)
-	sd		s1, 16(sp)
-	
+	sd		s0, 8(sp)		# Shift counter
+	sd		s1, 16(sp)		# Value
+	sd		s2, 24(sp)		# "Started printing" flag
 
 	mv		s1, a0			# Save original value
+	li		s2, 0			# Set flag to 0 (don't print yet)
 
-	li		a0, '0'			# Load '0'
+	# Print "0x" prefix
+	li		a0, '0'
 	jal		write_byte
 	li		a0, 'x'
 	jal		write_byte
 
-	li		s0, 60			# Shift amount
-1:
-	srl		t2, s1, s0		# Shift right - isolate nibble
-	andi		t2, t2, 0xF		# Mask 4 bits
-	li		a0, 10
-	blt		t2, a0, 2f		# If nibble < 10, it's 0-9
-	addi		t2, t2, 7		# Adjust for A-F
-2:
-	addi		a0, t2, 48		# Convert to ASCII ('0' is 48)
-	jal		write_byte		# Output via UART
-	addi		s0, s0, -4		# Move to next nibble
-	bgez		s0, 1b			# Loop until all 16 nibbles
+	# Special Case: If value is 0, just print '0' and exit
+	bnez		s1, 1f
+	li		a0, '0'
+	jal		write_byte
+	j		done
+
+1:	li		s0, 60			# Start at bit 60
+loop:
+	srl		t2, s1, s0		# Isolate nibble
+	andi		t2, t2, 0xF
 	
-	li		a0, '\n'		# Final newline
+	# Logic: If we haven't started printing AND this nibble is 0, SKIP it
+	bnez		t2, 2f			# If nibble NOT zero, start
+	bnez		s2, 2f			# already started, print 0
+	j		next			# Otherwise, skip it
+
+2:	li		s2, 1			# Flip flag to "Printing Mode"
+	
+	# Convert nibble to ASCII
+	li		a0, 10
+	blt		t2, a0, 3f
+	addi		t2, t2, 7
+3:	addi		a0, t2, 48
 	jal		write_byte
 
-	ld              s0, 8(sp)
+next:
+	addi		s0, s0, -4
+	bgez		s0, loop
+
+done:
+	li		a0, '\n'
+	jal		write_byte
+
+	ld		s0, 8(sp)
 	ld		s1, 16(sp)
+	ld		s2, 24(sp)
 	DEALLOC_STACK	32
 	ret
 
