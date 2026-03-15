@@ -137,7 +137,6 @@ _base\@:
 .macro PRINT_NUM r
 	ALLOC_STACK	16
 	sb		a0, 8(sp)
-	mv		a0, \r
 	jal		print_dec
 	li		a0, '\n'
 	jal		write_byte
@@ -159,27 +158,18 @@ _start:
 	jal		write_data
 	j		exit
 
-lexer_next_token:
-
 parse:
 	ALLOC_STACK	16
-
-	mv		s6, a0
-	li		x31, -123
-	PRINT_NUM x31
-	#jal		print_dec
-	mv 		a0, s6
-
-
 	mv		t0, a0
 	mv		t1, a1
 	mv		t2, tp
 
-
-
 1:	beq		t0, t1, 2f
 	lbu		t3, 0(t0)
 	sb		t3, 0(t2)
+
+        mv              s6, a0
+
 
 	addi		t2, t2, 1
 	addi		t0, t0, 1
@@ -263,104 +253,6 @@ print_str:
 	j		1b			# Loop back
 2:
 	ret 
-
-print_hex:
-	ALLOC_STACK	32
-	sd		s0, 8(sp)		# Shift counter
-	sd		s1, 16(sp)		# Value
-	sd		s2, 24(sp)		# "Started printing" flag
-
-	mv		s1, a0			# Save original value
-	li		s2, 0			# Set flag to 0 (don't print yet)
-
-	# Print "0x" prefix
-	li		a0, '0'
-	jal		write_byte
-	li		a0, 'x'
-	jal		write_byte
-
-	# Special Case: If value is 0, just print '0' and exit
-	bnez		s1, 1f
-	li		a0, '0'
-	jal		write_byte
-	j		6f
-
-1:	li		s0, 60			# Start at bit 60
-4:
-	srl		t2, s1, s0		# Isolate nibble
-	andi		t2, t2, 0xF
-	
-	# Logic: If we haven't started printing AND this nibble is 0, SKIP it
-	bnez		t2, 2f			# If nibble NOT zero, start
-	bnez		s2, 2f			# already started, print 0
-	j		5f			# Otherwise, skip it
-
-2:	li		s2, 1			# Flip flag to "Printing Mode"
-	
-	# Convert nibble to ASCII
-	li		a0, 10
-	blt		t2, a0, 3f
-	addi		t2, t2, 7
-3:	addi		a0, t2, 48
-	jal		write_byte
-
-5:
-	addi		s0, s0, -4
-	bgez		s0, 4b
-
-6:
-	li		a0, '\n'
-	jal		write_byte
-
-	ld		s0, 8(sp)
-	ld		s1, 16(sp)
-	ld		s2, 24(sp)
-	DEALLOC_STACK	32
-	ret
-
-print_dec:
-    ALLOC_STACK     48
-    sd              ra, 0(sp)
-    sd              s0, 8(sp)    # The value to print
-    sd              s1, 16(sp)   # The divisor (10)
-    sd              s2, 24(sp)   # Digit counter
-
-    mv              s0, a0       # s0 = number
-    li              s1, 10       # s1 = 10
-    li              s2, 0        # count = 0
-
-    # Special Case: If 0, just print '0'
-    bnez            s0, 1f
-    li              a0, '0'
-    jal             write_byte
-    j               dec_done
-
-1:  # Division Loop (Generate digits)
-    remu            t0, s0, s1   # t0 = s0 % 10 (The digit)
-    divu            s0, s0, s1   # s0 = s0 / 10 (The remainder)
-    
-    addi            t0, t0, 48   # Convert digit to ASCII
-    addi            sp, sp, -1   # Push digit to stack manually
-    sb              t0, 0(sp)
-    addi            s2, s2, 1    # increment count
-    
-    bnez            s0, 1b       # Continue until s0 is 0
-
-2:  # Print Loop (Pop digits)
-    lbu             a0, 0(sp)    # Get top digit
-    addi            sp, sp, 1    # Pop
-    jal             write_byte
-    addi            s2, s2, -1
-    bnez            s2, 2b       # Loop until count is 0
-
-dec_done:
-    ld              ra, 0(sp)
-    ld              s0, 8(sp)
-    ld              s1, 16(sp)
-    ld              s2, 24(sp)
-    DEALLOC_STACK   48
-    ret
-
 
 
 read_byte:
