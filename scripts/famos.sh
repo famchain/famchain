@@ -9,6 +9,7 @@ qemu-system-riscv64 \
 	-bios none \
 	-smp 4 \
 	-device loader,file=./bin/famos.bin,addr=0x80000000 \
-        -drive file=./tmp/disk.img,if=none,format=raw,id=dr0 \
-        -device virtio-blk-device,drive=dr0,bus=virtio-mmio-bus.0
+	-drive file=./tmp/disk.img,if=none,format=raw,id=dr0 \
+	-device virtio-blk-device,drive=dr0,bus=virtio-mmio-bus.0 \
+	-m 1G
 
