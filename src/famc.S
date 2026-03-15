@@ -110,6 +110,17 @@ _start:
 	jal		write_data
 	j		exit
 
+
+.macro PIC_STRING label, text
+    \label:
+        .asciz "\text" # 2. The string + null terminator (\0)
+    x_\label:
+	.asciz "\text"
+.endm
+
+PIC_STRING vx "ab cde"
+
+
 parse:
 	ALLOC_STACK	32
 	sd		t0, 8(sp)
@@ -124,6 +135,9 @@ parse:
 	beq		t0, t1, 2f
 	lbu		t3, 0(t0)
 	sb		t3, 0(t2)
+
+	PRINTLN vx
+
 	addi		t2, t2, 1
 	addi		t0, t0, 1
 	j		1b
