@@ -140,7 +140,6 @@ _base\@:
 	sd		t0, 16(sp)
 	sd		t1, 24(sp)
 	sd		t2, 32(sp)
-	mv		a0, \r
 	jal		print_dec
 	ld		a0, 8(sp)
 	ld		t0, 16(sp)
@@ -175,10 +174,11 @@ parse:
 
 	PRINT "gp="
         PRINT_NUM gp
-	PRINT "tp="
+	PRINT ",tp="
         PRINT_NUM tp
-	PRINT "sp="
+	PRINT ",sp="
         PRINT_NUM sp
+	PRINTLN ""
 
 
 	addi		t2, t2, 1
@@ -306,8 +306,7 @@ print_dec:
 	jal		write_byte
 	bnez		s2, 3b
 
-4:	li		a0, '\n'
-	jal		write_byte
+4:
 
 	ld              s0, 8(sp)
 	ld              s1, 16(sp)
