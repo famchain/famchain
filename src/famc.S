@@ -24,6 +24,8 @@
 # famc.S - fam compiler (GNU as src)
 # ──────────────────────────────────────────────────────────────────────────────
 
+.set DEBUG, 1
+
 # System Constants
 .equ	EXIT_ADDR,	0x100000
 .equ	EXIT_PASS,	0x5555
@@ -57,7 +59,7 @@ _base\@:
 	bgt		gp, sp, stack_panic	# stack overflow
 .endm
 
-.macro PRINT label
+.macro PRINT_LABEL label
 	ALLOC_STACK	48
 	sd		t0, 8(sp)
 	sd		t1, 16(sp)
@@ -76,7 +78,7 @@ _base\@:
 	DEALLOC_STACK	48
 .endm
 
-.macro PRINTLN label
+.macro PRINTLN_LABEL label
 	ALLOC_STACK	48
 	sd		t0, 8(sp)
 	sd		t1, 16(sp)
@@ -97,6 +99,42 @@ _base\@:
 	DEALLOC_STACK	48
 .endm
 
+.macro PIC_STRING label, text
+    \label:
+        .asciz "\text" # 2. The string + null terminator (\0)
+    x_\label:
+        .asciz "\text"
+.endm
+
+.macro PRINTLN text
+    # 1. Create a unique name for this specific string instance
+    .set _lbl\@, _pic_str\@ 
+    .set _lbl\@, _pic_jump\@
+   
+    j  _pic_jump\@      
+    # 2. Define the string using that name
+    PIC_STRING _pic_str\@, "\text"
+    _pic_jump\@:
+        
+    # 3. Print it using the same name
+    PRINTLN_LABEL _pic_str\@
+.endm
+
+.macro PRINT text
+    # 1. Create a unique name for this specific string instance
+    .set _lbl\@, _pic_str\@
+    .set _lbl\@, _pic_jump\@
+
+    j  _pic_jump\@
+    # 2. Define the string using that name
+    PIC_STRING _pic_str\@, "\text"
+    _pic_jump\@:
+
+    # 3. Print it using the same name
+    PRINT_LABEL _pic_str\@
+.endm
+
+
 _start:
 	LOAD_ADDRESS	gp data			# Load heap ptr
 	li		sp, 1			# Setup stack pointer
@@ -109,17 +147,6 @@ _start:
 	jal		parse
 	jal		write_data
 	j		exit
-
-
-.macro PIC_STRING label, text
-    \label:
-        .asciz "\text" # 2. The string + null terminator (\0)
-    x_\label:
-	.asciz "\text"
-.endm
-
-PIC_STRING vx "ab cde"
-
 
 parse:
 	ALLOC_STACK	32
@@ -136,7 +163,7 @@ parse:
 	lbu		t3, 0(t0)
 	sb		t3, 0(t2)
 
-	PRINTLN vx
+	PRINTLN "abc def ghi" 
 
 	addi		t2, t2, 1
 	addi		t0, t0, 1
@@ -249,5 +276,4 @@ exit:
 	j		1b
 
 msg_stack_overflow: .string "stack overflow!"
-msg: .string "Hello world!"
 data:
