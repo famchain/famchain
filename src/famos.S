@@ -133,6 +133,10 @@ handle_int:
     slli    t1, t0, 1
     srli    t1, t1, 1
 
+    # --- 1. Check for Software Interrupt (IPI) ---
+    li      t2, 3           # Machine Software Interrupt
+    beq     t1, t2, handle_ipi
+
     # 1. Check for External Interrupt (11)
     li      t2, 11
     bne     t1, t2, 1f
@@ -157,7 +161,14 @@ handle_int:
 
 1:  mret
 
-
+handle_ipi:
+    # Acknowledge/Clear the IPI in the CLINT
+    csrr    t1, mhartid
+    li      t0, 0x02000000  # CLINT MSIP Base
+    slli    t1, t1, 2       # 4 bytes per hart
+    add     t0, t0, t1
+    sw      zero, 0(t0)     # Write 0 to clear
+    mret
 
 write_byte:
         li              t0, UART_BASE
