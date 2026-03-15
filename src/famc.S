@@ -100,38 +100,38 @@ _base\@:
 .endm
 
 .macro PIC_STRING label, text
-    \label:
-        .asciz "\text" # 2. The string + null terminator (\0)
-    x_\label:
-        .asciz "\text"
+	\label:
+	.asciz "\text" # 2. The string + null terminator (\0)
+	x_\label:
+	.asciz "\text"
 .endm
 
 .macro PRINTLN text
-    # 1. Create a unique name for this specific string instance
-    .set _lbl\@, _pic_str\@ 
-    .set _lbl\@, _pic_jump\@
-   
-    j  _pic_jump\@      
-    # 2. Define the string using that name
-    PIC_STRING _pic_str\@, "\text"
-    _pic_jump\@:
-        
-    # 3. Print it using the same name
-    PRINTLN_LABEL _pic_str\@
+	# 1. Create a unique name for this specific string instance
+	.set _lbl\@, _pic_str\@ 
+	.set _lbl\@, _pic_jump\@
+	
+	j	_pic_jump\@	
+	# 2. Define the string using that name
+	PIC_STRING _pic_str\@, "\text"
+	_pic_jump\@:
+	
+	# 3. Print it using the same name
+	PRINTLN_LABEL _pic_str\@
 .endm
 
 .macro PRINT text
-    # 1. Create a unique name for this specific string instance
-    .set _lbl\@, _pic_str\@
-    .set _lbl\@, _pic_jump\@
+	# 1. Create a unique name for this specific string instance
+	.set _lbl\@, _pic_str\@
+	.set _lbl\@, _pic_jump\@
 
-    j  _pic_jump\@
-    # 2. Define the string using that name
-    PIC_STRING _pic_str\@, "\text"
-    _pic_jump\@:
+	j	_pic_jump\@
+	# 2. Define the string using that name
+	PIC_STRING _pic_str\@, "\text"
+	_pic_jump\@:
 
-    # 3. Print it using the same name
-    PRINT_LABEL _pic_str\@
+	# 3. Print it using the same name
+	PRINT_LABEL _pic_str\@
 .endm
 
 
@@ -152,9 +152,18 @@ lexer_next_token:
 
 parse:
 	ALLOC_STACK	16
+
+	mv		s6, a0
+	li              a0, 0xAC88
+        jal             print_hex
+	mv 		a0, s6
+
+
 	mv		t0, a0
 	mv		t1, a1
 	mv		t2, tp
+
+
 
 1:	beq		t0, t1, 2f
 	lbu		t3, 0(t0)
@@ -244,23 +253,38 @@ print_str:
 	ret 
 
 print_hex:
-    mv    t0, a0            # Save original value
-    li    t1, 60            # Shift amount (start at high nibble)
+	ALLOC_STACK	32
+	sd              s0, 8(sp)
+	sd		s1, 16(sp)
+	
+
+	mv		s1, a0			# Save original value
+
+	li		a0, '0'			# Load '0'
+	jal		write_byte
+	li		a0, 'x'
+	jal		write_byte
+
+	li		s0, 60			# Shift amount
 1:
-    srl   t2, t0, t1        # Shift right to isolate nibble
-    andi  t2, t2, 0xF       # Mask 4 bits
-    li    a0, 10
-    blt   t2, a0, 2f        # If nibble < 10, it's 0-9
-    addi  t2, t2, 7         # Adjust for A-F (ASCII 'A' - '9' - 1)
+	srl		t2, s1, s0		# Shift right - isolate nibble
+	andi		t2, t2, 0xF		# Mask 4 bits
+	li		a0, 10
+	blt		t2, a0, 2f		# If nibble < 10, it's 0-9
+	addi		t2, t2, 7		# Adjust for A-F
 2:
-    addi  a0, t2, 48        # Convert to ASCII ('0' is 48)
-    jal   write_byte        # Output via UART
-    addi  t1, t1, -4        # Move to next nibble
-    bgez  t1, 1b            # Loop until all 16 nibbles printed
-    
-    li    a0, '\n'          # Final newline
-    jal   write_byte
-    ret
+	addi		a0, t2, 48		# Convert to ASCII ('0' is 48)
+	jal		write_byte		# Output via UART
+	addi		s0, s0, -4		# Move to next nibble
+	bgez		s0, 1b			# Loop until all 16 nibbles
+	
+	li		a0, '\n'		# Final newline
+	jal		write_byte
+
+	ld              s0, 8(sp)
+	ld		s1, 16(sp)
+	DEALLOC_STACK	32
+	ret
 
 
 read_byte:
