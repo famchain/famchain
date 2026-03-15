@@ -134,6 +134,22 @@ _base\@:
 	PRINT_LABEL _pic_str\@
 .endm
 
+.macro PRINT_NUM r
+	ALLOC_STACK	64
+	sd		a0, 8(sp)
+	sd		t0, 16(sp)
+	sd		t1, 24(sp)
+	sd		t2, 32(sp)
+	mv		a0, \r
+	jal		print_dec
+	ld		a0, 8(sp)
+	ld		t0, 16(sp)
+	ld		t1, 24(sp)
+	ld		t2, 32(sp)
+	DEALLOC_STACK	64
+.endm
+
+
 _start:
 	LOAD_ADDRESS	gp data			# Load heap ptr
 	li		sp, 1			# Setup stack pointer
@@ -156,6 +172,14 @@ parse:
 1:	beq		t0, t1, 2f
 	lbu		t3, 0(t0)
 	sb		t3, 0(t2)
+
+	PRINT "gp="
+        PRINT_NUM gp
+	PRINT "tp="
+        PRINT_NUM tp
+	PRINT "sp="
+        PRINT_NUM sp
+
 
 	addi		t2, t2, 1
 	addi		t0, t0, 1
