@@ -134,17 +134,6 @@ _base\@:
 	PRINT_LABEL _pic_str\@
 .endm
 
-.macro PRINT_NUM r
-	ALLOC_STACK	16
-	sb		a0, 8(sp)
-	jal		print_dec
-	li		a0, '\n'
-	jal		write_byte
-	lb		a0, 8(sp)
-	DEALLOC_STACK	16
-.endm
-
-
 _start:
 	LOAD_ADDRESS	gp data			# Load heap ptr
 	li		sp, 1			# Setup stack pointer
@@ -167,9 +156,6 @@ parse:
 1:	beq		t0, t1, 2f
 	lbu		t3, 0(t0)
 	sb		t3, 0(t2)
-
-        mv              s6, a0
-
 
 	addi		t2, t2, 1
 	addi		t0, t0, 1
@@ -253,6 +239,58 @@ print_str:
 	j		1b			# Loop back
 2:
 	ret 
+
+print_dec:
+	ALLOC_STACK	64
+	sd		s0, 8(sp)	# s0 = value
+	sd		s1, 16(sp)	# s1 = divisor (10)
+	sd		s2, 24(sp)	# s2 = digit count
+
+	mv		s0, a0
+	li		s1, 10
+	li		s2, 0
+
+	# 1. Handle Negative
+	bgez		s0, 1f
+	li		a0, '-'
+	jal		write_byte
+	neg		s0, s0
+
+1:	# 2. Special Case: Zero
+	bnez		s0, 2f
+	li		a0, '0'
+	jal		write_byte
+	j		4f
+
+2:	# 3. Generate Digits (Store at offset 32+)
+	remu		t0, s0, s1
+	divu		s0, s0, s1
+	addi		t0, t0, 48	# Convert to ASCII
+
+	addi		t1, sp, 32	# Buffer start
+	add		t1, t1, s2	# Buffer + index
+	sb		t0, 0(t1)
+	
+	addi		s2, s2, 1
+	bnez		s0, 2b
+
+3:	# 4. Print Digits (Reverse)
+	addi		s2, s2, -1
+	addi		t1, sp, 32
+	add		t1, t1, s2
+	lbu		a0, 0(t1)
+	jal		write_byte
+	bnez		s2, 3b
+
+4:	li		a0, '\n'
+	jal		write_byte
+
+	ld              s0, 8(sp)
+	ld              s1, 16(sp)
+	ld              s2, 24(sp)
+	DEALLOC_STACK	64
+	ret
+
 
 
 read_byte:
