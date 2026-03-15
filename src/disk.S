@@ -77,6 +77,84 @@ _start:
 
 		li      t1, 0x80001000      # Descriptor Table Base
 
+li a0, 'v'
+jal write_byte
+
+# --- Execute the Read ---
+# 1. Setup Descriptor 0 (Header)
+LOAD_ADDRESS t1, virtqueue_area  # Base of Descriptor Table
+LOAD_ADDRESS t2, disk_header
+sd      t2, 0(t1)                # Addr
+li      t2, 16
+sw      t2, 8(t1)                # Len
+li      t2, 1                    # NEXT flag
+sh      t2, 12(t1)               # Flags
+li      t2, 1
+sh      t2, 14(t1)               # Next index = 1
+
+li a0, 'n'
+jal write_byte
+
+LOAD_ADDRESS t1, virtqueue_area  # Base of Descriptor Table
+
+# 2. Setup Descriptor 1 (Data Buffer)
+LOAD_ADDRESS t2, disk_buffer
+sd      t2, 16(t1)               # Addr (Table + 16)
+li      t2, 512
+sw      t2, 24(t1)               # Len
+li      t2, 3                    # NEXT | WRITE flags
+sh      t2, 28(t1)               # Flags
+li      t2, 2
+sh      t2, 30(t1)               # Next index = 2
+
+li a0, 'q'
+jal write_byte
+
+LOAD_ADDRESS t1, virtqueue_area  # Base of Descriptor Table
+
+# 3. Setup Descriptor 2 (Status Byte)
+LOAD_ADDRESS t2, disk_status
+sd      t2, 32(t1)               # Addr (Table + 32)
+li      t2, 1
+sw      t2, 40(t1)               # Len
+li      t2, 2                    # WRITE flag
+sh      t2, 44(t1)               # Flags
+sh      zero, 46(t1)             # Next = 0 (End)
+
+li a0, 'p'
+jal write_byte
+
+LOAD_ADDRESS t1, virtqueue_area  # Base of Descriptor Table
+LOAD_ADDRESS t2, disk_status
+
+
+# 4. Notify the Available Ring
+# Available Ring starts at offset 256 (after 16 descriptors)
+addi    t3, t1, 256              
+li      t2, 0
+sh      t2, 4(t3)                # Set ring[0] = 0 (Start at Desc 0)
+li      t2, 1
+sh      t2, 2(t3)                # Set idx = 1 (We have 1 chain ready)
+
+li a0, 'm'
+jal write_byte
+
+# 5. Kick the hardware
+li      t0, 0x10001000           # VIRTIO_DISK_BASE
+sw      zero, 0x050(t0)          # Notify Queue 0
+
+li a0, 'n'
+jal write_byte
+
+# 6. Wait for disk_status to change from 0xFF
+wait_read:
+    LOAD_ADDRESS t1, disk_status
+    lbu     t2, 0(t1)
+    li      t3, 0xFF
+    beq     t2, t3, wait_read
+
+# Read complete!
+
 
 		li a0, 's'
 		jal write_byte
@@ -115,11 +193,11 @@ write_byte:
     sb      a0, 0(t1)
     ret    
 
-.align 12
+.balign 16
 virtqueue_area: 
     .zero 4096    # Space for Desc Table, Avail Ring, and Used Ring
 
-.align 4
+.balign 16
 disk_header:
     .word 0       # type: 0 = read
     .word 0       # reserved
@@ -128,7 +206,7 @@ disk_header:
 disk_status:
     .byte 0xff    # Initial value
 
-.align 4
+.balign 16
 disk_buffer:
     .zero 512     # Destination for our data
 
