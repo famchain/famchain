@@ -72,13 +72,11 @@ _start:
 
 		# 3. Set Page Size (QEMU default is usually 4096)
 		# (In legacy MMIO, we provide the Page Frame Number)
-		li      t1, 0x80001000 >> 12   # Assume our queue starts at 0x80001000
+LOAD_ADDRESS t1 virtqueue_area
+		#li      t1, 0x80001000 >> 12   # Assume our queue starts at 0x80001000
 		sw      t1, VIO_QUEUE_PFN(t0)
 
 		li      t1, 0x80001000      # Descriptor Table Base
-
-li a0, 'v'
-jal write_byte
 
 # --- Execute the Read ---
 # 1. Setup Descriptor 0 (Header)
@@ -92,8 +90,6 @@ sh      t2, 12(t1)               # Flags
 li      t2, 1
 sh      t2, 14(t1)               # Next index = 1
 
-li a0, 'n'
-jal write_byte
 
 LOAD_ADDRESS t1, virtqueue_area  # Base of Descriptor Table
 
@@ -107,8 +103,6 @@ sh      t2, 28(t1)               # Flags
 li      t2, 2
 sh      t2, 30(t1)               # Next index = 2
 
-li a0, 'q'
-jal write_byte
 
 LOAD_ADDRESS t1, virtqueue_area  # Base of Descriptor Table
 
@@ -120,9 +114,6 @@ sw      t2, 40(t1)               # Len
 li      t2, 2                    # WRITE flag
 sh      t2, 44(t1)               # Flags
 sh      zero, 46(t1)             # Next = 0 (End)
-
-li a0, 'p'
-jal write_byte
 
 LOAD_ADDRESS t1, virtqueue_area  # Base of Descriptor Table
 LOAD_ADDRESS t2, disk_status
@@ -136,15 +127,9 @@ sh      t2, 4(t3)                # Set ring[0] = 0 (Start at Desc 0)
 li      t2, 1
 sh      t2, 2(t3)                # Set idx = 1 (We have 1 chain ready)
 
-li a0, 'm'
-jal write_byte
-
 # 5. Kick the hardware
 li      t0, 0x10001000           # VIRTIO_DISK_BASE
 sw      zero, 0x050(t0)          # Notify Queue 0
-
-li a0, 'n'
-jal write_byte
 
 # 6. Wait for disk_status to change from 0xFF
 wait_read:
