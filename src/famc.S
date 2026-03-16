@@ -35,19 +35,63 @@
 .equ	UART_LSR,	5
 .equ	UART_RBR,	0
 
-# struct node (8-byte aligned)
-.equ N_KIND,          0   # enum node_kind (8 bytes)
-.equ N_LOC_START,     8   # struct source_location (assuming 16 bytes: line/col)
-.equ N_LOC_END,       16  # (continuation of loc)
-.equ N_PARENT,        24  # struct node*
-.equ N_FIRST_CHILD,   32  # struct node*
-.equ N_LAST_CHILD,    40  # struct node*
-.equ N_NEXT_SIBLING,  48  # struct node*
-.equ N_PREV_SIBLING,  56  # struct node*
-.equ N_DATA,          64  # void* (extra data)
+# Node kinds
+.equ	NK_ERROR,	0
+.equ	NK_SEMI,	1
+.equ 	NK_COMMA,	2
+.equ 	NK_COLON,	3
+.equ	NK_DOT,		4
+.equ    NK_ROOT,	5
 
-.equ N_SZ,            72  # Total size (9 fields * 8 bytes)
+# struct node (Total Size: 88 bytes)
+.equ	N_KIND,		0			# enum (long)
+.equ 	N_LOC_OFF,	8			# source_location.off
+.equ 	N_LOC_LEN,	16			# source_location.len
+.equ 	N_LOC_LINE,	24			# source_location.line
+.equ 	N_LOC_COL,	32			# source_location.col
+.equ 	N_PARENT,	40			# struct node*
+.equ 	N_FIRST_CHILD,	48			# struct node*
+.equ	N_LAST_CHILD,	56			# struct node*
+.equ 	N_NEXT_SIBLING,	64			# struct node*
+.equ 	N_PREV_SIBLING,	72			# struct node*
+.equ 	N_DATA,		80			# void* (extra data)
+.equ	N_SZ,		88			# (11 fields * 8 bytes)
 
+# --- struct token_trie (Size: 2072 bytes) ---
+.equ	T_KIND,		0			# enum node_kind (8 bytes)
+.equ	T_LEN,		8			# long (8 bytes)
+.equ	T_RESERVED,	16			# long (8 bytes)
+.equ	T_CHILDREN,	24			# array 256 ptrs (2048 bytes)
+.equ	T_NODE_SZ,	2072
+
+# --- struct lexer (Size: 40 bytes + T_NODE_SZ = 2112 bytes) ---
+.equ	L_IN,		0			# char* in
+.equ	L_END,		8			# char* end
+.equ	L_OFF,		16			# long off
+.equ	L_LINE,		24			# long line
+.equ	L_COL_START,	32			# long col_start
+.equ	L_ROOT,		40			# The root node starts here
+.equ	L_SZ,		2112			# Size of the lexer
+
+
+.macro ALLOC reg, size
+	li a0, \size
+	jal alloc
+	mv \reg, a0
+.endm
+
+.macro SET ptr, param, value
+	li t6, \value
+	sd t6, \param(\ptr)
+.endm
+
+.macro SET_REG ptr, param, value
+	sd \value, \param(\ptr)
+.endm
+
+.macro GET ptr, dest, param
+	ld \dest, \param(\ptr)
+.endm
 
 .macro LOAD_ADDRESS reg, label
 _base\@:
@@ -182,15 +226,13 @@ _base\@:
 	DEALLOC_STACK	64
 .endm
 
-
-
 _start:
 	LOAD_ADDRESS	gp data			# Load heap ptr
 	li		sp, 1			# Setup stack pointer
 	slli		sp, sp, 26		# 64 MiB
 	add		sp, sp, gp		# Init stack at heap + 64 MiB
 	andi		sp, sp, -16		# Align stack to 16 bytes
-	andi            gp, gp, -16             # Align heap to 16 bytes
+	andi		gp, gp, -16		# Align heap to 16 bytes
 	mv		tp, sp			# Use tp for output buffer
 
 	jal		read_data
@@ -198,19 +240,39 @@ _start:
 	jal		write_data
 	j		exit
 
+memset: 
+        add             t6, a0, a2
+1:      bge             a0, t6, 2f
+        sd              a1, 0(a0)
+        addi            a0, a0, 8
+        j               1b
+2: ret
 
 alloc:
-        add             gp, gp, a0
-        bgt             gp, sp, stack_panic     # stack overflow
+	add		gp, gp, a0
+	bgt		gp, sp, stack_panic	# stack overflow
 	sub		a0, gp, a0
 	ret
 
-
 parse:
 	ALLOC_STACK	16
+	sd		s0, 8(sp)
+
 	mv		t0, a0
 	mv		t1, a1
 	mv		t2, tp
+
+	# Setup our lexer
+	ALLOC		s0, L_SZ
+	SET_REG		s0, L_IN, t0
+	SET_REG		s0, L_END, t1
+	SET		s0, L_OFF, 0
+	SET		s0, L_LINE, 0
+	SET		s0, L_COL_START, 0
+	addi		a0, s0, L_ROOT
+	li		a1, 0
+	li		a2, T_NODE_SZ
+	jal		memset
 
 1:	beq		t0, t1, 2f
 	lbu		t3, 0(t0)
@@ -223,6 +285,7 @@ parse:
 2:	mv a0, tp 
 	mv a1, t2 
 
+	sd		s0, 8(sp)
 	DEALLOC_STACK	16
 	ret
 
@@ -394,9 +457,9 @@ print_dec:
 
 4:
 
-	ld              s0, 8(sp)
-	ld              s1, 16(sp)
-	ld              s2, 24(sp)
+	ld		s0, 8(sp)
+	ld		s1, 16(sp)
+	ld		s2, 24(sp)
 	DEALLOC_STACK	64
 	ret
 
