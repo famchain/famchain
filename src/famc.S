@@ -140,13 +140,34 @@ _base\@:
 	sd		t0, 16(sp)
 	sd		t1, 24(sp)
 	sd		t2, 32(sp)
+
+	mv		a0, \r
 	jal		print_dec
+
 	ld		a0, 8(sp)
 	ld		t0, 16(sp)
 	ld		t1, 24(sp)
 	ld		t2, 32(sp)
 	DEALLOC_STACK	64
 .endm
+
+.macro PRINT_HEX r
+	ALLOC_STACK	64
+	sd		a0, 8(sp)
+	sd		t0, 16(sp)
+	sd		t1, 24(sp)
+	sd		t2, 32(sp)
+
+	mv		a0, \r	
+	jal		print_hex
+	
+	ld		a0, 8(sp)
+	ld		t0, 16(sp)
+	ld		t1, 24(sp)
+	ld		t2, 32(sp)
+	DEALLOC_STACK	64
+.endm
+
 
 
 _start:
@@ -173,7 +194,7 @@ parse:
 	sb		t3, 0(t2)
 
 	PRINT "gp="
-        PRINT_NUM gp
+        PRINT_HEX gp
 	PRINT ",tp="
         PRINT_NUM tp
 	PRINT ",sp="
@@ -263,6 +284,57 @@ print_str:
 	j		1b			# Loop back
 2:
 	ret 
+
+print_hex:
+	ALLOC_STACK	64
+	sd		s0, 8(sp)		# s0 = the value to print
+	sd		s1, 16(sp)		# s1 = shift counter
+	sd		s2, 24(sp)		# s2 = "started printing" flag
+
+	mv		s0, a0			# Save original value
+	li		s2, 0			# flag = 0 (skipping leading zeros)
+
+	# Print "0x" prefix
+	li		a0, '0'
+	jal		write_byte
+	li		a0, 'x'
+	jal		write_byte
+
+	# Special Case: If value is 0, just print '0' and exit
+	bnez		s0, 1f
+	li		a0, '0'
+	jal		write_byte
+	j		4f
+
+1:	li		s1, 60			# Start at highest nibble (bits 60-63)
+2:
+	srl		t2, s0, s1		# Isolate nibble
+	andi		t2, t2, 0xF
+	
+	# Skip leading zeros logic
+	bnez		t2, 3f			# If nibble != 0, start printing
+	bnez		s2, 3f			# If already started, print this zero
+	j		next_nibble		# Otherwise, skip
+
+3:	li		s2, 1			# Flip "started" flag
+	
+	# Convert nibble to ASCII
+	li		a0, 10
+	blt		t2, a0, 5f		# If 0-9
+	addi		t2, t2, 7		# Adjust for A-F
+5:	addi		a0, t2, 48		# ASCII '0'
+	jal		write_byte
+
+next_nibble:
+	addi		s1, s1, -4		# Move to next 4 bits
+	bgez		s1, 2b
+
+4:	ld		s0, 8(sp)		# Restore s-registers
+	ld		s1, 16(sp)
+	ld		s2, 24(sp)
+	DEALLOC_STACK	64
+	ret
+
 
 print_dec:
 	ALLOC_STACK	64
