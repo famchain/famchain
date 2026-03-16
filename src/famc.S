@@ -176,12 +176,23 @@ _start:
 	slli		sp, sp, 26		# 64 MiB
 	add		sp, sp, gp		# Init stack at heap + 64 MiB
 	andi		sp, sp, -16		# Align stack to 16 bytes
+	andi            gp, gp, -16             # Align heap to 16 bytes
 	mv		tp, sp			# Use tp for output buffer
 
 	jal		read_data
 	jal		parse
 	jal		write_data
 	j		exit
+
+
+alloc:
+	addi		a0, a0, 7
+	andi		a0, a0, -8
+        add             gp, gp, a0
+        bgt             gp, sp, stack_panic     # stack overflow
+	sub		a0, gp, a0
+	ret
+
 
 parse:
 	ALLOC_STACK	16
@@ -192,15 +203,6 @@ parse:
 1:	beq		t0, t1, 2f
 	lbu		t3, 0(t0)
 	sb		t3, 0(t2)
-
-	PRINT "gp="
-        PRINT_HEX gp
-	PRINT ",tp="
-        PRINT_NUM tp
-	PRINT ",sp="
-        PRINT_NUM sp
-	PRINTLN ""
-
 
 	addi		t2, t2, 1
 	addi		t0, t0, 1
