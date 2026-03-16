@@ -35,6 +35,20 @@
 .equ	UART_LSR,	5
 .equ	UART_RBR,	0
 
+# struct node (8-byte aligned)
+.equ N_KIND,          0   # enum node_kind (8 bytes)
+.equ N_LOC_START,     8   # struct source_location (assuming 16 bytes: line/col)
+.equ N_LOC_END,       16  # (continuation of loc)
+.equ N_PARENT,        24  # struct node*
+.equ N_FIRST_CHILD,   32  # struct node*
+.equ N_LAST_CHILD,    40  # struct node*
+.equ N_NEXT_SIBLING,  48  # struct node*
+.equ N_PREV_SIBLING,  56  # struct node*
+.equ N_DATA,          64  # void* (extra data)
+
+.equ N_SZ,            72  # Total size (9 fields * 8 bytes)
+
+
 .macro LOAD_ADDRESS reg, label
 _base\@:
 	# Uses \@ to make a unique constant name for every expansion
@@ -186,8 +200,6 @@ _start:
 
 
 alloc:
-	addi		a0, a0, 7
-	andi		a0, a0, -8
         add             gp, gp, a0
         bgt             gp, sp, stack_panic     # stack overflow
 	sub		a0, gp, a0
