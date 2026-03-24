@@ -42,7 +42,28 @@ exit:
         sw              t1, UART_RBR(t0)        # signal UART
 1:      wfi                                     # wait for interrupt in loop
         j               1b
-	
+
+
+read_byte:      
+        li              t0, UART_BASE           # UART Base
+1:      lbu             t1, UART_LSR(t0)        # Read from UART
+        andi            t1, t1, UART_RD_MASK    # mask
+        beqz            t1, 1b                  # if not ready read again
+        lbu             a0, UART_RBR(t0)        # Get current char, store a0
+        ret
+
+write_byte:     
+        li              t0, UART_BASE           # UART Base
+1:      lbu             t1, UART_LSR(t0)        # load state
+        andi            t1, t1, UART_WR_MASK    # mask
+        beqz            t1, 1b          # retry
+        sb              a0, UART_RBR(t0)        # send to UART
+        ret
+
 main:
+	li		a0, 'x'
+	jal		write_byte
+	li		a0, '\n'
+	jal		write_byte
 	j		exit
 
