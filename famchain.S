@@ -454,14 +454,14 @@ _base\@:
 4:      # --- TAIL COPY (1-7 bytes) ---
         # This handles remainders so we don't over-read memory
         beqz    t6, 5f
-tail_loop:
+6:
         lbu     a4, 0(a0)
         sb      a4, 0(t5)
         addi    a0, a0, 1
         addi    t5, t5, 1
         addi    a1, a1, -1
         addi    t6, t6, -1
-        bnez    t6, tail_loop
+        bnez    t6, 6b
 
 5:      # --- End of Step B ---
         # The 64-byte chunk is now ready at 64(sp)
