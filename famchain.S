@@ -126,10 +126,9 @@ _base\@:
 # -----------------------------------------------------------------------------
 
 .macro rotl32 reg, amount
-    slli    t5, \reg, \amount    # Shift left by immediate
-    srli    t6, \reg, (32 - \amount) # Shift right by (32 - amount)
-    or      \reg, t5, t6         # Combine
-    sext.w  \reg, \reg           # Sign-extend the 32-bit result back to 64-bit
+	slliw	t5, \reg, \amount	# Shift left by immediate
+	srliw	t6, \reg, (32 - \amount) # Shift right by (32 - amount)
+	or	\reg, t5, t6		# Combine
 .endm
 
 # a, b, d: registers holding the state words
@@ -137,9 +136,7 @@ _base\@:
 .macro QR_STEP a, b, d, n
 	addw	\a, \a, \b	# a += b
 	xor	\d, \d, \a	# d ^= a
-	mv	a0, \d		
-	rotl32  a0 \n		# Call macro
-	mv	\d, a0		# Move result back to the state register
+	rotl32	\d, \n		# rotl
 .endm
 
 # a, b, c, d are the 4 registers you're working on
@@ -148,6 +145,28 @@ _base\@:
 	QR_STEP \c, \d, \b, 12	# Step 2: b is rotated
 	QR_STEP \a, \b, \d, 8	# Step 3: d is rotated
 	QR_STEP \c, \d, \b, 7	# Step 4: b is rotated
+.endm
+
+# x[0-10] = s0-s10, x[11-15] = t0-t4
+.macro CHACHA_ROUNDS
+	li		a7, 10		# 10 double-rounds = 20 rounds
+1:
+	# --- Column Rounds ---
+	#           a   b   c   d
+	CHACHA_QR	s0, s4, s8, t1	# Column 0: x[0], x[4], x[8], x[12]
+	CHACHA_QR	s1, s5, s9, t2	# Column 1: x[1], x[5], x[9], x[13]
+	CHACHA_QR	s2, s6, s10, t3	# Column 2: x[2], x[6], x[10], x[14]
+	CHACHA_QR	s3, s7, t0, t4	# Column 3: x[3], x[7], x[11], x[15]
+
+	# --- Diagonal Rounds ---
+	#           a   b   c   d
+	CHACHA_QR	s0, s5, s10, t4	# Diag 1: x[0], x[5], x[10], x[15]
+	CHACHA_QR	s1, s6, t0, t1	# Diag 2: x[1], x[6], x[11], x[12]
+	CHACHA_QR	s2, s7, s8, t2	# Diag 3: x[2], x[7], x[8],  x[13]
+	CHACHA_QR	s3, s4, s9, t3	# Diag 4: x[3], x[4], x[9],  x[14]
+
+	addi	a7, a7, -1		# Loop counter i -= 2 (effectively)
+	bnez	a7, 1b
 .endm
 
 # Macro to setup list of registers. Save all to stack
