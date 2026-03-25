@@ -355,6 +355,7 @@ _base\@:
 .endm
 
 .macro CHACHA20_HASH in_ptr, in_len, out_ptr
+	SETUP s0, s1, s2, s3, s4, s5, s6, s7, s8, s9, s10
 	# 1. INITIALIZE STATE
 	mv a3, \in_len		# Stash original length for Finalization
 	li s0,	4294967291
@@ -523,6 +524,7 @@ _base\@:
 	sw s5, 20(\out_ptr)
 	sw s6, 24(\out_ptr)
 	sw s7, 28(\out_ptr)
+	TEAR_DOWN
 .endm
 
 # Macro to setup list of registers. Save all to stack
@@ -785,13 +787,11 @@ main:
 	DECR_STACK 32
 
 	LOAD_ADDRESS a6, in_ptr
-	li a7, 6
+	li a7, 5
+	mv a5, sp
 
-	CHACHA20_HASH a6, a7, sp
-	LOAD_ADDRESS a6, in_ptr
-	li a7, 6
-	CHACHA20_HASH a6, a7, sp
-	mv s6, sp
+	CHACHA20_HASH a6, a7, a5
+	mv s6, a5
 	li s4, 32
 
 	
