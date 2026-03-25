@@ -138,7 +138,7 @@ _base\@:
 	xor	\d, \d, \a	# d ^= a
 	.option push
 	.option arch, +zbb
-	roriw   \d, \d, (32-\n) # Rotate Right Word Immediate
+	roriw	\d, \d, (32-\n) # Rotate Right Word Immediate
 	.option pop
 .endm
 
@@ -150,26 +150,160 @@ _base\@:
 	QR_STEP \c, \d, \b, 7	# Step 4: b is rotated
 .endm
 
-# x[0-10] = s0-s10, x[11-15] = t0-t4
-.macro CHACHA_ROUNDS
-	li		a7, 10		# 10 double-rounds = 20 rounds
-1:
+.macro CHACHA_ROUND
 	# --- Column Rounds ---
 	#           a   b   c   d
 	CHACHA_QR	s0, s4, s8, t1	# Column 0: x[0], x[4], x[8], x[12]
 	CHACHA_QR	s1, s5, s9, t2	# Column 1: x[1], x[5], x[9], x[13]
-	CHACHA_QR	s2, s6, s10, t3	# Column 2: x[2], x[6], x[10], x[14]
+	CHACHA_QR	s2, s6, s10, t3 # Column 2: x[2], x[6], x[10], x[14]
 	CHACHA_QR	s3, s7, t0, t4	# Column 3: x[3], x[7], x[11], x[15]
 
 	# --- Diagonal Rounds ---
 	#           a   b   c   d
-	CHACHA_QR	s0, s5, s10, t4	# Diag 1: x[0], x[5], x[10], x[15]
+	CHACHA_QR	s0, s5, s10, t4 # Diag 1: x[0], x[5], x[10], x[15]
 	CHACHA_QR	s1, s6, t0, t1	# Diag 2: x[1], x[6], x[11], x[12]
 	CHACHA_QR	s2, s7, s8, t2	# Diag 3: x[2], x[7], x[8],  x[13]
 	CHACHA_QR	s3, s4, s9, t3	# Diag 4: x[3], x[4], x[9],  x[14]
+.endm
 
-	addi	a7, a7, -1		# Loop counter i -= 2 (effectively)
-	bnez	a7, 1b
+# x[0-10] = s0-s10, x[11-15] = t0-t4
+.macro CHACHA_ROUNDS
+	CHACHA_ROUND
+	CHACHA_ROUND
+	CHACHA_ROUND
+	CHACHA_ROUND
+	CHACHA_ROUND
+	CHACHA_ROUND
+	CHACHA_ROUND
+	CHACHA_ROUND
+	CHACHA_ROUND
+	CHACHA_ROUND
+.endm
+
+# .macro CHACHA20_BLOCK in_reg, out_reg
+# in_reg:  Register containing pointer to input uint32_t[16]
+# out_reg: Register containing pointer to output uint8_t[64]
+
+.macro CHACHA20_BLOCK in, out
+	# 1. Prepare Stack Frame
+	# We need to preserve the initial state for the final addition.
+	# We'll store it on the stack (64 bytes).
+	DECR_STACK	64
+
+
+	# 2. Load Input, Save to Stack, and Initialize x[16] Registers
+	# Using 'ld' to pull 64-bits at a time into t5, then storing to stack,
+	# then splitting into your s0-s10/t0-t4 mapping.
+
+	# x[0], x[1]
+	ld t5, 0(\in)
+	sd t5, 0(sp)
+	addiw s0, t5, 0
+	srli s1, t5, 32
+
+	# x[2], x[3]
+	ld t5, 8(\in)
+	sd t5, 8(sp)
+	addiw s2, t5, 0
+	srli s3, t5, 32
+
+	# x[4], x[5]
+	ld t5, 16(\in)
+	sd t5, 16(sp)
+	addiw s4, t5, 0
+	srli s5, t5, 32
+
+	# x[6], x[7]
+	ld t5, 24(\in)
+	sd t5, 24(sp)
+	addiw s6, t5, 0
+	srli s7, t5, 32
+
+	# x[8], x[9]
+	ld t5, 32(\in)
+	sd t5, 32(sp)
+	addiw s8, t5, 0
+	srli s9, t5, 32
+
+	# x[10], x[11]
+	ld t5, 40(\in)
+	sd t5, 40(sp)
+	addiw s10, t5, 0
+	srli t0, t5, 32
+
+	# x[12], x[13]
+	ld t5, 48(\in)
+	sd t5, 48(sp)
+	addiw t1, t5, 0
+	srli t2, t5, 32
+
+	# x[14], x[15]
+	ld t5, 56(\in)
+	sd t5, 56(sp)
+	addiw t3, t5, 0
+	srli t4, t5, 32
+
+	# 3. Execute the 20 Rounds (Unrolled)
+	CHACHA_ROUNDS
+
+	# 4. Final Addition (x[i] += in[i])
+	# Load the original values back from the stack and add them.
+	# We use 'lw' here to ensure we handle the 32-bit words correctly.
+
+	lw t5, 0(sp)
+	addw s0, s0, t5
+	lw t5, 4(sp)
+	addw s1, s1, t5
+	lw t5, 8(sp)
+	addw s2, s2, t5
+	lw t5, 12(sp)
+	addw s3, s3, t5
+	lw t5, 16(sp)
+	addw s4, s4, t5
+	lw t5, 20(sp)
+	addw s5, s5, t5
+	lw t5, 24(sp)
+	addw s6, s6, t5
+	lw t5, 28(sp)
+	addw s7, s7, t5
+	lw t5, 32(sp)
+	addw s8, s8, t5
+	lw t5, 36(sp)
+	addw s9, s9, t5
+	lw t5, 40(sp)
+	addw s10, s10, t5
+	lw t5, 44(sp)
+	addw t0, t0, t5
+	lw t5, 48(sp)
+	addw t1, t1, t5
+	lw t5, 52(sp)
+	addw t2, t2, t5
+	lw t5, 56(sp)
+	addw t3, t3, t5
+	lw t5, 60(sp)
+	addw t4, t4, t5
+
+	# 5. Serialize / Store to Output
+	# Simple 'sw' is enough since RISC-V is Little-Endian.
+	sw s0, 0(\out)
+	sw s1, 4(\out)
+	sw s2, 8(\out)
+	sw s3, 12(\out)
+	sw s4, 16(\out)
+	sw s5, 20(\out)
+	sw s6, 24(\out)
+	sw s7, 28(\out)
+	sw s8, 32(\out)
+	sw s9, 36(\out)
+	sw s10, 40(\out)
+	sw t0, 44(\out)
+	sw t1, 48(\out)
+	sw t2, 52(\out)
+	sw t3, 56(\out)
+	sw t4, 60(\out)
+
+	# 6. Clean up Stack
+	addi sp, sp, 64
 .endm
 
 # Macro to setup list of registers. Save all to stack
@@ -500,90 +634,90 @@ main:
 	li a0, '\n'
 	jal write_byte
 
-        PRINT x[4]=
-        mv a0, s4
-        jal print_hex
+	PRINT x[4]=
+	mv a0, s4
+	jal print_hex
 
-        li a0, '\n'
-        jal write_byte
+	li a0, '\n'
+	jal write_byte
 
 
-        PRINT x[5]=
-        mv a0, s5
-        jal print_hex
+	PRINT x[5]=
+	mv a0, s5
+	jal print_hex
 
-        li a0, '\n'
-        jal write_byte
+	li a0, '\n'
+	jal write_byte
 
-        PRINT x[6]=
-        mv a0, s6
-        jal print_hex
+	PRINT x[6]=
+	mv a0, s6
+	jal print_hex
 
-        li a0, '\n'
-        jal write_byte
+	li a0, '\n'
+	jal write_byte
 
-        PRINT x[7]=
-        mv a0, s7
-        jal print_hex
+	PRINT x[7]=
+	mv a0, s7
+	jal print_hex
 
-        li a0, '\n'
-        jal write_byte
+	li a0, '\n'
+	jal write_byte
 
-        PRINT x[8]=
-        mv a0, s8
-        jal print_hex
+	PRINT x[8]=
+	mv a0, s8
+	jal print_hex
 
-        li a0, '\n'
-        jal write_byte
+	li a0, '\n'
+	jal write_byte
 
-        PRINT x[9]=
-        mv a0, s9
-        jal print_hex
+	PRINT x[9]=
+	mv a0, s9
+	jal print_hex
 
-        li a0, '\n'
-        jal write_byte
+	li a0, '\n'
+	jal write_byte
 
-        PRINT x[10]=
-        mv a0, s10
-        jal print_hex
+	PRINT x[10]=
+	mv a0, s10
+	jal print_hex
 
-        li a0, '\n'
-        jal write_byte
+	li a0, '\n'
+	jal write_byte
 
-        PRINT x[11]=
-        mv a0, a4
-        jal print_hex
+	PRINT x[11]=
+	mv a0, a4
+	jal print_hex
 
-        li a0, '\n'
-        jal write_byte
+	li a0, '\n'
+	jal write_byte
 
-        PRINT x[12]=
-        mv a0, a5
-        jal print_hex
+	PRINT x[12]=
+	mv a0, a5
+	jal print_hex
 
-        li a0, '\n'
-        jal write_byte
+	li a0, '\n'
+	jal write_byte
 
-        PRINT x[13]=
-        mv a0, t2
-        jal print_hex
+	PRINT x[13]=
+	mv a0, t2
+	jal print_hex
 
-        li a0, '\n'
-        jal write_byte
+	li a0, '\n'
+	jal write_byte
 
-        PRINT x[14]=
-        mv a0, t3
-        jal print_hex
+	PRINT x[14]=
+	mv a0, t3
+	jal print_hex
 
-        li a0, '\n'
-        jal write_byte
+	li a0, '\n'
+	jal write_byte
 
-        PRINT x[15]=
-        mv a0, t4
-        jal print_hex
+	PRINT x[15]=
+	mv a0, t4
+	jal print_hex
 
-        li a0, '\n'
-        jal write_byte
+	li a0, '\n'
+	jal write_byte
 
 
 
