@@ -365,7 +365,7 @@ print_dec:
 	RETURN
 
 print_hex:
-	SETUP		s0, s1, s2
+	SETUP		s0, s1, s2, t0, t1, t2, a0
 
 	mv		s0, a0		# Save original value
 	li		s2, 0		# flag = 0 (skipping leading)
@@ -445,17 +445,36 @@ main:
 	li a0, '\n'
 	jal write_byte
 
-	li s1, 0x1	# a
-	li s2, 0x1	# b
-	li s3, 0x1	# c
-	li s4, 0x1	# d
-
-	# 2. Run the Macro
-	# This will perform all 4 steps of the Quarter Round
-	CHACHA_QR s1, s2, s3, s4
+	li s0, 0x1
+	li s1, 0x1
+	li s2, 0x1	
+	li s3, 0x1
+	li s4, 0x1
+	li s5, 0x1
+	li s6, 0x1
+	li s7, 0x1
+	li s8, 0x1
+	li s9, 0x1
+	li s10, 0x1
+	li t0, 0x1
+	li t1, 0x1
+	li t2, 0x1
+	li t3, 0x1
+	li t4, 0x1
+	CHACHA_ROUNDS
+	mv a4, t0
+	mv a5, t1
 
 	# 3. Print the results
-	PRINT a=
+	PRINT x[0]=
+	mv a0, s0
+	jal print_hex
+
+	li a0, '\n'
+	jal write_byte
+
+
+	PRINT x[1]=
 	mv a0, s1
 	jal print_hex
 
@@ -463,28 +482,107 @@ main:
 	jal write_byte
 
 
-	PRINT b=
+	PRINT x[2]=
 	mv a0, s2
-	jal print_hex
-
-	li a0, '\n'
-	jal write_byte
-
-
-	PRINT c=
-	mv a0, s3
 	jal print_hex
 
  	li a0, '\n'
 	jal write_byte
 
 
-	PRINT d=
-	mv a0, s4
+	PRINT x[3]=
+	mv a0, s3
 	jal print_hex
 
 	li a0, '\n'
 	jal write_byte
+
+        PRINT x[4]=
+        mv a0, s4
+        jal print_hex
+
+        li a0, '\n'
+        jal write_byte
+
+
+        PRINT x[5]=
+        mv a0, s5
+        jal print_hex
+
+        li a0, '\n'
+        jal write_byte
+
+        PRINT x[6]=
+        mv a0, s6
+        jal print_hex
+
+        li a0, '\n'
+        jal write_byte
+
+        PRINT x[7]=
+        mv a0, s7
+        jal print_hex
+
+        li a0, '\n'
+        jal write_byte
+
+        PRINT x[8]=
+        mv a0, s8
+        jal print_hex
+
+        li a0, '\n'
+        jal write_byte
+
+        PRINT x[9]=
+        mv a0, s9
+        jal print_hex
+
+        li a0, '\n'
+        jal write_byte
+
+        PRINT x[10]=
+        mv a0, s10
+        jal print_hex
+
+        li a0, '\n'
+        jal write_byte
+
+        PRINT x[11]=
+        mv a0, a4
+        jal print_hex
+
+        li a0, '\n'
+        jal write_byte
+
+        PRINT x[12]=
+        mv a0, a5
+        jal print_hex
+
+        li a0, '\n'
+        jal write_byte
+
+        PRINT x[13]=
+        mv a0, t2
+        jal print_hex
+
+        li a0, '\n'
+        jal write_byte
+
+        PRINT x[14]=
+        mv a0, t3
+        jal print_hex
+
+        li a0, '\n'
+        jal write_byte
+
+        PRINT x[15]=
+        mv a0, t4
+        jal print_hex
+
+        li a0, '\n'
+        jal write_byte
+
+
 
 skip1:
 
