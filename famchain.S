@@ -125,12 +125,6 @@ _base\@:
 # CORE PRIMITIVES for chacha20
 # -----------------------------------------------------------------------------
 
-.macro rotl32 reg, amount
-	slliw	t5, \reg, \amount	# Shift left by immediate
-	srliw	t6, \reg, (32 - \amount) # Shift right by (32 - amount)
-	or	\reg, t5, t6		# Combine
-.endm
-
 # a, b, d: registers holding the state words
 # n: rotation amount (immediate)
 .macro QR_STEP a, b, d, n
@@ -225,6 +219,103 @@ _base\@:
         ADD_STEP t4, 60, \in, \out
 .endm
 
+# Define the ChaCha20 Initialization Macro
+# Usage: CHACHA20_INIT_STATE reg_base, key_ptr, counter_reg, nonce_ptr
+# This assumes key_ptr and nonce_ptr are registers holding memory addresses.
+.macro CHACHA20_INIT_STATE key_ptr, counter, nonce_ptr
+    # 1. Load the "expand 32-byte k" constants
+    li s0, 0x61707865
+    li s1, 0x3320646e
+    li s2, 0x79622d32
+    li s3, 0x6b206574
+
+    # 2. Load the 32-byte Key from memory (8 words)
+    lw s4, 0(\key_ptr)
+    lw s5, 4(\key_ptr)
+    lw s6, 8(\key_ptr)
+    lw s7, 12(\key_ptr)
+    lw s8, 16(\key_ptr)
+    lw s9, 20(\key_ptr)
+    lw s10, 24(\key_ptr)
+    lw t0, 28(\key_ptr)
+
+    # 3. Set the Counter (from a register)
+    mv t1, \counter
+
+    # 4. Load the 12-byte Nonce from memory (3 words)
+    lw t2, 0(\nonce_ptr)
+    lw t3, 4(\nonce_ptr)
+    lw t4, 8(\nonce_ptr)
+.endm
+
+# CHACHA20_XOR Macro
+# Arguments: 
+#   in_ptr:   Register with input buffer address
+#   out_ptr:  Register with output buffer address
+#   inlen:    Register with length in bytes
+#   tmp_ptr:  Register pointing to a 64-byte scratch area (to store 'orig' state)
+
+.macro CHACHA20_XOR in_ptr, out_ptr, inlen, tmp_ptr
+    # Check if length is zero
+    beqz \inlen, 2f
+
+1: # Main Loop Start
+    # 1. Save "original" state to scratch area for the final add-back
+    sw s0,  0(\tmp_ptr);  sw s1,  4(\tmp_ptr);  sw s2,  8(\tmp_ptr);  sw s3,  12(\tmp_ptr)
+    sw s4,  16(\tmp_ptr); sw s5,  20(\tmp_ptr); sw s6,  24(\tmp_ptr); sw s7,  28(\tmp_ptr)
+    sw s8,  32(\tmp_ptr); sw s9,  36(\tmp_ptr); sw s10, 40(\tmp_ptr); sw t0,  44(\tmp_ptr)
+    sw t1,  48(\tmp_ptr); sw t2,  52(\tmp_ptr); sw t3,  56(\tmp_ptr); sw t4,  60(\tmp_ptr)
+
+    # 2. Run the 20 Rounds (The permutation)
+    # This calls your CHACHA_ROUNDS macro which modifies s0-t4 in-place
+    CHACHA_ROUNDS
+
+    # 3. Final Add and XOR (Unrolled for 16 words)
+    # Using t5 and t6 as the only available scratch registers
+    .macro _XOR_STEP reg, offset, in, out, tmp
+        lw   t5, \offset(\tmp)   # Load original state word
+        addw \reg, \reg, t5       # s = s + original (RFC requirement)
+        lw   t6, \offset(\in)    # Load input plaintext word
+        xor  \reg, \reg, t6       # XOR with keystream
+        sw   \reg, \offset(\out) # Store to output
+    .endm
+
+    _XOR_STEP s0,  0,  \in_ptr, \out_ptr, \tmp_ptr
+    _XOR_STEP s1,  4,  \in_ptr, \out_ptr, \tmp_ptr
+    _XOR_STEP s2,  8,  \in_ptr, \out_ptr, \tmp_ptr
+    _XOR_STEP s3,  12, \in_ptr, \out_ptr, \tmp_ptr
+    _XOR_STEP s4,  16, \in_ptr, \out_ptr, \tmp_ptr
+    _XOR_STEP s5,  20, \in_ptr, \out_ptr, \tmp_ptr
+    _XOR_STEP s6,  24, \in_ptr, \out_ptr, \tmp_ptr
+    _XOR_STEP s7,  28, \in_ptr, \out_ptr, \tmp_ptr
+    _XOR_STEP s8,  32, \in_ptr, \out_ptr, \tmp_ptr
+    _XOR_STEP s9,  36, \in_ptr, \out_ptr, \tmp_ptr
+    _XOR_STEP s10, 40, \in_ptr, \out_ptr, \tmp_ptr
+    _XOR_STEP t0,  44, \in_ptr, \out_ptr, \tmp_ptr
+    _XOR_STEP t1,  48, \in_ptr, \out_ptr, \tmp_ptr
+    _XOR_STEP t2,  52, \in_ptr, \out_ptr, \tmp_ptr
+    _XOR_STEP t3,  56, \in_ptr, \out_ptr, \tmp_ptr
+    _XOR_STEP t4,  60, \in_ptr, \out_ptr, \tmp_ptr
+
+    # 4. Prepare for next 64-byte block
+    # Restore the state from 'tmp' so the next block starts with the correct constants/key/nonce
+    lw s0,  0(\tmp_ptr);  lw s1,  4(\tmp_ptr);  lw s2,  8(\tmp_ptr);  lw s3,  12(\tmp_ptr)
+    lw s4,  16(\tmp_ptr); lw s5,  20(\tmp_ptr); lw s6,  24(\tmp_ptr); lw s7,  28(\tmp_ptr)
+    lw s8,  32(\tmp_ptr); lw s9,  36(\tmp_ptr); lw s10, 40(\tmp_ptr); lw t0,  44(\tmp_ptr)
+    # Increment the counter word (t1) before storing back
+    lw t1,  48(\tmp_ptr)
+    addi t1, t1, 1 
+    lw t2,  52(\tmp_ptr); lw t3,  56(\tmp_ptr); lw t4,  60(\tmp_ptr)
+
+    # Update Pointers and Length
+    addi \in_ptr, \in_ptr, 64
+    addi \out_ptr, \out_ptr, 64
+    addi \inlen, \inlen, -64
+    bgtz \inlen, 1b   # Jump back to label 1 if length > 0
+
+2: # Exit label
+.endm
+
 # Macro to setup list of registers. Save all to stack
 .macro SETUP regs:vararg
 	.set _macro_depth, _macro_depth + 1
@@ -307,7 +398,6 @@ _base\@:
 _start:
 	j		main
 
-# Put these here due to alignment requirements
 global_ptr: .dword		0x0
 boot_lock: .word		0x0
 complete_lock: .word		0x0
