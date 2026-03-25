@@ -121,6 +121,45 @@ _base\@:
 	.purgem _do_tear_down_\depth
 .endm
 
+# Macro to setup list of registers. Save all to stack
+.macro SETUP regs:vararg
+        .set _macro_depth, _macro_depth + 1
+
+        .set _cnt, 1
+        .ifnc "\regs", ""
+        .irp item, \regs
+                .set _cnt, _cnt + 1
+        .endr
+        .endif
+        .set _sz, ((_cnt * 8) + 15) & -16
+
+        _def_restore_macro %_macro_depth, %_sz, \regs
+
+
+        DECR_STACK _sz
+        sd      ra, 0(sp)
+        .ifnc "\regs", ""
+        .set _off, 8
+        .irp reg, \regs
+                sd \reg, _off(sp)
+                .set _off, _off + 8
+        .endr
+        .endif
+.endm
+
+# Tear down the stack (LIFO order for stack frames)
+.macro TEAR_DOWN
+        _exec_tear_down %_macro_depth
+        _kill_tear_down %_macro_depth
+        .set _macro_depth, _macro_depth - 1
+.endm
+
+.macro RETURN
+        TEAR_DOWN
+        ret
+.endm
+
+
 # -----------------------------------------------------------------------------
 # CORE PRIMITIVES for chacha20
 # -----------------------------------------------------------------------------
@@ -527,44 +566,6 @@ _base\@:
 	TEAR_DOWN
 .endm
 
-# Macro to setup list of registers. Save all to stack
-.macro SETUP regs:vararg
-	.set _macro_depth, _macro_depth + 1
-
-	.set _cnt, 1
-	.ifnc "\regs", ""
-	.irp item, \regs
-		.set _cnt, _cnt + 1
-	.endr
-	.endif
-	.set _sz, ((_cnt * 8) + 15) & -16
-
-	_def_restore_macro %_macro_depth, %_sz, \regs
-
-
-	DECR_STACK _sz
-	sd	ra, 0(sp)
-	.ifnc "\regs", ""
-	.set _off, 8
-	.irp reg, \regs
-		sd \reg, _off(sp)
-		.set _off, _off + 8
-	.endr
-	.endif
-.endm
-
-# Tear down the stack (LIFO order for stack frames)
-.macro TEAR_DOWN
-	_exec_tear_down %_macro_depth
-	_kill_tear_down %_macro_depth
-	.set _macro_depth, _macro_depth - 1
-.endm
-
-.macro RETURN
-	TEAR_DOWN
-	ret
-.endm
-
 .macro PRINT_NUM r
 	SETUP		a0, t0, t1, t2
 	mv		a0, \r
@@ -609,10 +610,10 @@ _base\@:
 _start:
 	j		main
 
-global_ptr: .dword		0x0
-boot_lock: .word		0x0
-complete_lock: .word		0x0
-global_lock: .word		0x0
+global_ptr: .dword              0x0
+boot_lock: .word                0x0
+complete_lock: .word            0x0
+global_lock: .word              0x0
 
 
 exit:
@@ -702,7 +703,7 @@ print_dec:
 	divu		s0, s0, s1
 	addi		t0, t0, 48		# Convert to ASCII
 
-	mv		t1, sp		# Buffer start
+	mv		t1, sp			# Buffer start
 	add		t1, t1, s2		# Buffer + index
 	sb		t0, 0(t1)
 
@@ -724,8 +725,8 @@ print_dec:
 print_hex:
 	SETUP		s0, s1, s2, t0, t1, t2, a0
 
-	mv		s0, a0		# Save original value
-	li		s2, 0		# flag = 0 (skipping leading)
+	mv		s0, a0			# Save original value
+	li		s2, 0			# flag = 0 (skipping leading)
 
 	# Print "0x" prefix 
 	li		a0, '0' 
@@ -739,17 +740,17 @@ print_hex:
 	jal		write_byte
 	j		4f
 
-1:	li		s1, 60		# Start at highest nibble
+1:	li		s1, 60			# Start at highest nibble
 2:	
 	srl		t2, s0, s1		# Isolate nibble
 	andi		t2, t2, 0xF
 
 	# Skip leading zeros logic
-	bnez		t2, 3f		# If nibble != 0, start
-	bnez		s2, 3f		# If already started, print
+	bnez		t2, 3f			# If nibble != 0, start
+	bnez		s2, 3f			# If already started, print
 	j		next_nibble		# Otherwise, skip
 
-3:	li		s2, 1		# Flip "started" flag
+3:	li		s2, 1			# Flip "started" flag
 
 	# Convert nibble to ASCII
 	li		a0, 10
@@ -793,7 +794,6 @@ main:
 	mv s6, a2
 	li s4, 32
 
-	
 1:
 	lbu	a0, 0(s6)
 	jal print_hex
@@ -811,29 +811,6 @@ skip1:
 1:	wfi
 	j		1b
 
-in_ptr: .asciz "hello"
-test_block:
-	.word 0x11111111, 0x22222222, 0x33333333, 0x44444444
-	.word 0x55555555, 0x66666666, 0x77777777, 0x88888888
-	.word 0x99999999, 0xAAAAAAAA, 0xBBBBBBBB, 0xCCCCCCCC
-	.word 0xDDDDDDDD, 0xEEEEEEEE, 0xFFFFFFFF, 0x12345678
-test_key:	.zero 32		# All zeros
-test_nonce:	.zero 12		# All zeros
-hello_str:	.ascii "hello"	# 5 bytes
-		.zero 59		# Padding to 64 bytes
+in_ptr: .asciz			"hello"
 
-rfc_test_vector:
-	# 0-15: The Constants "expand 32-byte k"
-	.word 0x61707865, 0x3320646e, 0x79622d32, 0x6b206574
-	
-	# 16-47: The Key (00:01:02:03...1e:1f)
-	# Each .word is 4 bytes of the key in Little-Endian order
-	.word 0x03020100, 0x07060504, 0x0b0a0908, 0x0f0e0d0c
-	.word 0x13121110, 0x17161514, 0x1b1a1918, 0x1f1e1d1c
-
-	# 48-51: The Block Counter (Set to 1)
-	.word 0x00000001
-
-	# 52-63: The Nonce (00:00:00:00:00:00:00:4a:00:00:00:00)
-	.word 0x09000000, 0x4a000000, 0x00000000
 data:
