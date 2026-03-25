@@ -61,11 +61,9 @@ _base\@:
 .endm
 
 .macro DECR_STACK	size
-	li		t0, \size
-	sub		t0, sp, t0
-	blt		t0, s11, stack_panic
-	bgt		t0, sp, stack_panic
-	mv		sp, t0
+	li		t6, \size
+	sub		sp, sp, t6
+	blt		sp, s11, stack_panic
 .endm
 
 .macro INCR_STACK	size
@@ -123,6 +121,36 @@ _base\@:
 	.purgem _do_tear_down_\depth
 .endm
 
+# -----------------------------------------------------------------------------
+# CORE PRIMITIVES for chacha20
+# -----------------------------------------------------------------------------
+
+.macro rotl32
+	negw	a5, a1
+	sllw	a1, a0, a1
+	srlw	a0, a0, a5
+	or	a0, a0, a1
+	sext.w	a0, a0
+.endm
+
+# a, b, d: registers holding the state words
+# n: rotation amount (immediate)
+.macro QR_STEP a, b, d, n
+	addw	\a, \a, \b	# a += b
+	xor	\d, \d, \a	# d ^= a
+	li	a1, \n		# Set up rotation amount
+	mv	a0, \d		
+	rotl32		# Call macro
+	mv	\d, a0		# Move result back to the state register
+.endm
+
+# a, b, c, d are the 4 registers you're working on
+.macro CHACHA_QR a, b, c, d
+	QR_STEP \a, \b, \d, 16	# Step 1: d is rotated
+	QR_STEP \c, \d, \b, 12	# Step 2: b is rotated
+	QR_STEP \a, \b, \d, 8	# Step 3: d is rotated
+	QR_STEP \c, \d, \b, 7	# Step 4: b is rotated
+.endm
 
 # Macro to setup list of registers. Save all to stack
 .macro SETUP regs:vararg
@@ -163,54 +191,54 @@ _base\@:
 .endm
 
 .macro PRINT_NUM r
-        SETUP           a0, t0, t1, t2
-        mv              a0, \r
-        jal             print_dec
-        TEAR_DOWN
+	SETUP		a0, t0, t1, t2
+	mv		a0, \r
+	jal		print_dec
+	TEAR_DOWN
 .endm
 
 .macro PRINT_HEX r
-        SETUP           a0, t0, t1, t2
-        mv              a0, \r
-        jal             print_hex
-        TEAR_DOWN
+	SETUP		a0, t0, t1, t2
+	mv		a0, \r
+	jal		print_hex
+	TEAR_DOWN
 .endm
 
 .macro PRINT_LABEL label
-        SETUP           t0, t1, t2, t3, a0
-        LOAD_ADDRESS    a0, \label
-        jal             print_str
-        TEAR_DOWN
+	SETUP		t0, t1, t2, t3, a0
+	LOAD_ADDRESS	a0, \label
+	jal		print_str
+	TEAR_DOWN
 .endm
 
 .macro PIC_STRING label, text
-        \label:
-        .asciz "\text"  
-        x_\label:
-        .asciz "\text"
+	\label:
+	.asciz "\text"	
+	x_\label:
+	.asciz "\text"
 .endm
 
 .macro PRINT text:vararg
-        j       _pic_jump\@
-        PIC_STRING _pic_str\@, \text
-        _pic_jump\@:
-        PRINT_LABEL _pic_str\@
+	j	_pic_jump\@
+	PIC_STRING _pic_str\@, \text
+	_pic_jump\@:
+	PRINT_LABEL _pic_str\@
 .endm
 
 .macro PANIC text:vararg
-        PRINT           <\text>
-        PRINT           <\n>
-        j               exit
+	PRINT		<\text>
+	PRINT		<\n>
+	j		exit
 .endm
 
 _start:
 	j		main
 
 # Put these here due to alignment requirements
-global_ptr: .dword              0x0
-boot_lock: .word                0x0
-complete_lock: .word            0x0
-global_lock: .word              0x0
+global_ptr: .dword		0x0
+boot_lock: .word		0x0
+complete_lock: .word		0x0
+global_lock: .word		0x0
 
 
 exit:
@@ -244,80 +272,80 @@ stack_panic:
 	li a0, 's'
 	jal write_byte
 	li a0, 't'
-        jal write_byte
+	jal write_byte
 	li a0, 'a'
-        jal write_byte
+	jal write_byte
 	li a0, 'c'
-        jal write_byte
+	jal write_byte
 	li a0, 'k'
-        jal write_byte
+	jal write_byte
 	li a0, ' '
-        jal write_byte
+	jal write_byte
 	li a0, 'o'
-        jal write_byte
+	jal write_byte
 	li a0, 'v'
-        jal write_byte
+	jal write_byte
 	li a0, 'e'
-        jal write_byte
+	jal write_byte
 	li a0, 'r'
-        jal write_byte
+	jal write_byte
 	li a0, 'f'
-        jal write_byte
+	jal write_byte
 	li a0, 'l'
-        jal write_byte
+	jal write_byte
 	li a0, 'o'
-        jal write_byte
+	jal write_byte
 	li a0, 'w'
-        jal write_byte
+	jal write_byte
 	li a0, '!'
-        jal write_byte
+	jal write_byte
 	li a0, '\n'
-        jal write_byte
+	jal write_byte
 	j exit
 
 print_dec:
-        SETUP           s0, s1, s2
+	SETUP		s0, s1, s2
 	DECR_STACK	32
 
-        mv              s0, a0
-        li              s1, 10
-        li              s2, 0
-        
-        # 1. Handle Negative
-        bgez            s0, 1f
-        li              a0, '-'
-        jal             write_byte
-        neg             s0, s0
+	mv		s0, a0
+	li		s1, 10
+	li		s2, 0
+	
+	# 1. Handle Negative
+	bgez		s0, 1f
+	li		a0, '-'
+	jal		write_byte
+	neg		s0, s0
 
-1:      # 2. Special Case: Zero
-        bnez            s0, 2f
-        li              a0, '0'
-        jal             write_byte
-        j               4f
-        
-2:      # 3. Generate Digits (Store at offset 32+)
-        remu            t0, s0, s1
-        divu            s0, s0, s1
-        addi            t0, t0, 48              # Convert to ASCII
+1:	# 2. Special Case: Zero
+	bnez		s0, 2f
+	li		a0, '0'
+	jal		write_byte
+	j		4f
+	
+2:	# 3. Generate Digits (Store at offset 32+)
+	remu		t0, s0, s1
+	divu		s0, s0, s1
+	addi		t0, t0, 48		# Convert to ASCII
 
-        mv              t1, sp                  # Buffer start
-        add             t1, t1, s2              # Buffer + index
-        sb              t0, 0(t1)
+	mv		t1, sp		# Buffer start
+	add		t1, t1, s2		# Buffer + index
+	sb		t0, 0(t1)
 
-        addi            s2, s2, 1
-        bnez            s0, 2b
+	addi		s2, s2, 1
+	bnez		s0, 2b
 
-3:      # 4. Print Digits (Reverse)
-        addi            s2, s2, -1
-        mv              t1, sp
-        add             t1, t1, s2
-        lbu             a0, 0(t1)
-        jal             write_byte
-        bnez            s2, 3b
+3:	# 4. Print Digits (Reverse)
+	addi		s2, s2, -1
+	mv		t1, sp
+	add		t1, t1, s2
+	lbu		a0, 0(t1)
+	jal		write_byte
+	bnez		s2, 3b
 
 4:
 	INCR_STACK	32
-        RETURN
+	RETURN
 
 print_hex:
 	SETUP		s0, s1, s2
@@ -390,15 +418,57 @@ main:
 	li a0, '\n'
 	jal write_byte	
 
-	DECR_STACK 0xFFFE0
+	DECR_STACK 0xFFFC0
 	mv a0, sp
-        jal     print_dec
-        li a0, '\n'     
-        jal write_byte  
-        mv a0, s11
-        jal     print_dec
-        li a0, '\n'
-        jal write_byte
+	jal	print_dec
+	li a0, '\n'	
+	jal write_byte	
+	mv a0, s11
+	jal	print_dec
+	li a0, '\n'
+	jal write_byte
+
+	li s1, 0x1	# a
+	li s2, 0x1	# b
+	li s3, 0x1	# c
+	li s4, 0x1	# d
+
+	# 2. Run the Macro
+	# This will perform all 4 steps of the Quarter Round
+	CHACHA_QR s1, s2, s3, s4
+
+	# 3. Print the results
+	PRINT a=
+	mv a0, s1
+	jal print_hex
+
+	li a0, '\n'
+	jal write_byte
+
+
+	PRINT b=
+	mv a0, s2
+	jal print_hex
+
+	li a0, '\n'
+	jal write_byte
+
+
+	PRINT c=
+	mv a0, s3
+	jal print_hex
+
+ 	li a0, '\n'
+	jal write_byte
+
+
+	PRINT d=
+	mv a0, s4
+	jal print_hex
+
+	li a0, '\n'
+	jal write_byte
+
 skip1:
 
 1:	wfi
