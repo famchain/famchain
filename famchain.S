@@ -354,6 +354,154 @@ _base\@:
 	INCR_STACK 64
 .endm
 
+# Parameters:
+#   in_ptr:  a0 (Input Buffer)
+#   in_len:  a1 (Total Length)
+#   out_ptr: a2 (32-byte Output)
+.macro CHACHA20_HASH in_ptr, in_len, out_ptr
+    # 1. INITIALIZE STATE
+    # Stash original length in a3 for finalization before we decrement a1
+    mv a3, \in_len
+
+    li s0, 0x61707865
+    li s1, 0x3320646e
+    li s2, 0x79622d32
+    li s3, 0x6b206574
+    li s4, 0x01020304 
+    li s5, 0x05060708
+    li s6, 0x090A0B0C
+    li s7, 0x0D0E0F10
+    li s8, 0x11121314
+    li s9, 0x15161718
+    li s10, 0x191A1B1C
+    li t0, 0x1D1E1F20
+    li t1, 0x21222324
+    li t2, 0x25262728
+    li t3, 0x292A2B2C
+    li t4, 0x2D2E2F30
+
+    # 2. MAIN COMPRESSION LOOP
+1:  li t5, 64
+    blt \in_len, t5, 2f
+
+    # --- DAVIES-MEYER: Stash Original State ---
+    DECR_STACK 64
+    sw s0, 0(sp)
+    sw s1, 4(sp)
+    sw s2, 8(sp)
+    sw s3, 12(sp)
+    sw s4, 16(sp)
+    sw s5, 20(sp)
+    sw s6, 24(sp)
+    sw s7, 28(sp)
+    sw s8, 32(sp)
+    sw s9, 36(sp)
+    sw s10, 40(sp)
+    sw t0, 44(sp)
+    sw t1, 48(sp)
+    sw t2, 52(sp)
+    sw t3, 56(sp)
+    sw t4, 60(sp)
+
+    # --- ABSORB: state ^= block ---
+    lw t5, 0(\in_ptr)
+    xor s0, s0, t5
+    lw t5, 4(\in_ptr)
+    xor s1, s1, t5
+    lw t5, 8(\in_ptr)
+    xor s2, s2, t5
+    lw t5, 12(\in_ptr)
+    xor s3, s3, t5
+    lw t5, 16(\in_ptr)
+    xor s4, s4, t5
+    lw t5, 20(\in_ptr)
+    xor s5, s5, t5
+    lw t5, 24(\in_ptr)
+    xor s6, s6, t5
+    lw t5, 28(\in_ptr)
+    xor s7, s7, t5
+    lw t5, 32(\in_ptr)
+    xor s8, s8, t5
+    lw t5, 36(\in_ptr)
+    xor s9, s9, t5
+    lw t5, 40(\in_ptr)
+    xor s10, s10, t5
+    lw t5, 44(\in_ptr)
+    xor t0, t0, t5
+    lw t5, 48(\in_ptr)
+    xor t1, t1, t5
+    lw t5, 52(\in_ptr)
+    xor t2, t2, t5
+    lw t5, 56(\in_ptr)
+    xor t3, t3, t5
+    lw t5, 60(\in_ptr)
+    xor t4, t4, t5
+
+    # --- MIX: 20 Rounds ---
+    CHACHA_ROUNDS
+
+    # --- DAVIES-MEYER: Add Original State Back ---
+    lw t5, 0(sp)
+    addw s0, s0, t5
+    lw t5, 4(sp)
+    addw s1, s1, t5
+    lw t5, 8(sp)
+    addw s2, s2, t5
+    lw t5, 12(sp)
+    addw s3, s3, t5
+    lw t5, 16(sp)
+    addw s4, s4, t5
+    lw t5, 20(sp)
+    addw s5, s5, t5
+    lw t5, 24(sp)
+    addw s6, s6, t5
+    lw t5, 28(sp)
+    addw s7, s7, t5
+    lw t5, 32(sp)
+    addw s8, s8, t5
+    lw t5, 36(sp)
+    addw s9, s9, t5
+    lw t5, 40(sp)
+    addw s10, s10, t5
+    lw t5, 44(sp)
+    addw t0, t0, t5
+    lw t5, 48(sp)
+    addw t1, t1, t5
+    lw t5, 52(sp)
+    addw t2, t2, t5
+    lw t5, 56(sp)
+    addw t3, t3, t5
+    lw t5, 60(sp)
+    addw t4, t4, t5
+
+    INCR_STACK 64
+
+    # Update pointers/len
+    addi \in_ptr, \in_ptr, 64
+    addi \in_len, \in_len, -64
+    bnez \in_len, 1b
+
+    # 3. FINALIZATION
+2:  # Inject original total length (stored in a3)
+    xor t1, t1, a3
+    srli t5, a3, 32
+    xor t2, t2, t5
+    li t5, 1
+    xor t4, t4, t5
+
+    CHACHA_ROUNDS
+
+    # 4. STORE RESULT (First 32 bytes)
+    sw s0, 0(\out_ptr)
+    sw s1, 4(\out_ptr)
+    sw s2, 8(\out_ptr)
+    sw s3, 12(\out_ptr)
+    sw s4, 16(\out_ptr)
+    sw s5, 20(\out_ptr)
+    sw s6, 24(\out_ptr)
+    sw s7, 28(\out_ptr)
+.endm
+
 # Macro to setup list of registers. Save all to stack
 .macro SETUP regs:vararg
 	.set _macro_depth, _macro_depth + 1
@@ -611,63 +759,43 @@ main:
 	li t0, 0
 	bne tp, t0, skip1
 
+	DECR_STACK 32
 
-	DECR_STACK 128
+	LOAD_ADDRESS a6, in_ptr
+	li a7, 70
 
-	mv	a7, sp		# s1 = local_in (0 to 63)
-	addi	a6, sp, 64	# s2 = local_out (64 to 127)
+	CHACHA20_HASH a6, a7, sp
+	mv s6, sp
+	li s4, 32
 
-	LOAD_ADDRESS a3, rfc_test_vector
 	
-
-	# Use a temporary pointer (t2) for the copy so s1 stays at sp
-	mv	a2, a7
-	.rept 8
-	ld	a1, 0(a3)
-	sd	a1, 0(a2)
-	mv	a0, a1
+1:
+	lbu	a0, 0(s6)
 	jal print_hex
-	li	a0, '\n'
+	li      a0, '\n'
 	jal write_byte
-	addi	a3, a3, 8
-	addi	a2, a2, 8
-	.endr
+	addi s4, s4, -1
+	addi s6, s6, 1
+	bnez s4, 1b
 
-	CHACHA20_BLOCK a7, a6
-
-
-	li	s3, 16		# ChaCha20 output is 16 words (64 bytes)
-	mv	s4, a6		# Use s4 as a walking pointer
-
-	li a0, 'x'
-	jal write_byte
-	li a0, '\n'
-	jal write_byte
-print_loop:
-	lw	a0, 0(s4)	# Load the 32-bit value into a0
-	jal	print_hex	# Call your hex printer
-	
-	# Optional: Print a space if your print_hex doesn't
-	# li a0, 32; jal ra, uart_putc 
-
-	addi	s4, s4, 4	# Move to the next 32-bit word
-	addi	s3, s3, -1	# Decrement word counter
-
-	li a0, '\n'
-	jal write_byte
-	bnez	s3, print_loop
-
-	li	 a0, 'q'
-	jal write_byte
-	li	a0, '\n'
+	li a0, 'q'
 	jal write_byte
 
-	INCR_STACK 128
-
+	INCR_STACK 32
 skip1:
 1:	wfi
 	j		1b
 
+in_ptr: .asciz "1123456789012345678901234567890123456789012345678901234567890123456789"
+test_block:
+    .word 0x11111111, 0x22222222, 0x33333333, 0x44444444
+    .word 0x55555555, 0x66666666, 0x77777777, 0x88888888
+    .word 0x99999999, 0xAAAAAAAA, 0xBBBBBBBB, 0xCCCCCCCC
+    .word 0xDDDDDDDD, 0xEEEEEEEE, 0xFFFFFFFF, 0x12345678
+test_key:	.zero 32		# All zeros
+test_nonce:	.zero 12		# All zeros
+hello_str:	.ascii "hello"	# 5 bytes
+		.zero 59		# Padding to 64 bytes
 
 rfc_test_vector:
 	# 0-15: The Constants "expand 32-byte k"
