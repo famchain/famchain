@@ -136,7 +136,10 @@ _base\@:
 .macro QR_STEP a, b, d, n
 	addw	\a, \a, \b	# a += b
 	xor	\d, \d, \a	# d ^= a
-	rotl32	\d, \n		# rotl
+	.option push
+	.option arch, +zbb
+	roriw   \d, \d, (32-\n) # Rotate Right Word Immediate
+	.option pop
 .endm
 
 # a, b, c, d are the 4 registers you're working on
