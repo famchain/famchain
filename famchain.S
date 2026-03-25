@@ -177,143 +177,181 @@ _base\@:
 # in_reg:  Register containing pointer to input uint32_t[16]
 # out_reg: Register containing pointer to output uint8_t[64]
 .macro CHACHA20_BLOCK in, out
-        lw s0, 0(\in)
-        lw s1, 4(\in)
-        lw s2, 8(\in)
-        lw s3, 12(\in)
-        lw s4, 16(\in)
-        lw s5, 20(\in)
-        lw s6, 24(\in)
-        lw s7, 28(\in)
-        lw s8, 32(\in)
-        lw s9, 36(\in)
-        lw s10, 40(\in)
-        lw t0, 44(\in)
-        lw t1, 48(\in)
-        lw t2, 52(\in)
-        lw t3, 56(\in)
-        lw t4, 60(\in)
+	lw s0, 0(\in)
+	lw s1, 4(\in)
+	lw s2, 8(\in)
+	lw s3, 12(\in)
+	lw s4, 16(\in)
+	lw s5, 20(\in)
+	lw s6, 24(\in)
+	lw s7, 28(\in)
+	lw s8, 32(\in)
+	lw s9, 36(\in)
+	lw s10, 40(\in)
+	lw t0, 44(\in)
+	lw t1, 48(\in)
+	lw t2, 52(\in)
+	lw t3, 56(\in)
+	lw t4, 60(\in)
 
-        CHACHA_ROUNDS
-        .macro ADD_STEP reg, offset, in_ptr, out_ptr
-            lw   t5, \offset(\in_ptr)   # Load original
-            addw \reg, \reg, t5         # 32-bit addition
-            sw   \reg, \offset(\out_ptr)# Store to output
-        .endm
+	CHACHA_ROUNDS
+	.macro ADD_STEP reg, offset, in_ptr, out_ptr
+		lw	t5, \offset(\in_ptr)	# Load original
+		addw \reg, \reg, t5		# 32-bit addition
+		sw	\reg, \offset(\out_ptr)# Store to output
+	.endm
 
-        ADD_STEP s0, 0, \in, \out
-        ADD_STEP s1, 4, \in, \out
-        ADD_STEP s2, 8, \in, \out
-        ADD_STEP s3, 12, \in, \out
-        ADD_STEP s4, 16, \in, \out
-        ADD_STEP s5, 20, \in, \out
-        ADD_STEP s6, 24, \in, \out
-        ADD_STEP s7, 28, \in, \out
-        ADD_STEP s8, 32, \in, \out
-        ADD_STEP s9, 36, \in, \out
-        ADD_STEP s10, 40, \in, \out
-        ADD_STEP t0, 44, \in, \out
-        ADD_STEP t1, 48, \in, \out
-        ADD_STEP t2, 52, \in, \out
-        ADD_STEP t3, 56, \in, \out
-        ADD_STEP t4, 60, \in, \out
+	ADD_STEP s0, 0, \in, \out
+	ADD_STEP s1, 4, \in, \out
+	ADD_STEP s2, 8, \in, \out
+	ADD_STEP s3, 12, \in, \out
+	ADD_STEP s4, 16, \in, \out
+	ADD_STEP s5, 20, \in, \out
+	ADD_STEP s6, 24, \in, \out
+	ADD_STEP s7, 28, \in, \out
+	ADD_STEP s8, 32, \in, \out
+	ADD_STEP s9, 36, \in, \out
+	ADD_STEP s10, 40, \in, \out
+	ADD_STEP t0, 44, \in, \out
+	ADD_STEP t1, 48, \in, \out
+	ADD_STEP t2, 52, \in, \out
+	ADD_STEP t3, 56, \in, \out
+	ADD_STEP t4, 60, \in, \out
 .endm
 
 # Define the ChaCha20 Initialization Macro
 # Usage: CHACHA20_INIT_STATE reg_base, key_ptr, counter_reg, nonce_ptr
 # This assumes key_ptr and nonce_ptr are registers holding memory addresses.
 .macro CHACHA20_INIT_STATE key_ptr, counter, nonce_ptr
-    # 1. Load the "expand 32-byte k" constants
-    li s0, 0x61707865
-    li s1, 0x3320646e
-    li s2, 0x79622d32
-    li s3, 0x6b206574
+	# 1. Load the "expand 32-byte k" constants
+	li s0, 0x61707865
+	li s1, 0x3320646e
+	li s2, 0x79622d32
+	li s3, 0x6b206574
 
-    # 2. Load the 32-byte Key from memory (8 words)
-    lw s4, 0(\key_ptr)
-    lw s5, 4(\key_ptr)
-    lw s6, 8(\key_ptr)
-    lw s7, 12(\key_ptr)
-    lw s8, 16(\key_ptr)
-    lw s9, 20(\key_ptr)
-    lw s10, 24(\key_ptr)
-    lw t0, 28(\key_ptr)
+	# 2. Load the 32-byte Key from memory (8 words)
+	lw s4, 0(\key_ptr)
+	lw s5, 4(\key_ptr)
+	lw s6, 8(\key_ptr)
+	lw s7, 12(\key_ptr)
+	lw s8, 16(\key_ptr)
+	lw s9, 20(\key_ptr)
+	lw s10, 24(\key_ptr)
+	lw t0, 28(\key_ptr)
 
-    # 3. Set the Counter (from a register)
-    mv t1, \counter
+	# 3. Set the Counter (from a register)
+	mv t1, \counter
 
-    # 4. Load the 12-byte Nonce from memory (3 words)
-    lw t2, 0(\nonce_ptr)
-    lw t3, 4(\nonce_ptr)
-    lw t4, 8(\nonce_ptr)
+	# 4. Load the 12-byte Nonce from memory (3 words)
+	lw t2, 0(\nonce_ptr)
+	lw t3, 4(\nonce_ptr)
+	lw t4, 8(\nonce_ptr)
 .endm
 
-# CHACHA20_XOR Macro
-# Arguments: 
-#   in_ptr:   Register with input buffer address
-#   out_ptr:  Register with output buffer address
-#   inlen:    Register with length in bytes
-#   tmp_ptr:  Register pointing to a 64-byte scratch area (to store 'orig' state)
 
-.macro CHACHA20_XOR in_ptr, out_ptr, inlen, tmp_ptr
-    # Check if length is zero
-    beqz \inlen, 2f
+# .macro ChaCha20XOR key, counter, nonce, in_ptr, out_ptr, in_len
+# Parameters:
+#   key:      Register holding the 32-byte key pointer
+#   counter:  Register holding the 32-bit counter value
+#   nonce:    Register holding the 12-byte nonce pointer
+#   in_ptr:   Register holding the input buffer pointer
+#   out_ptr:  Register holding the output buffer pointer
+#   in_len:   Register holding the length in bytes
 
-1: # Main Loop Start
-    # 1. Save "original" state to scratch area for the final add-back
-    sw s0,  0(\tmp_ptr);  sw s1,  4(\tmp_ptr);  sw s2,  8(\tmp_ptr);  sw s3,  12(\tmp_ptr)
-    sw s4,  16(\tmp_ptr); sw s5,  20(\tmp_ptr); sw s6,  24(\tmp_ptr); sw s7,  28(\tmp_ptr)
-    sw s8,  32(\tmp_ptr); sw s9,  36(\tmp_ptr); sw s10, 40(\tmp_ptr); sw t0,  44(\tmp_ptr)
-    sw t1,  48(\tmp_ptr); sw t2,  52(\tmp_ptr); sw t3,  56(\tmp_ptr); sw t4,  60(\tmp_ptr)
+.macro ChaCha20XOR key, counter, nonce, in_ptr, out_ptr, in_len
+	# 0. Setup Stack Frame (64-byte scratchpad for the original state)
+	DECR_STACK 64
 
-    # 2. Run the 20 Rounds (The permutation)
-    # This calls your CHACHA_ROUNDS macro which modifies s0-t4 in-place
-    CHACHA_ROUNDS
+	# 1. Initialize the pinned state (s0-s10, t0-t4)
+	CHACHA20_INIT_STATE \key, \counter, \nonce
 
-    # 3. Final Add and XOR (Unrolled for 16 words)
-    # Using t5 and t6 as the only available scratch registers
-    .macro _XOR_STEP reg, offset, in, out, tmp
-        lw   t5, \offset(\tmp)   # Load original state word
-        addw \reg, \reg, t5       # s = s + original (RFC requirement)
-        lw   t6, \offset(\in)    # Load input plaintext word
-        xor  \reg, \reg, t6       # XOR with keystream
-        sw   \reg, \offset(\out) # Store to output
-    .endm
+	# Exit immediately if length is 0
+	blez \in_len, 2f
 
-    _XOR_STEP s0,  0,  \in_ptr, \out_ptr, \tmp_ptr
-    _XOR_STEP s1,  4,  \in_ptr, \out_ptr, \tmp_ptr
-    _XOR_STEP s2,  8,  \in_ptr, \out_ptr, \tmp_ptr
-    _XOR_STEP s3,  12, \in_ptr, \out_ptr, \tmp_ptr
-    _XOR_STEP s4,  16, \in_ptr, \out_ptr, \tmp_ptr
-    _XOR_STEP s5,  20, \in_ptr, \out_ptr, \tmp_ptr
-    _XOR_STEP s6,  24, \in_ptr, \out_ptr, \tmp_ptr
-    _XOR_STEP s7,  28, \in_ptr, \out_ptr, \tmp_ptr
-    _XOR_STEP s8,  32, \in_ptr, \out_ptr, \tmp_ptr
-    _XOR_STEP s9,  36, \in_ptr, \out_ptr, \tmp_ptr
-    _XOR_STEP s10, 40, \in_ptr, \out_ptr, \tmp_ptr
-    _XOR_STEP t0,  44, \in_ptr, \out_ptr, \tmp_ptr
-    _XOR_STEP t1,  48, \in_ptr, \out_ptr, \tmp_ptr
-    _XOR_STEP t2,  52, \in_ptr, \out_ptr, \tmp_ptr
-    _XOR_STEP t3,  56, \in_ptr, \out_ptr, \tmp_ptr
-    _XOR_STEP t4,  60, \in_ptr, \out_ptr, \tmp_ptr
+1:	# Main 64-byte Block Loop
+	# 2. Store current "un-permuted" state to scratchpad (Original State)
+	# This is required for the final add-back after the rounds.
+	sw s0, 0(sp)
+	sw s1, 4(sp)
+	sw s2, 8(sp)
+	sw s3, 12(sp)
+	sw s4, 16(sp)
+	sw s5, 20(sp)
+	sw s6, 24(sp)
+	sw s7, 28(sp)
+	sw s8, 32(sp)
+	sw s9, 36(sp)
+	sw s10, 40(sp)
+	sw t0, 44(sp)
+	sw t1, 48(sp)
+	sw t2, 52(sp)
+	sw t3, 56(sp)
+	sw t4, 60(sp)
 
-    # 4. Prepare for next 64-byte block
-    # Restore the state from 'tmp' so the next block starts with the correct constants/key/nonce
-    lw s0,  0(\tmp_ptr);  lw s1,  4(\tmp_ptr);  lw s2,  8(\tmp_ptr);  lw s3,  12(\tmp_ptr)
-    lw s4,  16(\tmp_ptr); lw s5,  20(\tmp_ptr); lw s6,  24(\tmp_ptr); lw s7,  28(\tmp_ptr)
-    lw s8,  32(\tmp_ptr); lw s9,  36(\tmp_ptr); lw s10, 40(\tmp_ptr); lw t0,  44(\tmp_ptr)
-    # Increment the counter word (t1) before storing back
-    lw t1,  48(\tmp_ptr)
-    addi t1, t1, 1 
-    lw t2,  52(\tmp_ptr); lw t3,  56(\tmp_ptr); lw t4,  60(\tmp_ptr)
+	# 3. Run the 20 Rounds (The Permutation)
+	# This macro modifies s0-t4 in-place
+	CHACHA_ROUNDS
 
-    # Update Pointers and Length
-    addi \in_ptr, \in_ptr, 64
-    addi \out_ptr, \out_ptr, 64
-    addi \inlen, \inlen, -64
-    bgtz \inlen, 1b   # Jump back to label 1 if length > 0
+	# 4. Final Add and XOR
+	# Using t5 and t6 as the only available scratch registers.
+	# We unroll this manually for all 16 words.
+	
+	.macro _XOR_STEP_INNER reg, offset, in_reg, out_reg
+	lw	t5, \offset(sp)	# Load original state word
+	addw \reg, \reg, t5	# s = s + original
+	lw	t6, \offset(\in_reg)	# Load plaintext word
+	xor	\reg, \reg, t6	# XOR with keystream
+	sw	\reg, \offset(\out_reg) # Store ciphertext word
+	.endm
 
-2: # Exit label
+	_XOR_STEP_INNER s0, 0,	\in_ptr, \out_ptr
+	_XOR_STEP_INNER s1, 4,	\in_ptr, \out_ptr
+	_XOR_STEP_INNER s2, 8,	\in_ptr, \out_ptr
+	_XOR_STEP_INNER s3, 12, \in_ptr, \out_ptr
+	_XOR_STEP_INNER s4, 16, \in_ptr, \out_ptr
+	_XOR_STEP_INNER s5, 20, \in_ptr, \out_ptr
+	_XOR_STEP_INNER s6, 24, \in_ptr, \out_ptr
+	_XOR_STEP_INNER s7, 28, \in_ptr, \out_ptr
+	_XOR_STEP_INNER s8, 32, \in_ptr, \out_ptr
+	_XOR_STEP_INNER s9, 36, \in_ptr, \out_ptr
+	_XOR_STEP_INNER s10, 40, \in_ptr, \out_ptr
+	_XOR_STEP_INNER t0, 44, \in_ptr, \out_ptr
+	_XOR_STEP_INNER t1, 48, \in_ptr, \out_ptr
+	_XOR_STEP_INNER t2, 52, \in_ptr, \out_ptr
+	_XOR_STEP_INNER t3, 56, \in_ptr, \out_ptr
+	_XOR_STEP_INNER t4, 60, \in_ptr, \out_ptr
+
+	# 5. Prepare for the next 64-byte block
+	# Restore the state base from the scratchpad so key/nonce/constants are reset
+	lw s0, 0(sp)
+	lw s1, 4(sp)
+	lw s2, 8(sp)
+	lw s3, 12(sp)
+	lw s4, 16(sp)
+	lw s5, 20(sp)
+	lw s6, 24(sp)
+	lw s7, 28(sp)
+	lw s8, 32(sp)
+	lw s9, 36(sp)
+	lw s10, 40(sp)
+	lw t0, 44(sp)
+	
+	# Reload and increment the pinned counter (t1) specifically
+	lw t1, 48(sp)
+	addi t1, t1, 1 
+	
+	lw t2, 52(sp)
+	lw t3, 56(sp)
+	lw t4, 60(sp)
+
+	# 6. Update Pointers and Length
+	addi \in_ptr, \in_ptr, 64
+	addi \out_ptr, \out_ptr, 64
+	addi \in_len, \in_len, -64
+	bgtz \in_len, 1b
+
+2:	# Cleanup
+	INCR_STACK 64
 .endm
 
 # Macro to setup list of registers. Save all to stack
@@ -576,24 +614,24 @@ main:
 
 	DECR_STACK 128
 
-        mv      a7, sp          # s1 = local_in (0 to 63)
-        addi    a6, sp, 64      # s2 = local_out (64 to 127)
+	mv	a7, sp		# s1 = local_in (0 to 63)
+	addi	a6, sp, 64	# s2 = local_out (64 to 127)
 
-        LOAD_ADDRESS a3, rfc_test_vector
-        
+	LOAD_ADDRESS a3, rfc_test_vector
+	
 
 	# Use a temporary pointer (t2) for the copy so s1 stays at sp
-        mv      a2, a7
-        .rept 8
-        ld      a1, 0(a3)
-        sd      a1, 0(a2)
-	mv      a0, a1
+	mv	a2, a7
+	.rept 8
+	ld	a1, 0(a3)
+	sd	a1, 0(a2)
+	mv	a0, a1
 	jal print_hex
 	li	a0, '\n'
 	jal write_byte
-        addi    a3, a3, 8
-        addi    a2, a2, 8
-        .endr
+	addi	a3, a3, 8
+	addi	a2, a2, 8
+	.endr
 
 	CHACHA20_BLOCK a7, a6
 
@@ -632,17 +670,17 @@ skip1:
 
 
 rfc_test_vector:
-    # 0-15: The Constants "expand 32-byte k"
-    .word 0x61707865, 0x3320646e, 0x79622d32, 0x6b206574
-  
-    # 16-47: The Key (00:01:02:03...1e:1f)
-    # Each .word is 4 bytes of the key in Little-Endian order
-    .word 0x03020100, 0x07060504, 0x0b0a0908, 0x0f0e0d0c
-    .word 0x13121110, 0x17161514, 0x1b1a1918, 0x1f1e1d1c
+	# 0-15: The Constants "expand 32-byte k"
+	.word 0x61707865, 0x3320646e, 0x79622d32, 0x6b206574
+	
+	# 16-47: The Key (00:01:02:03...1e:1f)
+	# Each .word is 4 bytes of the key in Little-Endian order
+	.word 0x03020100, 0x07060504, 0x0b0a0908, 0x0f0e0d0c
+	.word 0x13121110, 0x17161514, 0x1b1a1918, 0x1f1e1d1c
 
-    # 48-51: The Block Counter (Set to 1)
-    .word 0x00000001
+	# 48-51: The Block Counter (Set to 1)
+	.word 0x00000001
 
-    # 52-63: The Nonce (00:00:00:00:00:00:00:4a:00:00:00:00)
-    .word 0x09000000, 0x4a000000, 0x00000000
+	# 52-63: The Nonce (00:00:00:00:00:00:00:4a:00:00:00:00)
+	.word 0x09000000, 0x4a000000, 0x00000000
 data:
