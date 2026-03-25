@@ -180,20 +180,15 @@ _base\@:
 	CHACHA_ROUND
 .endm
 
-# .macro CHACHA20_BLOCK in_reg, out_reg
 # in_reg:  Register containing pointer to input uint32_t[16]
 # out_reg: Register containing pointer to output uint8_t[64]
 .macro CHACHA20_BLOCK in, out
-        # We assume the caller has already allocated stack space
-        # and that 'in' points to the start of that space.
-
         # --- 1. LOAD & INITIALIZE ---
-        # We load from 'in' and since we need a backup for the final add,
-        # we can just leave the 'in' buffer alone and treat IT as the backup.
-        
+        # We load from 'in'. The 'in' buffer on the stack remains 
+        # untouched, serving as our backup for the final addition.
         lw s0, 0(\in)
         lw s1, 4(\in)
-        lw s2, 8(\in)
+        lw s2, 8(\in)   # <--- WARNING: If \out is s2, it is now overwritten
         lw s3, 12(\in)
         lw s4, 16(\in)
         lw s5, 20(\in)
@@ -208,24 +203,35 @@ _base\@:
         lw t3, 56(\in)
         lw t4, 60(\in)
 
-	CHACHA_ROUNDS
+        # --- 2. THE PERMUTATION ---
+        CHACHA_ROUNDS
 
-	sw s0, 0(\out)
-	sw s1, 4(\out)
-	sw s2, 8(\out)
-	sw s3, 12(\out)
-        sw s4, 16(\out)
-        sw s5, 20(\out)
-        sw s6, 24(\out)
-        sw s7, 28(\out)
-        sw s8, 32(\out)
-        sw s9, 36(\out)
-        sw s10, 40(\out)
-        sw t0, 44(\out)
-        sw t1, 48(\out)
-        sw t2, 52(\out)
-        sw t3, 56(\out)
-        sw t4, 60(\out)
+        # --- 3. FINAL ADDITION & STORE ---
+        # Formula: out[i] = scrambled_x[i] + original_in[i]
+        # Using t5 as a temporary for the original values.
+
+        .macro ADD_STEP reg, offset, in_ptr, out_ptr
+            lw   t5, \offset(\in_ptr)   # Load original
+            addw \reg, \reg, t5         # 32-bit addition
+            sw   \reg, \offset(\out_ptr)# Store to output
+        .endm
+
+        ADD_STEP s0, 0, \in, \out
+        ADD_STEP s1, 4, \in, \out
+        ADD_STEP s2, 8, \in, \out
+        ADD_STEP s3, 12, \in, \out
+        ADD_STEP s4, 16, \in, \out
+        ADD_STEP s5, 20, \in, \out
+        ADD_STEP s6, 24, \in, \out
+        ADD_STEP s7, 28, \in, \out
+        ADD_STEP s8, 32, \in, \out
+        ADD_STEP s9, 36, \in, \out
+        ADD_STEP s10, 40, \in, \out
+        ADD_STEP t0, 44, \in, \out
+        ADD_STEP t1, 48, \in, \out
+        ADD_STEP t2, 52, \in, \out
+        ADD_STEP t3, 56, \in, \out
+        ADD_STEP t4, 60, \in, \out
 .endm
 
 # Macro to setup list of registers. Save all to stack
