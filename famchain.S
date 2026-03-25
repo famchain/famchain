@@ -125,12 +125,11 @@ _base\@:
 # CORE PRIMITIVES for chacha20
 # -----------------------------------------------------------------------------
 
-.macro rotl32
-	negw	a5, a1
-	sllw	a1, a0, a1
-	srlw	a0, a0, a5
-	or	a0, a0, a1
-	sext.w	a0, a0
+.macro rotl32 reg, amount
+    slli    t5, \reg, \amount    # Shift left by immediate
+    srli    t6, \reg, (32 - \amount) # Shift right by (32 - amount)
+    or      \reg, t5, t6         # Combine
+    sext.w  \reg, \reg           # Sign-extend the 32-bit result back to 64-bit
 .endm
 
 # a, b, d: registers holding the state words
@@ -138,9 +137,8 @@ _base\@:
 .macro QR_STEP a, b, d, n
 	addw	\a, \a, \b	# a += b
 	xor	\d, \d, \a	# d ^= a
-	li	a1, \n		# Set up rotation amount
 	mv	a0, \d		
-	rotl32		# Call macro
+	rotl32  a0 \n		# Call macro
 	mv	\d, a0		# Move result back to the state register
 .endm
 
