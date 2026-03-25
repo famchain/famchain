@@ -183,127 +183,49 @@ _base\@:
 # .macro CHACHA20_BLOCK in_reg, out_reg
 # in_reg:  Register containing pointer to input uint32_t[16]
 # out_reg: Register containing pointer to output uint8_t[64]
-
 .macro CHACHA20_BLOCK in, out
-	# 1. Prepare Stack Frame
-	# We need to preserve the initial state for the final addition.
-	# We'll store it on the stack (64 bytes).
-	DECR_STACK	64
+        # We assume the caller has already allocated stack space
+        # and that 'in' points to the start of that space.
 
+        # --- 1. LOAD & INITIALIZE ---
+        # We load from 'in' and since we need a backup for the final add,
+        # we can just leave the 'in' buffer alone and treat IT as the backup.
+        
+        lw s0, 0(\in)
+        lw s1, 4(\in)
+        lw s2, 8(\in)
+        lw s3, 12(\in)
+        lw s4, 16(\in)
+        lw s5, 20(\in)
+        lw s6, 24(\in)
+        lw s7, 28(\in)
+        lw s8, 32(\in)
+        lw s9, 36(\in)
+        lw s10, 40(\in)
+        lw t0, 44(\in)
+        lw t1, 48(\in)
+        lw t2, 52(\in)
+        lw t3, 56(\in)
+        lw t4, 60(\in)
 
-	# 2. Load Input, Save to Stack, and Initialize x[16] Registers
-	# Using 'ld' to pull 64-bits at a time into t5, then storing to stack,
-	# then splitting into your s0-s10/t0-t4 mapping.
-
-	# x[0], x[1]
-	ld t5, 0(\in)
-	sd t5, 0(sp)
-	addiw s0, t5, 0
-	srli s1, t5, 32
-
-	# x[2], x[3]
-	ld t5, 8(\in)
-	sd t5, 8(sp)
-	addiw s2, t5, 0
-	srli s3, t5, 32
-
-	# x[4], x[5]
-	ld t5, 16(\in)
-	sd t5, 16(sp)
-	addiw s4, t5, 0
-	srli s5, t5, 32
-
-	# x[6], x[7]
-	ld t5, 24(\in)
-	sd t5, 24(sp)
-	addiw s6, t5, 0
-	srli s7, t5, 32
-
-	# x[8], x[9]
-	ld t5, 32(\in)
-	sd t5, 32(sp)
-	addiw s8, t5, 0
-	srli s9, t5, 32
-
-	# x[10], x[11]
-	ld t5, 40(\in)
-	sd t5, 40(sp)
-	addiw s10, t5, 0
-	srli t0, t5, 32
-
-	# x[12], x[13]
-	ld t5, 48(\in)
-	sd t5, 48(sp)
-	addiw t1, t5, 0
-	srli t2, t5, 32
-
-	# x[14], x[15]
-	ld t5, 56(\in)
-	sd t5, 56(sp)
-	addiw t3, t5, 0
-	srli t4, t5, 32
-
-	# 3. Execute the 20 Rounds (Unrolled)
 	CHACHA_ROUNDS
 
-	# 4. Final Addition (x[i] += in[i])
-	# Load the original values back from the stack and add them.
-	# We use 'lw' here to ensure we handle the 32-bit words correctly.
-
-	lw t5, 0(sp)
-	addw s0, s0, t5
-	lw t5, 4(sp)
-	addw s1, s1, t5
-	lw t5, 8(sp)
-	addw s2, s2, t5
-	lw t5, 12(sp)
-	addw s3, s3, t5
-	lw t5, 16(sp)
-	addw s4, s4, t5
-	lw t5, 20(sp)
-	addw s5, s5, t5
-	lw t5, 24(sp)
-	addw s6, s6, t5
-	lw t5, 28(sp)
-	addw s7, s7, t5
-	lw t5, 32(sp)
-	addw s8, s8, t5
-	lw t5, 36(sp)
-	addw s9, s9, t5
-	lw t5, 40(sp)
-	addw s10, s10, t5
-	lw t5, 44(sp)
-	addw t0, t0, t5
-	lw t5, 48(sp)
-	addw t1, t1, t5
-	lw t5, 52(sp)
-	addw t2, t2, t5
-	lw t5, 56(sp)
-	addw t3, t3, t5
-	lw t5, 60(sp)
-	addw t4, t4, t5
-
-	# 5. Serialize / Store to Output
-	# Simple 'sw' is enough since RISC-V is Little-Endian.
 	sw s0, 0(\out)
 	sw s1, 4(\out)
 	sw s2, 8(\out)
 	sw s3, 12(\out)
-	sw s4, 16(\out)
-	sw s5, 20(\out)
-	sw s6, 24(\out)
-	sw s7, 28(\out)
-	sw s8, 32(\out)
-	sw s9, 36(\out)
-	sw s10, 40(\out)
-	sw t0, 44(\out)
-	sw t1, 48(\out)
-	sw t2, 52(\out)
-	sw t3, 56(\out)
-	sw t4, 60(\out)
-
-	# 6. Clean up Stack
-	addi sp, sp, 64
+        sw s4, 16(\out)
+        sw s5, 20(\out)
+        sw s6, 24(\out)
+        sw s7, 28(\out)
+        sw s8, 32(\out)
+        sw s9, 36(\out)
+        sw s10, 40(\out)
+        sw t0, 44(\out)
+        sw t1, 48(\out)
+        sw t2, 52(\out)
+        sw t3, 56(\out)
+        sw t4, 60(\out)
 .endm
 
 # Macro to setup list of registers. Save all to stack
@@ -563,167 +485,75 @@ main:
 
 	li t0, 0
 	bne tp, t0, skip1
-	mv a0, sp
-	jal	print_dec
-	li a0, '\n'
-	jal write_byte
-	mv a0, s11
-	jal	print_dec
-	li a0, '\n'
-	jal write_byte	
 
-	DECR_STACK 0xFFFC0
-	mv a0, sp
-	jal	print_dec
-	li a0, '\n'	
-	jal write_byte	
-	mv a0, s11
-	jal	print_dec
-	li a0, '\n'
-	jal write_byte
 
-	li s0, 0x1
-	li s1, 0x1
-	li s2, 0x1	
-	li s3, 0x1
-	li s4, 0x1
-	li s5, 0x1
-	li s6, 0x1
-	li s7, 0x1
-	li s8, 0x1
-	li s9, 0x1
-	li s10, 0x1
-	li t0, 0x1
-	li t1, 0x1
-	li t2, 0x1
-	li t3, 0x1
-	li t4, 0x1
-	CHACHA_ROUNDS
-	mv a4, t0
-	mv a5, t1
+	DECR_STACK 128
 
-	# 3. Print the results
-	PRINT x[0]=
-	mv a0, s0
+        mv      a7, sp          # s1 = local_in (0 to 63)
+        addi    a6, sp, 64      # s2 = local_out (64 to 127)
+
+        LOAD_ADDRESS a3, rfc_test_vector
+        
+
+	# Use a temporary pointer (t2) for the copy so s1 stays at sp
+        mv      a2, a7
+        .rept 8
+        ld      a1, 0(a3)
+        sd      a1, 0(a2)
+	mv      a0, a1
 	jal print_hex
+	li	a0, '\n'
+	jal write_byte
+        addi    a3, a3, 8
+        addi    a2, a2, 8
+        .endr
+
+	CHACHA20_BLOCK a7, a6
+
+
+	li	s3, 16		# ChaCha20 output is 16 words (64 bytes)
+	mv	s4, a6		# Use s4 as a walking pointer
+
+	li a0, 'x'
+	jal write_byte
+	li a0, '\n'
+	jal write_byte
+print_loop:
+	lw	a0, 0(s4)	# Load the 32-bit value into a0
+	jal	print_hex	# Call your hex printer
+	
+	# Optional: Print a space if your print_hex doesn't
+	# li a0, 32; jal ra, uart_putc 
+
+	addi	s4, s4, 4	# Move to the next 32-bit word
+	addi	s3, s3, -1	# Decrement word counter
 
 	li a0, '\n'
 	jal write_byte
+	bnez	s3, print_loop
 
-
-	PRINT x[1]=
-	mv a0, s1
-	jal print_hex
-
-	li a0, '\n'
+	li	 a0, 'q'
+	jal write_byte
+	li	a0, '\n'
 	jal write_byte
 
-
-	PRINT x[2]=
-	mv a0, s2
-	jal print_hex
-
- 	li a0, '\n'
-	jal write_byte
-
-
-	PRINT x[3]=
-	mv a0, s3
-	jal print_hex
-
-	li a0, '\n'
-	jal write_byte
-
-	PRINT x[4]=
-	mv a0, s4
-	jal print_hex
-
-	li a0, '\n'
-	jal write_byte
-
-
-	PRINT x[5]=
-	mv a0, s5
-	jal print_hex
-
-	li a0, '\n'
-	jal write_byte
-
-	PRINT x[6]=
-	mv a0, s6
-	jal print_hex
-
-	li a0, '\n'
-	jal write_byte
-
-	PRINT x[7]=
-	mv a0, s7
-	jal print_hex
-
-	li a0, '\n'
-	jal write_byte
-
-	PRINT x[8]=
-	mv a0, s8
-	jal print_hex
-
-	li a0, '\n'
-	jal write_byte
-
-	PRINT x[9]=
-	mv a0, s9
-	jal print_hex
-
-	li a0, '\n'
-	jal write_byte
-
-	PRINT x[10]=
-	mv a0, s10
-	jal print_hex
-
-	li a0, '\n'
-	jal write_byte
-
-	PRINT x[11]=
-	mv a0, a4
-	jal print_hex
-
-	li a0, '\n'
-	jal write_byte
-
-	PRINT x[12]=
-	mv a0, a5
-	jal print_hex
-
-	li a0, '\n'
-	jal write_byte
-
-	PRINT x[13]=
-	mv a0, t2
-	jal print_hex
-
-	li a0, '\n'
-	jal write_byte
-
-	PRINT x[14]=
-	mv a0, t3
-	jal print_hex
-
-	li a0, '\n'
-	jal write_byte
-
-	PRINT x[15]=
-	mv a0, t4
-	jal print_hex
-
-	li a0, '\n'
-	jal write_byte
-
-
+	INCR_STACK 128
 
 skip1:
-
 1:	wfi
 	j		1b
 
+
+rfc_test_vector:
+    # 0-15: The Constants (Mandatory)
+    .word 0x61707865, 0x3320646e, 0x79622d32, 0x6b206574
+    
+    # 16-47: The Key (Use Zeros for the simplest test)
+    .word 0, 0, 0, 0, 0, 0, 0, 0
+    
+    # 48-51: The Block Counter (Set to 1)
+    .word 1
+    
+    # 52-63: The Nonce (Use Zeros)
+    .word 0, 0, 0
 data:
