@@ -123,40 +123,40 @@ _base\@:
 
 # Macro to setup list of registers. Save all to stack
 .macro SETUP regs:vararg
-        .set _macro_depth, _macro_depth + 1
+	.set _macro_depth, _macro_depth + 1
 
-        .set _cnt, 1
-        .ifnc "\regs", ""
-        .irp item, \regs
-                .set _cnt, _cnt + 1
-        .endr
-        .endif
-        .set _sz, ((_cnt * 8) + 15) & -16
+	.set _cnt, 1
+	.ifnc "\regs", ""
+	.irp item, \regs
+		.set _cnt, _cnt + 1
+	.endr
+	.endif
+	.set _sz, ((_cnt * 8) + 15) & -16
 
-        _def_restore_macro %_macro_depth, %_sz, \regs
+	_def_restore_macro %_macro_depth, %_sz, \regs
 
 
-        DECR_STACK _sz
-        sd      ra, 0(sp)
-        .ifnc "\regs", ""
-        .set _off, 8
-        .irp reg, \regs
-                sd \reg, _off(sp)
-                .set _off, _off + 8
-        .endr
-        .endif
+	DECR_STACK _sz
+	sd	ra, 0(sp)
+	.ifnc "\regs", ""
+	.set _off, 8
+	.irp reg, \regs
+		sd \reg, _off(sp)
+		.set _off, _off + 8
+	.endr
+	.endif
 .endm
 
 # Tear down the stack (LIFO order for stack frames)
 .macro TEAR_DOWN
-        _exec_tear_down %_macro_depth
-        _kill_tear_down %_macro_depth
-        .set _macro_depth, _macro_depth - 1
+	_exec_tear_down %_macro_depth
+	_kill_tear_down %_macro_depth
+	.set _macro_depth, _macro_depth - 1
 .endm
 
 .macro RETURN
-        TEAR_DOWN
-        ret
+	TEAR_DOWN
+	ret
 .endm
 
 
@@ -167,20 +167,20 @@ _base\@:
 # a, b, d: registers holding the state words
 # n: rotation amount (immediate)
 .macro QR_STEP a, b, d, n
-	addw	\a, \a, \b	# a += b
-	xor	\d, \d, \a	# d ^= a
+	addw	\a, \a, \b		# a += b
+	xor	\d, \d, \a		# d ^= a
 	.option push
 	.option arch, +zbb
-	roriw	\d, \d, (32-\n) # Rotate Right Word Immediate
+	roriw	\d, \d, (32-\n) 	# Rotate Right Word Immediate
 	.option pop
 .endm
 
 # a, b, c, d are the 4 registers you're working on
 .macro CHACHA_QR a, b, c, d
-	QR_STEP \a, \b, \d, 16	# Step 1: d is rotated
-	QR_STEP \c, \d, \b, 12	# Step 2: b is rotated
-	QR_STEP \a, \b, \d, 8	# Step 3: d is rotated
-	QR_STEP \c, \d, \b, 7	# Step 4: b is rotated
+	QR_STEP \a, \b, \d, 16		# Step 1: d is rotated
+	QR_STEP \c, \d, \b, 12		# Step 2: b is rotated
+	QR_STEP \a, \b, \d, 8		# Step 3: d is rotated
+	QR_STEP \c, \d, \b, 7		# Step 4: b is rotated
 .endm
 
 .macro CHACHA_ROUND
@@ -378,6 +378,7 @@ _base\@:
 	# Reload and increment the pinned counter (t1) specifically
 	lw t1, 48(sp)
 	addi t1, t1, 1 
+	sw t1, 48(sp)
 	
 	lw t2, 52(sp)
 	lw t3, 56(sp)
@@ -393,10 +394,11 @@ _base\@:
 	INCR_STACK 64
 .endm
 
+# a0 = in_ptr, a1 = in_len, a2 = output (32 bytes required)
 .macro CHACHA20_HASH
 	SETUP s0, s1, s2, s3, s4, s5, s6, s7, s8, s9, s10
 	# 1. INITIALIZE STATE
-	mv a3, a1		# Stash original length for Finalization
+	mv a3, a1			# Stash original length for Finalization
 	li s0,	4294967291
 	li s1,	4294967279
 	li s2,	4294967231
@@ -610,10 +612,10 @@ _base\@:
 _start:
 	j		main
 
-global_ptr: .dword              0x0
-boot_lock: .word                0x0
-complete_lock: .word            0x0
-global_lock: .word              0x0
+global_ptr: .dword		0x0
+boot_lock: .word		0x0
+complete_lock: .word		0x0
+global_lock: .word		0x0
 
 
 exit:
