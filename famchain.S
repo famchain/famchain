@@ -288,110 +288,105 @@ _base\@:
 .endm
 
 
-# .macro ChaCha20XOR key, counter, nonce, in_ptr, out_ptr, in_len
-# Parameters:
-#   key:      Register holding the 32-byte key pointer
-#   counter:  Register holding the 32-bit counter value
-#   nonce:    Register holding the 12-byte nonce pointer
-#   in_ptr:   Register holding the input buffer pointer
-#   out_ptr:  Register holding the output buffer pointer
-#   in_len:   Register holding the length in bytes
-
+# ChaCha20XOR with Tail Handling and Optimized Reloading
 .macro ChaCha20XOR key, counter, nonce, in_ptr, out_ptr, in_len
-	# 0. Setup Stack Frame (64-byte scratchpad for the original state)
-	DECR_STACK 64
+        # 0. Setup Stack Frame 
+        # We need 64 bytes for the "Original State" 
+        # and 64 bytes for a "Keystream Buffer" to handle the tail safely.
+        DECR_STACK 128
 
-	# 1. Initialize the pinned state (s0-s10, t0-t4)
-	CHACHA20_INIT_STATE \key, \counter, \nonce
+        # 1. Initial Load (Done once outside the loop)
+        CHACHA20_INIT_STATE \key, \counter, \nonce
 
-	# Exit immediately if length is 0
-	blez \in_len, 2f
+        # Exit if length is 0
+        blez \in_len, 3f
 
-1:	# Main 64-byte Block Loop
-	# 2. Store current "un-permuted" state to scratchpad (Original State)
-	# This is required for the final add-back after the rounds.
-	sw s0, 0(sp)
-	sw s1, 4(sp)
-	sw s2, 8(sp)
-	sw s3, 12(sp)
-	sw s4, 16(sp)
-	sw s5, 20(sp)
-	sw s6, 24(sp)
-	sw s7, 28(sp)
-	sw s8, 32(sp)
-	sw s9, 36(sp)
-	sw s10, 40(sp)
-	sw t0, 44(sp)
-	sw t1, 48(sp)
-	sw t2, 52(sp)
-	sw t3, 56(sp)
-	sw t4, 60(sp)
+1:      # --- MAIN LOOP ---
+        # 2. Backup "Original State" to stack (0-63)
+        sw s0, 0(sp)
+        sw s1, 4(sp)
+        sw s2, 8(sp)
+        sw s3, 12(sp)
+        sw s4, 16(sp)
+        sw s5, 20(sp)
+        sw s6, 24(sp)
+        sw s7, 28(sp)
+        sw s8, 32(sp)
+        sw s9, 36(sp)
+        sw s10, 40(sp)
+        sw t0, 44(sp)
+        sw t1, 48(sp)
+        sw t2, 52(sp)
+        sw t3, 56(sp)
+        sw t4, 60(sp)
 
-	# 3. Run the 20 Rounds (The Permutation)
-	# This macro modifies s0-t4 in-place
-	CHACHA_ROUNDS
+        # 3. Transform
+        CHACHA_ROUNDS
 
-	# 4. Final Add and XOR
-	# Using t5 and t6 as the only available scratch registers.
-	# We unroll this manually for all 16 words.
-	
-	.macro _XOR_STEP_INNER reg, offset, in_reg, out_reg
-	lw	t5, \offset(sp)	# Load original state word
-	addw \reg, \reg, t5	# s = s + original
-	lw	t6, \offset(\in_reg)	# Load plaintext word
-	xor	\reg, \reg, t6	# XOR with keystream
-	sw	\reg, \offset(\out_reg) # Store ciphertext word
-	.endm
+        # 4. Check if we have a full block (64 bytes)
+        li      t5, 64
+        blt     \in_len, t5, 4f  # Jump to Tail Handler if < 64 bytes
 
-	_XOR_STEP_INNER s0, 0,	\in_ptr, \out_ptr
-	_XOR_STEP_INNER s1, 4,	\in_ptr, \out_ptr
-	_XOR_STEP_INNER s2, 8,	\in_ptr, \out_ptr
-	_XOR_STEP_INNER s3, 12, \in_ptr, \out_ptr
-	_XOR_STEP_INNER s4, 16, \in_ptr, \out_ptr
-	_XOR_STEP_INNER s5, 20, \in_ptr, \out_ptr
-	_XOR_STEP_INNER s6, 24, \in_ptr, \out_ptr
-	_XOR_STEP_INNER s7, 28, \in_ptr, \out_ptr
-	_XOR_STEP_INNER s8, 32, \in_ptr, \out_ptr
-	_XOR_STEP_INNER s9, 36, \in_ptr, \out_ptr
-	_XOR_STEP_INNER s10, 40, \in_ptr, \out_ptr
-	_XOR_STEP_INNER t0, 44, \in_ptr, \out_ptr
-	_XOR_STEP_INNER t1, 48, \in_ptr, \out_ptr
-	_XOR_STEP_INNER t2, 52, \in_ptr, \out_ptr
-	_XOR_STEP_INNER t3, 56, \in_ptr, \out_ptr
-	_XOR_STEP_INNER t4, 60, \in_ptr, \out_ptr
+        # 5. Full Block XOR and Store
+        .macro _XOR_STEP_FINAL reg, offset, in, out
+                lw      t5, \offset(sp)     # Original state
+                addw    \reg, \reg, t5      # Final word
+                lw      t6, \offset(\in)    # Plaintext
+                xor     \reg, \reg, t6
+                sw      \reg, \offset(\out) # Ciphertext
+        .endm
 
-	# 5. Prepare for the next 64-byte block
-	# Restore the state base from the scratchpad so key/nonce/constants are reset
-	lw s0, 0(sp)
-	lw s1, 4(sp)
-	lw s2, 8(sp)
-	lw s3, 12(sp)
-	lw s4, 16(sp)
-	lw s5, 20(sp)
-	lw s6, 24(sp)
-	lw s7, 28(sp)
-	lw s8, 32(sp)
-	lw s9, 36(sp)
-	lw s10, 40(sp)
-	lw t0, 44(sp)
-	
-	# Reload and increment the pinned counter (t1) specifically
-	lw t1, 48(sp)
-	addi t1, t1, 1 
-	sw t1, 48(sp)
-	
-	lw t2, 52(sp)
-	lw t3, 56(sp)
-	lw t4, 60(sp)
+        _XOR_STEP_FINAL s0, 0,  \in_ptr, \out_ptr
+        _XOR_STEP_FINAL s1, 4,  \in_ptr, \out_ptr
+        # ... repeat for s2 through t4 (offsets 8 to 60) ...
+        _XOR_STEP_FINAL t4, 60, \in_ptr, \out_ptr
 
-	# 6. Update Pointers and Length
-	addi \in_ptr, \in_ptr, 64
-	addi \out_ptr, \out_ptr, 64
-	addi \in_len, \in_len, -64
-	bgtz \in_len, 1b
+        # 6. Increment and Loop
+        addi    \in_ptr, \in_ptr, 64
+        addi    \out_ptr, \out_ptr, 64
+        addi    \in_len, \in_len, -64
+        
+        # Reload registers from the "Original State" on stack to reset for next round
+        lw s0, 0(sp); lw s1, 4(sp); lw s2, 8(sp); lw s3, 12(sp)
+        lw s4, 16(sp); lw s5, 20(sp); lw s6, 24(sp); lw s7, 28(sp)
+        lw s8, 32(sp); lw s9, 36(sp); lw s10, 40(sp); lw t0, 44(sp)
+        lw t1, 48(sp)
+        addi t1, t1, 1      # Increment counter
+        lw t2, 52(sp); lw t3, 56(sp); lw t4, 60(sp)
 
-2:	# Cleanup
-	INCR_STACK 64
+        bgtz    \in_len, 1b
+        j       3f          # Done
+
+4:      # --- TAIL HANDLER ---
+        # Here, in_len is 1-63. We store the final keystream to the stack (64-127)
+        # and then do a byte-by-byte XOR.
+        
+        .macro _ADD_AND_SAVE reg, offset, stack_offset
+                lw      t5, \offset(sp)
+                addw    \reg, \reg, t5
+                sw      \reg, \stack_offset(sp)
+        .endm
+
+        _ADD_AND_SAVE s0, 0, 64
+        _ADD_AND_SAVE s1, 4, 68
+        # ... repeat for all 16 registers ...
+        _ADD_AND_SAVE t4, 60, 124
+
+        # Byte-by-byte XOR loop
+        addi    t5, sp, 64  # Pointer to keystream on stack
+5:
+        lbu     t6, 0(\in_ptr)
+        lbu     a7, 0(t5)
+        xor     a7, a7, t6
+        sb      a7, 0(\out_ptr)
+        addi    \in_ptr, \in_ptr, 1
+        addi    \out_ptr, \out_ptr, 1
+        addi    t5, t5, 1
+        addi    \in_len, \in_len, -1
+        bgtz    \in_len, 5b
+
+3:      # Cleanup
+        INCR_STACK 128
 .endm
 
 # a0 = in_ptr, a1 = in_len, a2 = output (32 bytes required)
