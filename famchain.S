@@ -429,25 +429,43 @@ _base\@:
 	.endr
 
 	# --- Step B: Fill tmp buffer (memcpy) ---
-	li t6, 64
-	blt a1, t6, 2f
-	li t6, 64
-	j 3f
-2:
-	mv t6, a1
-3:
-	beqz t6, 5f		
-	addi t5, sp, 64		
-4:
-	lbu a4, 0(a0)
-	sb a4, 0(t5)
-	addi a0, a0, 1
-	addi t5, t5, 1
-	addi a1, a1, -1
-	addi t6, t6, -1
-	bnez t6, 4b
+        addi    t5, sp, 64      # t5 = Destination (scratchpad)
+        
+        # Determine how much we are copying in this pass (max 64)
+        li      t6, 64
+        blt     a1, t6, 1f      # If remaining length < 64, use actual length
+        li      t6, 64          # Else, we are processing a full 64-byte block
+        j       2f
+1:      mv      t6, a1          # t6 now holds the exact number of bytes to copy (0-63)
 
-5:
+2:      # --- START COPY ---
+        # First, copy as many 8-byte chunks as possible using 'ld'
+3:      li      a4, 8
+        blt     t6, a4, 4f      # If less than 8 bytes remain, go to byte-by-byte tail
+
+        ld      a4, 0(a0)       # Load 8 bytes
+        sd      a4, 0(t5)       # Store 8 bytes
+        addi    a0, a0, 8
+        addi    t5, t5, 8
+        addi    a1, a1, -8      # Decrement total message length
+        addi    t6, t6, -8      # Decrement current block counter
+        bnez    t6, 3b          # Loop if we still have 8+ bytes to move
+
+4:      # --- TAIL COPY (1-7 bytes) ---
+        # This handles remainders so we don't over-read memory
+        beqz    t6, 5f
+tail_loop:
+        lbu     a4, 0(a0)
+        sb      a4, 0(t5)
+        addi    a0, a0, 1
+        addi    t5, t5, 1
+        addi    a1, a1, -1
+        addi    t6, t6, -1
+        bnez    t6, tail_loop
+
+5:      # --- End of Step B ---
+        # The 64-byte chunk is now ready at 64(sp)
+
 	# --- Step C: COMPRESS (Davies-Meyer) ---
 	# Stash state into 0(sp)
 	sw s0, 0(sp)
