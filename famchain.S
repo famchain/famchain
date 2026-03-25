@@ -188,7 +188,7 @@ _base\@:
         # untouched, serving as our backup for the final addition.
         lw s0, 0(\in)
         lw s1, 4(\in)
-        lw s2, 8(\in)   # <--- WARNING: If \out is s2, it is now overwritten
+        lw s2, 8(\in)
         lw s3, 12(\in)
         lw s4, 16(\in)
         lw s5, 20(\in)
@@ -551,15 +551,17 @@ skip1:
 
 
 rfc_test_vector:
-    # 0-15: The Constants (Mandatory)
+    # 0-15: The Constants "expand 32-byte k"
     .word 0x61707865, 0x3320646e, 0x79622d32, 0x6b206574
-    
-    # 16-47: The Key (Use Zeros for the simplest test)
-    .word 0, 0, 0, 0, 0, 0, 0, 0
-    
+  
+    # 16-47: The Key (00:01:02:03...1e:1f)
+    # Each .word is 4 bytes of the key in Little-Endian order
+    .word 0x03020100, 0x07060504, 0x0b0a0908, 0x0f0e0d0c
+    .word 0x13121110, 0x17161514, 0x1b1a1918, 0x1f1e1d1c
+
     # 48-51: The Block Counter (Set to 1)
-    .word 1
-    
-    # 52-63: The Nonce (Use Zeros)
-    .word 0, 0, 0
+    .word 0x00000001
+
+    # 52-63: The Nonce (00:00:00:00:00:00:00:4a:00:00:00:00)
+    .word 0x00000000, 0x4a000000, 0x00000000
 data:
