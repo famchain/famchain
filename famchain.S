@@ -183,9 +183,6 @@ _base\@:
 # in_reg:  Register containing pointer to input uint32_t[16]
 # out_reg: Register containing pointer to output uint8_t[64]
 .macro CHACHA20_BLOCK in, out
-        # --- 1. LOAD & INITIALIZE ---
-        # We load from 'in'. The 'in' buffer on the stack remains 
-        # untouched, serving as our backup for the final addition.
         lw s0, 0(\in)
         lw s1, 4(\in)
         lw s2, 8(\in)
@@ -203,13 +200,7 @@ _base\@:
         lw t3, 56(\in)
         lw t4, 60(\in)
 
-        # --- 2. THE PERMUTATION ---
         CHACHA_ROUNDS
-
-        # --- 3. FINAL ADDITION & STORE ---
-        # Formula: out[i] = scrambled_x[i] + original_in[i]
-        # Using t5 as a temporary for the original values.
-
         .macro ADD_STEP reg, offset, in_ptr, out_ptr
             lw   t5, \offset(\in_ptr)   # Load original
             addw \reg, \reg, t5         # 32-bit addition
@@ -563,5 +554,5 @@ rfc_test_vector:
     .word 0x00000001
 
     # 52-63: The Nonce (00:00:00:00:00:00:00:4a:00:00:00:00)
-    .word 0x00000000, 0x4a000000, 0x00000000
+    .word 0x09000000, 0x4a000000, 0x00000000
 data:
