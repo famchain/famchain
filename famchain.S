@@ -354,176 +354,175 @@ _base\@:
 	INCR_STACK 64
 .endm
 
-# Parameters: a0=in_ptr, a1=in_len, a2=out_ptr
 .macro CHACHA20_HASH in_ptr, in_len, out_ptr
-    # 1. INITIALIZE STATE
-    mv a3, \in_len          # Stash original length for Finalization
-    li s0,  4294967291
-    li s1,  4294967279
-    li s2,  4294967231
-    li s3,  4294967197
-    li s4,  4294967189
-    li s5,  4294967161
-    li s6,  4294967147
-    li s7,  4294967129
-    li s8,  4294967087
-    li s9,  4294967029
-    li s10, 4294966999
-    li t0,  4294966981
-    li t1,  4294966943
-    li t2,  4294966937
-    li t3,  4294966931
-    li t4,  4294966913
+	# 1. INITIALIZE STATE
+	mv a3, \in_len		# Stash original length for Finalization
+	li s0,	4294967291
+	li s1,	4294967279
+	li s2,	4294967231
+	li s3,	4294967197
+	li s4,	4294967189
+	li s5,	4294967161
+	li s6,	4294967147
+	li s7,	4294967129
+	li s8,	4294967087
+	li s9,	4294967029
+	li s10, 4294966999
+	li t0,	4294966981
+	li t1,	4294966943
+	li t2,	4294966937
+	li t3,	4294966931
+	li t4,	4294966913
 
-    # --- ALLOCATE SCRATCHPAD ONCE ---
-    # 0(sp) to 63(sp)  : Davies-Meyer Stash
-    # 64(sp) to 127(sp): tmp[64] buffer
-    DECR_STACK 128
+	# --- ALLOCATE SCRATCHPAD ONCE ---
+	# 0(sp) to 63(sp)  : Davies-Meyer Stash
+	# 64(sp) to 127(sp): tmp[64] buffer
+	DECR_STACK 128
 
-    # 2. PROCESSING LOOP
+	# 2. PROCESSING LOOP
 1:
-    # --- Step A: Zero the tmp buffer (at 64(sp)) ---
-    li t5, 0
-    .set i, 64
-    .rept 16
-        sw t5, i(sp)
-        .set i, i + 4
-    .endr
+	# --- Step A: Zero the tmp buffer (at 64(sp)) ---
+	li t5, 0
+	.set i, 64
+	.rept 16
+	sw t5, i(sp)
+	.set i, i + 4
+	.endr
 
-    # --- Step B: Fill tmp buffer (memcpy) ---
-    li t6, 64
-    blt \in_len, t6, 2f
-    li t6, 64
-    j 3f
+	# --- Step B: Fill tmp buffer (memcpy) ---
+	li t6, 64
+	blt \in_len, t6, 2f
+	li t6, 64
+	j 3f
 2:
-    mv t6, \in_len
+	mv t6, \in_len
 3:
-    beqz t6, 5f             
-    addi t5, sp, 64         
+	beqz t6, 5f		
+	addi t5, sp, 64		
 4:
-    lbu a4, 0(\in_ptr)
-    sb a4, 0(t5)
-    addi \in_ptr, \in_ptr, 1
-    addi t5, t5, 1
-    addi \in_len, \in_len, -1
-    addi t6, t6, -1
-    bnez t6, 4b
+	lbu a4, 0(\in_ptr)
+	sb a4, 0(t5)
+	addi \in_ptr, \in_ptr, 1
+	addi t5, t5, 1
+	addi \in_len, \in_len, -1
+	addi t6, t6, -1
+	bnez t6, 4b
 
 5:
-    # --- Step C: COMPRESS (Davies-Meyer) ---
-    # Stash state into 0(sp)
-    sw s0, 0(sp)
-    sw s1, 4(sp)
-    sw s2, 8(sp)
-    sw s3, 12(sp)
-    sw s4, 16(sp)
-    sw s5, 20(sp)
-    sw s6, 24(sp)
-    sw s7, 28(sp)
-    sw s8, 32(sp)
-    sw s9, 36(sp)
-    sw s10, 40(sp)
-    sw t0, 44(sp)
-    sw t1, 48(sp)
-    sw t2, 52(sp)
-    sw t3, 56(sp)
-    sw t4, 60(sp)
+	# --- Step C: COMPRESS (Davies-Meyer) ---
+	# Stash state into 0(sp)
+	sw s0, 0(sp)
+	sw s1, 4(sp)
+	sw s2, 8(sp)
+	sw s3, 12(sp)
+	sw s4, 16(sp)
+	sw s5, 20(sp)
+	sw s6, 24(sp)
+	sw s7, 28(sp)
+	sw s8, 32(sp)
+	sw s9, 36(sp)
+	sw s10, 40(sp)
+	sw t0, 44(sp)
+	sw t1, 48(sp)
+	sw t2, 52(sp)
+	sw t3, 56(sp)
+	sw t4, 60(sp)
 
-    # XOR tmp[64] buffer into registers
-    addi t5, sp, 64
-    lw a4, 0(t5)
-    xor s0, s0, a4
-    lw a4, 4(t5)
-    xor s1, s1, a4
-    lw a4, 8(t5)
-    xor s2, s2, a4
-    lw a4, 12(t5)
-    xor s3, s3, a4
-    lw a4, 16(t5)
-    xor s4, s4, a4
-    lw a4, 20(t5)
-    xor s5, s5, a4
-    lw a4, 24(t5)
-    xor s6, s6, a4
-    lw a4, 28(t5)
-    xor s7, s7, a4
-    lw a4, 32(t5)
-    xor s8, s8, a4
-    lw a4, 36(t5)
-    xor s9, s9, a4
-    lw a4, 40(t5)
-    xor s10, s10, a4
-    lw a4, 44(t5)
-    xor t0, t0, a4
-    lw a4, 48(t5)
-    xor t1, t1, a4
-    lw a4, 52(t5)
-    xor t2, t2, a4
-    lw a4, 56(t5)
-    xor t3, t3, a4
-    lw a4, 60(t5)
-    xor t4, t4, a4
+	# XOR tmp[64] buffer into registers
+	addi t5, sp, 64
+	lw a4, 0(t5)
+	xor s0, s0, a4
+	lw a4, 4(t5)
+	xor s1, s1, a4
+	lw a4, 8(t5)
+	xor s2, s2, a4
+	lw a4, 12(t5)
+	xor s3, s3, a4
+	lw a4, 16(t5)
+	xor s4, s4, a4
+	lw a4, 20(t5)
+	xor s5, s5, a4
+	lw a4, 24(t5)
+	xor s6, s6, a4
+	lw a4, 28(t5)
+	xor s7, s7, a4
+	lw a4, 32(t5)
+	xor s8, s8, a4
+	lw a4, 36(t5)
+	xor s9, s9, a4
+	lw a4, 40(t5)
+	xor s10, s10, a4
+	lw a4, 44(t5)
+	xor t0, t0, a4
+	lw a4, 48(t5)
+	xor t1, t1, a4
+	lw a4, 52(t5)
+	xor t2, t2, a4
+	lw a4, 56(t5)
+	xor t3, t3, a4
+	lw a4, 60(t5)
+	xor t4, t4, a4
 
-    CHACHA_ROUNDS
+	CHACHA_ROUNDS
 
-    # Final ADD (registers += stashed_state at 0(sp))
-    lw a4, 0(sp)
-    addw s0, s0, a4
-    lw a4, 4(sp)
-    addw s1, s1, a4
-    lw a4, 8(sp)
-    addw s2, s2, a4
-    lw a4, 12(sp)
-    addw s3, s3, a4
-    lw a4, 16(sp)
-    addw s4, s4, a4
-    lw a4, 20(sp)
-    addw s5, s5, a4
-    lw a4, 24(sp)
-    addw s6, s6, a4
-    lw a4, 28(sp)
-    addw s7, s7, a4
-    lw a4, 32(sp)
-    addw s8, s8, a4
-    lw a4, 36(sp)
-    addw s9, s9, a4
-    lw a4, 40(sp)
-    addw s10, s10, a4
-    lw a4, 44(sp)
-    addw t0, t0, a4
-    lw a4, 48(sp)
-    addw t1, t1, a4
-    lw a4, 52(sp)
-    addw t2, t2, a4
-    lw a4, 56(sp)
-    addw t3, t3, a4
-    lw a4, 60(sp)
-    addw t4, t4, a4
+	# Final ADD (registers += stashed_state at 0(sp))
+	lw a4, 0(sp)
+	addw s0, s0, a4
+	lw a4, 4(sp)
+	addw s1, s1, a4
+	lw a4, 8(sp)
+	addw s2, s2, a4
+	lw a4, 12(sp)
+	addw s3, s3, a4
+	lw a4, 16(sp)
+	addw s4, s4, a4
+	lw a4, 20(sp)
+	addw s5, s5, a4
+	lw a4, 24(sp)
+	addw s6, s6, a4
+	lw a4, 28(sp)
+	addw s7, s7, a4
+	lw a4, 32(sp)
+	addw s8, s8, a4
+	lw a4, 36(sp)
+	addw s9, s9, a4
+	lw a4, 40(sp)
+	addw s10, s10, a4
+	lw a4, 44(sp)
+	addw t0, t0, a4
+	lw a4, 48(sp)
+	addw t1, t1, a4
+	lw a4, 52(sp)
+	addw t2, t2, a4
+	lw a4, 56(sp)
+	addw t3, t3, a4
+	lw a4, 60(sp)
+	addw t4, t4, a4
 
-    # Loop if more data remains
-    bnez \in_len, 1b
+	# Loop if more data remains
+	bnez \in_len, 1b
 
-    # --- DEALLOCATE SCRATCHPAD ---
-    INCR_STACK 128
+	# --- DEALLOCATE SCRATCHPAD ---
+	INCR_STACK 128
 
-    # 3. FINALIZATION (Domain Separation)
-    xor t1, t1, a3
-    srli a4, a3, 32
-    xor t2, t2, a4
-    li a4, 1
-    xor t4, t4, a4
+	# 3. FINALIZATION (Domain Separation)
+	xor t1, t1, a3
+	srli a4, a3, 32
+	xor t2, t2, a4
+	li a4, 1
+	xor t4, t4, a4
 
-    CHACHA_ROUNDS
+	CHACHA_ROUNDS
 
-    # 4. STORE DIGEST
-    sw s0, 0(\out_ptr)
-    sw s1, 4(\out_ptr)
-    sw s2, 8(\out_ptr)
-    sw s3, 12(\out_ptr)
-    sw s4, 16(\out_ptr)
-    sw s5, 20(\out_ptr)
-    sw s6, 24(\out_ptr)
-    sw s7, 28(\out_ptr)
+	# 4. STORE DIGEST
+	sw s0, 0(\out_ptr)
+	sw s1, 4(\out_ptr)
+	sw s2, 8(\out_ptr)
+	sw s3, 12(\out_ptr)
+	sw s4, 16(\out_ptr)
+	sw s5, 20(\out_ptr)
+	sw s6, 24(\out_ptr)
+	sw s7, 28(\out_ptr)
 .endm
 
 # Macro to setup list of registers. Save all to stack
@@ -789,6 +788,9 @@ main:
 	li a7, 6
 
 	CHACHA20_HASH a6, a7, sp
+	LOAD_ADDRESS a6, in_ptr
+	li a7, 6
+	CHACHA20_HASH a6, a7, sp
 	mv s6, sp
 	li s4, 32
 
@@ -796,7 +798,7 @@ main:
 1:
 	lbu	a0, 0(s6)
 	jal print_hex
-	li      a0, '\n'
+	li	a0, '\n'
 	jal write_byte
 	addi s4, s4, -1
 	addi s6, s6, 1
@@ -812,10 +814,10 @@ skip1:
 
 in_ptr: .asciz "hello"
 test_block:
-    .word 0x11111111, 0x22222222, 0x33333333, 0x44444444
-    .word 0x55555555, 0x66666666, 0x77777777, 0x88888888
-    .word 0x99999999, 0xAAAAAAAA, 0xBBBBBBBB, 0xCCCCCCCC
-    .word 0xDDDDDDDD, 0xEEEEEEEE, 0xFFFFFFFF, 0x12345678
+	.word 0x11111111, 0x22222222, 0x33333333, 0x44444444
+	.word 0x55555555, 0x66666666, 0x77777777, 0x88888888
+	.word 0x99999999, 0xAAAAAAAA, 0xBBBBBBBB, 0xCCCCCCCC
+	.word 0xDDDDDDDD, 0xEEEEEEEE, 0xFFFFFFFF, 0x12345678
 test_key:	.zero 32		# All zeros
 test_nonce:	.zero 12		# All zeros
 hello_str:	.ascii "hello"	# 5 bytes
