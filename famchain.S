@@ -354,10 +354,10 @@ _base\@:
 	INCR_STACK 64
 .endm
 
-.macro CHACHA20_HASH in_ptr, in_len, out_ptr
+.macro CHACHA20_HASH
 	SETUP s0, s1, s2, s3, s4, s5, s6, s7, s8, s9, s10
 	# 1. INITIALIZE STATE
-	mv a3, \in_len		# Stash original length for Finalization
+	mv a3, a1		# Stash original length for Finalization
 	li s0,	4294967291
 	li s1,	4294967279
 	li s2,	4294967231
@@ -392,20 +392,20 @@ _base\@:
 
 	# --- Step B: Fill tmp buffer (memcpy) ---
 	li t6, 64
-	blt \in_len, t6, 2f
+	blt a1, t6, 2f
 	li t6, 64
 	j 3f
 2:
-	mv t6, \in_len
+	mv t6, a1
 3:
 	beqz t6, 5f		
 	addi t5, sp, 64		
 4:
-	lbu a4, 0(\in_ptr)
+	lbu a4, 0(a0)
 	sb a4, 0(t5)
-	addi \in_ptr, \in_ptr, 1
+	addi a0, a0, 1
 	addi t5, t5, 1
-	addi \in_len, \in_len, -1
+	addi a1, a1, -1
 	addi t6, t6, -1
 	bnez t6, 4b
 
@@ -501,7 +501,7 @@ _base\@:
 	addw t4, t4, a4
 
 	# Loop if more data remains
-	bnez \in_len, 1b
+	bnez a1, 1b
 
 	# --- DEALLOCATE SCRATCHPAD ---
 	INCR_STACK 128
@@ -516,14 +516,14 @@ _base\@:
 	CHACHA_ROUNDS
 
 	# 4. STORE DIGEST
-	sw s0, 0(\out_ptr)
-	sw s1, 4(\out_ptr)
-	sw s2, 8(\out_ptr)
-	sw s3, 12(\out_ptr)
-	sw s4, 16(\out_ptr)
-	sw s5, 20(\out_ptr)
-	sw s6, 24(\out_ptr)
-	sw s7, 28(\out_ptr)
+	sw s0, 0(a2)
+	sw s1, 4(a2)
+	sw s2, 8(a2)
+	sw s3, 12(a2)
+	sw s4, 16(a2)
+	sw s5, 20(a2)
+	sw s6, 24(a2)
+	sw s7, 28(a2)
 	TEAR_DOWN
 .endm
 
@@ -786,12 +786,11 @@ main:
 
 	DECR_STACK 32
 
-	LOAD_ADDRESS a6, in_ptr
-	li a7, 5
-	mv a5, sp
-
-	CHACHA20_HASH a6, a7, a5
-	mv s6, a5
+	LOAD_ADDRESS a0, in_ptr
+	li a1, 5
+	mv a2, sp
+	CHACHA20_HASH
+	mv s6, a2
 	li s4, 32
 
 	
