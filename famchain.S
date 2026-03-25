@@ -354,38 +354,64 @@ _base\@:
 	INCR_STACK 64
 .endm
 
-# Parameters:
-#   in_ptr:  a0 (Input Buffer)
-#   in_len:  a1 (Total Length)
-#   out_ptr: a2 (32-byte Output)
+# Parameters: a0=in_ptr, a1=in_len, a2=out_ptr
 .macro CHACHA20_HASH in_ptr, in_len, out_ptr
     # 1. INITIALIZE STATE
-    # Stash original length in a3 for finalization before we decrement a1
-    mv a3, \in_len
+    mv a3, \in_len          # Stash original length for Finalization
+    li s0,  4294967291
+    li s1,  4294967279
+    li s2,  4294967231
+    li s3,  4294967197
+    li s4,  4294967189
+    li s5,  4294967161
+    li s6,  4294967147
+    li s7,  4294967129
+    li s8,  4294967087
+    li s9,  4294967029
+    li s10, 4294966999
+    li t0,  4294966981
+    li t1,  4294966943
+    li t2,  4294966937
+    li t3,  4294966931
+    li t4,  4294966913
 
-    li s0, 0x61707865
-    li s1, 0x3320646e
-    li s2, 0x79622d32
-    li s3, 0x6b206574
-    li s4, 0x01020304 
-    li s5, 0x05060708
-    li s6, 0x090A0B0C
-    li s7, 0x0D0E0F10
-    li s8, 0x11121314
-    li s9, 0x15161718
-    li s10, 0x191A1B1C
-    li t0, 0x1D1E1F20
-    li t1, 0x21222324
-    li t2, 0x25262728
-    li t3, 0x292A2B2C
-    li t4, 0x2D2E2F30
+    # --- ALLOCATE SCRATCHPAD ONCE ---
+    # 0(sp) to 63(sp)  : Davies-Meyer Stash
+    # 64(sp) to 127(sp): tmp[64] buffer
+    DECR_STACK 128
 
-    # 2. MAIN COMPRESSION LOOP
-1:  li t5, 64
-    blt \in_len, t5, 2f
+    # 2. PROCESSING LOOP
+1:
+    # --- Step A: Zero the tmp buffer (at 64(sp)) ---
+    li t5, 0
+    .set i, 64
+    .rept 16
+        sw t5, i(sp)
+        .set i, i + 4
+    .endr
 
-    # --- DAVIES-MEYER: Stash Original State ---
-    DECR_STACK 64
+    # --- Step B: Fill tmp buffer (memcpy) ---
+    li t6, 64
+    blt \in_len, t6, 2f
+    li t6, 64
+    j 3f
+2:
+    mv t6, \in_len
+3:
+    beqz t6, 5f             
+    addi t5, sp, 64         
+4:
+    lbu a4, 0(\in_ptr)
+    sb a4, 0(t5)
+    addi \in_ptr, \in_ptr, 1
+    addi t5, t5, 1
+    addi \in_len, \in_len, -1
+    addi t6, t6, -1
+    bnez t6, 4b
+
+5:
+    # --- Step C: COMPRESS (Davies-Meyer) ---
+    # Stash state into 0(sp)
     sw s0, 0(sp)
     sw s1, 4(sp)
     sw s2, 8(sp)
@@ -403,95 +429,93 @@ _base\@:
     sw t3, 56(sp)
     sw t4, 60(sp)
 
-    # --- ABSORB: state ^= block ---
-    lw t5, 0(\in_ptr)
-    xor s0, s0, t5
-    lw t5, 4(\in_ptr)
-    xor s1, s1, t5
-    lw t5, 8(\in_ptr)
-    xor s2, s2, t5
-    lw t5, 12(\in_ptr)
-    xor s3, s3, t5
-    lw t5, 16(\in_ptr)
-    xor s4, s4, t5
-    lw t5, 20(\in_ptr)
-    xor s5, s5, t5
-    lw t5, 24(\in_ptr)
-    xor s6, s6, t5
-    lw t5, 28(\in_ptr)
-    xor s7, s7, t5
-    lw t5, 32(\in_ptr)
-    xor s8, s8, t5
-    lw t5, 36(\in_ptr)
-    xor s9, s9, t5
-    lw t5, 40(\in_ptr)
-    xor s10, s10, t5
-    lw t5, 44(\in_ptr)
-    xor t0, t0, t5
-    lw t5, 48(\in_ptr)
-    xor t1, t1, t5
-    lw t5, 52(\in_ptr)
-    xor t2, t2, t5
-    lw t5, 56(\in_ptr)
-    xor t3, t3, t5
-    lw t5, 60(\in_ptr)
-    xor t4, t4, t5
+    # XOR tmp[64] buffer into registers
+    addi t5, sp, 64
+    lw a4, 0(t5)
+    xor s0, s0, a4
+    lw a4, 4(t5)
+    xor s1, s1, a4
+    lw a4, 8(t5)
+    xor s2, s2, a4
+    lw a4, 12(t5)
+    xor s3, s3, a4
+    lw a4, 16(t5)
+    xor s4, s4, a4
+    lw a4, 20(t5)
+    xor s5, s5, a4
+    lw a4, 24(t5)
+    xor s6, s6, a4
+    lw a4, 28(t5)
+    xor s7, s7, a4
+    lw a4, 32(t5)
+    xor s8, s8, a4
+    lw a4, 36(t5)
+    xor s9, s9, a4
+    lw a4, 40(t5)
+    xor s10, s10, a4
+    lw a4, 44(t5)
+    xor t0, t0, a4
+    lw a4, 48(t5)
+    xor t1, t1, a4
+    lw a4, 52(t5)
+    xor t2, t2, a4
+    lw a4, 56(t5)
+    xor t3, t3, a4
+    lw a4, 60(t5)
+    xor t4, t4, a4
 
-    # --- MIX: 20 Rounds ---
     CHACHA_ROUNDS
 
-    # --- DAVIES-MEYER: Add Original State Back ---
-    lw t5, 0(sp)
-    addw s0, s0, t5
-    lw t5, 4(sp)
-    addw s1, s1, t5
-    lw t5, 8(sp)
-    addw s2, s2, t5
-    lw t5, 12(sp)
-    addw s3, s3, t5
-    lw t5, 16(sp)
-    addw s4, s4, t5
-    lw t5, 20(sp)
-    addw s5, s5, t5
-    lw t5, 24(sp)
-    addw s6, s6, t5
-    lw t5, 28(sp)
-    addw s7, s7, t5
-    lw t5, 32(sp)
-    addw s8, s8, t5
-    lw t5, 36(sp)
-    addw s9, s9, t5
-    lw t5, 40(sp)
-    addw s10, s10, t5
-    lw t5, 44(sp)
-    addw t0, t0, t5
-    lw t5, 48(sp)
-    addw t1, t1, t5
-    lw t5, 52(sp)
-    addw t2, t2, t5
-    lw t5, 56(sp)
-    addw t3, t3, t5
-    lw t5, 60(sp)
-    addw t4, t4, t5
+    # Final ADD (registers += stashed_state at 0(sp))
+    lw a4, 0(sp)
+    addw s0, s0, a4
+    lw a4, 4(sp)
+    addw s1, s1, a4
+    lw a4, 8(sp)
+    addw s2, s2, a4
+    lw a4, 12(sp)
+    addw s3, s3, a4
+    lw a4, 16(sp)
+    addw s4, s4, a4
+    lw a4, 20(sp)
+    addw s5, s5, a4
+    lw a4, 24(sp)
+    addw s6, s6, a4
+    lw a4, 28(sp)
+    addw s7, s7, a4
+    lw a4, 32(sp)
+    addw s8, s8, a4
+    lw a4, 36(sp)
+    addw s9, s9, a4
+    lw a4, 40(sp)
+    addw s10, s10, a4
+    lw a4, 44(sp)
+    addw t0, t0, a4
+    lw a4, 48(sp)
+    addw t1, t1, a4
+    lw a4, 52(sp)
+    addw t2, t2, a4
+    lw a4, 56(sp)
+    addw t3, t3, a4
+    lw a4, 60(sp)
+    addw t4, t4, a4
 
-    INCR_STACK 64
-
-    # Update pointers/len
-    addi \in_ptr, \in_ptr, 64
-    addi \in_len, \in_len, -64
+    # Loop if more data remains
     bnez \in_len, 1b
 
-    # 3. FINALIZATION
-2:  # Inject original total length (stored in a3)
+    # --- DEALLOCATE SCRATCHPAD ---
+    INCR_STACK 128
+
+    # 3. FINALIZATION (Domain Separation)
     xor t1, t1, a3
-    srli t5, a3, 32
-    xor t2, t2, t5
-    li t5, 1
-    xor t4, t4, t5
+    srli a4, a3, 32
+    xor t2, t2, a4
+    li a4, 1
+    xor t4, t4, a4
 
     CHACHA_ROUNDS
 
-    # 4. STORE RESULT (First 32 bytes)
+    # 4. STORE DIGEST
     sw s0, 0(\out_ptr)
     sw s1, 4(\out_ptr)
     sw s2, 8(\out_ptr)
@@ -762,7 +786,7 @@ main:
 	DECR_STACK 32
 
 	LOAD_ADDRESS a6, in_ptr
-	li a7, 70
+	li a7, 6
 
 	CHACHA20_HASH a6, a7, sp
 	mv s6, sp
@@ -786,7 +810,7 @@ skip1:
 1:	wfi
 	j		1b
 
-in_ptr: .asciz "1123456789012345678901234567890123456789012345678901234567890123456789"
+in_ptr: .asciz "hello"
 test_block:
     .word 0x11111111, 0x22222222, 0x33333333, 0x44444444
     .word 0x55555555, 0x66666666, 0x77777777, 0x88888888
