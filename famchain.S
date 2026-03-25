@@ -67,8 +67,8 @@ _base\@:
 .endm
 
 .macro INCR_STACK	size
-	li		t0, \size
-	add		sp, sp, t0
+	li		t6, \size
+	add		sp, sp, t6
 .endm
 
 .macro INIT_STACK size
@@ -392,6 +392,13 @@ _base\@:
 # a0 = in_ptr, a1 = in_len, a2 = output (32 bytes required)
 .macro CHACHA20_HASH
 	SETUP s0, s1, s2, s3, s4, s5, s6, s7, s8, s9, s10
+
+        # --- ALLOCATE SCRATCHPAD ONCE ---
+        # 0(sp) to 63(sp)  : Davies-Meyer Stash
+        # 64(sp) to 127(sp): tmp[64] buffer
+        DECR_STACK 128
+
+
 	# 1. INITIALIZE STATE
 	mv a3, a1			# Stash original length for Finalization
 	li s0,	4294967291
@@ -410,11 +417,6 @@ _base\@:
 	li t2,	4294966937
 	li t3,	4294966931
 	li t4,	4294966913
-
-	# --- ALLOCATE SCRATCHPAD ONCE ---
-	# 0(sp) to 63(sp)  : Davies-Meyer Stash
-	# 64(sp) to 127(sp): tmp[64] buffer
-	DECR_STACK 128
 
 	# 2. PROCESSING LOOP
 1:
@@ -539,9 +541,6 @@ _base\@:
 	# Loop if more data remains
 	bnez a1, 1b
 
-	# --- DEALLOCATE SCRATCHPAD ---
-	INCR_STACK 128
-
 	# 3. FINALIZATION (Domain Separation)
 	xor t1, t1, a3
 	srli a4, a3, 32
@@ -560,6 +559,11 @@ _base\@:
 	sw s5, 20(a2)
 	sw s6, 24(a2)
 	sw s7, 28(a2)
+
+	# --- DEALLOCATE SCRATCHPAD ---
+        INCR_STACK 128  
+
+
 	TEAR_DOWN
 .endm
 
