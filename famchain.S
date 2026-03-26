@@ -36,6 +36,14 @@
 .equ	UART_RBR,	0
 .equ	HEAP_MAX,	0x84000000		# 64MB limit from start of RAM
 
+.equ	VI0_DISK_BASE,	0x10001000
+.equ	VIO_MAGIC,	0x000
+.equ	VIO_DEVICE_ID,	0x008
+.equ	VIO_STATUS,	0x070
+.equ	VIO_QUEUE_SEL,	0x030
+.equ	VIO_QUEUE_NUM,	0x038
+.equ	VIO_QUEUE_PFN,	0x040
+
 
 .macro LOAD_ADDRESS reg, label
 _base\@:
@@ -78,7 +86,7 @@ _base\@:
 	bnez		tp, 1f 
 	LOAD_ADDRESS	gp, data
 	li		t0, 15
-	add		gp, gp, t0	
+	add		gp, gp, t0
 	li		t0, -16
 	and		gp, gp, t0
 
@@ -258,43 +266,11 @@ _base\@:
 	ADD_STEP t4, 60, \in, \out
 .endm
 
-# Define the ChaCha20 Initialization Macro
-# Usage: CHACHA20_INIT_STATE reg_base, key_ptr, counter_reg, nonce_ptr
-# This assumes key_ptr and nonce_ptr are registers holding memory addresses.
-.macro CHACHA20_INIT_STATE key_ptr, counter, nonce_ptr
-	# 1. Load the "expand 32-byte k" constants
-	li s0, 0x61707865
-	li s1, 0x3320646e
-	li s2, 0x79622d32
-	li s3, 0x6b206574
-
-	# 2. Load the 32-byte Key from memory (8 words)
-	lw s4, 0(\key_ptr)
-	lw s5, 4(\key_ptr)
-	lw s6, 8(\key_ptr)
-	lw s7, 12(\key_ptr)
-	lw s8, 16(\key_ptr)
-	lw s9, 20(\key_ptr)
-	lw s10, 24(\key_ptr)
-	lw t0, 28(\key_ptr)
-
-	# 3. Set the Counter (from a register)
-	mv t1, \counter
-
-	# 4. Load the 12-byte Nonce from memory (3 words)
-	lw t2, 0(\nonce_ptr)
-	lw t3, 4(\nonce_ptr)
-	lw t4, 8(\nonce_ptr)
-.endm
-
 # a0 = in_ptr, a1 = in_len, a2 = output (32 bytes required)
 .macro CHACHA20_HASH
 	SETUP s0, s1, s2, s3, s4, s5, s6, s7, s8, s9, s10
 
-        # --- ALLOCATE SCRATCHPAD ONCE ---
-        # 0(sp) to 63(sp)  : Davies-Meyer Stash
-        # 64(sp) to 127(sp): tmp[64] buffer
-        DECR_STACK 128
+	DECR_STACK 128
 
 
 	# 1. INITIALIZE STATE
@@ -327,44 +303,43 @@ _base\@:
 	.endr
 
 	# --- Step B: Fill tmp buffer (memcpy) ---
-        addi    t5, sp, 64      # t5 = Destination (scratchpad)
-        
-        # Determine how much we are copying in this pass (max 64)
-        li      t6, 64
-        blt     a1, t6, 1f      # If remaining length < 64, use actual length
-        li      t6, 64          # Else, we are processing a full 64-byte block
-        j       2f
-1:      mv      t6, a1          # t6 now holds the exact number of bytes to copy (0-63)
+	addi	t5, sp, 64	# t5 = Destination (scratchpad)
+	
+	# Determine how much we are copying in this pass (max 64)
+	li	t6, 64
+	blt	a1, t6, 1f	# If remaining length < 64, use actual length
+	li	t6, 64		# Else, we are processing a full 64-byte block
+	j	2f
+1:	mv	t6, a1		# t6 now holds the exact number of bytes to copy (0-63)
 
-2:      # --- START COPY ---
-        # First, copy as many 8-byte chunks as possible using 'ld'
-3:      li      a4, 8
-        blt     t6, a4, 4f      # If less than 8 bytes remain, go to byte-by-byte tail
+2:	# --- START COPY ---
+	# First, copy as many 8-byte chunks as possible using 'ld'
+3:	li	a4, 8
+	blt	t6, a4, 4f	# If less than 8 bytes remain, go to byte-by-byte tail
 
-        ld      a4, 0(a0)       # Load 8 bytes
-        sd      a4, 0(t5)       # Store 8 bytes
-        addi    a0, a0, 8
-        addi    t5, t5, 8
-        addi    a1, a1, -8      # Decrement total message length
-        addi    t6, t6, -8      # Decrement current block counter
-        bnez    t6, 3b          # Loop if we still have 8+ bytes to move
+	ld	a4, 0(a0)	# Load 8 bytes
+	sd	a4, 0(t5)	# Store 8 bytes
+	addi	a0, a0, 8
+	addi	t5, t5, 8
+	addi	a1, a1, -8	# Decrement total message length
+	addi	t6, t6, -8	# Decrement current block counter
+	bnez	t6, 3b		# Loop if we still have 8+ bytes to move
 
-4:      # --- TAIL COPY (1-7 bytes) ---
-        # This handles remainders so we don't over-read memory
-        beqz    t6, 5f
+4:	# --- TAIL COPY (1-7 bytes) ---
+	# This handles remainders so we don't over-read memory
+	beqz	t6, 5f
 6:
-        lbu     a4, 0(a0)
-        sb      a4, 0(t5)
-        addi    a0, a0, 1
-        addi    t5, t5, 1
-        addi    a1, a1, -1
-        addi    t6, t6, -1
-        bnez    t6, 6b
+	lbu	a4, 0(a0)
+	sb	a4, 0(t5)
+	addi	a0, a0, 1
+	addi	t5, t5, 1
+	addi	a1, a1, -1
+	addi	t6, t6, -1
+	bnez	t6, 6b
 
-5:      # --- End of Step B ---
-        # The 64-byte chunk is now ready at 64(sp)
+5:	# --- End of Step B ---
+	# The 64-byte chunk is now ready at 64(sp)
 
-	# --- Step C: COMPRESS (Davies-Meyer) ---
 	# Stash state into 0(sp)
 	sw s0, 0(sp)
 	sw s1, 4(sp)
@@ -477,7 +452,7 @@ _base\@:
 	sw s7, 28(a2)
 
 	# --- DEALLOCATE SCRATCHPAD ---
-        INCR_STACK 128  
+	INCR_STACK 128	
 
 
 	TEAR_DOWN
@@ -705,7 +680,7 @@ main:
 	DECR_STACK 32
 
 	LOAD_ADDRESS a0, in_ptr
-	li a1, 5
+	li a1, 64
 	mv a2, sp
 	CHACHA20_HASH
 	mv s6, a2
