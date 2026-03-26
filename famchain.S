@@ -44,6 +44,11 @@
 .equ	VIO_QUEUE_NUM,	0x038
 .equ	VIO_QUEUE_PFN,	0x040
 
+.equ OFF_VIRTQ_AREA,   0      # Starts exactly on the 4KB boundary
+.equ OFF_DISK_HEADER,  4096   # Immediately follows the VirtQueue
+.equ OFF_DISK_BUFFER,  4112   # (4096 + 16 bytes for header)
+.equ OFF_DISK_STATUS,  4624   # (4112 + 512 bytes for buffer)
+
 
 .macro LOAD_ADDRESS reg, label
 _base\@:
@@ -508,7 +513,7 @@ _base\@:
 	lw	t1, VIO_DEVICE_ID(t0)	# Should be 2 for Block Device
 	li	t2, 2
 	bne	t1, t2, error_not_disk
-/*
+
 
 	# 1. Reset the device
 	sw	zero, VIO_STATUS(t0)
@@ -545,15 +550,17 @@ _base\@:
 	li	t1, 16
 	sw	t1, VIO_QUEUE_NUM(t0)
 
- # 3. Set Page Size (QEMU default is usually 4096)
+	# 3. Set Page Size (QEMU default is usually 4096)
 	# (In legacy MMIO, we provide the Page Frame Number)
-	LOAD_ADDRESS t1 virtqueue_area
+	mv t1, a0
+	#LOAD_ADDRESS t1 virtqueue_area
 	sw	t1, VIO_QUEUE_PFN(t0)
 
 	li	t1, 0x80001000	# Descriptor Table Base
 
 	# --- Execute the Read ---
 	# 1. Setup Descriptor 0 (Header)
+	mv t1, a0
 	LOAD_ADDRESS t1, virtqueue_area # Base of Descriptor Table
 	LOAD_ADDRESS t2, disk_header
 	sd	t2, 0(t1)		# Addr
@@ -565,7 +572,8 @@ _base\@:
 	sh	t2, 14(t1)		# Next index = 1
 
 
-	LOAD_ADDRESS t1, virtqueue_area # Base of Descriptor Table
+	mv t1, a0
+	#LOAD_ADDRESS t1, virtqueue_area # Base of Descriptor Table
 
 	# 2. Setup Descriptor 1 (Data Buffer)
 	LOAD_ADDRESS t2, disk_buffer
@@ -578,7 +586,8 @@ _base\@:
 	sh	t2, 30(t1)		# Next index = 2
 
 
-	LOAD_ADDRESS t1, virtqueue_area # Base of Descriptor Table
+	mv t1, a0	
+	#LOAD_ADDRESS t1, virtqueue_area # Base of Descriptor Table
 
 	# 3. Setup Descriptor 2 (Status Byte)
 	LOAD_ADDRESS t2, disk_status
@@ -589,7 +598,8 @@ _base\@:
 	sh	t2, 44(t1)		# Flags
 	sh	zero, 46(t1)		# Next = 0 (End)
 
-	LOAD_ADDRESS t1, virtqueue_area	# Base of Descriptor Table
+	mv t1, a0
+	#LOAD_ADDRESS t1, virtqueue_area	# Base of Descriptor Table
 	LOAD_ADDRESS t2, disk_status
 
 
@@ -600,7 +610,6 @@ _base\@:
 	sh	t2, 4(t3)		# Set ring[0] = 0 (Start at Desc 0)
 	li	t2, 1
 	sh	t2, 2(t3)		# Set idx = 1 (We have 1 chain ready)
-*/
 .endm
 
 
@@ -609,13 +618,18 @@ _start:
 
 page_pad: .zero 4092
 virtqueue_area:
-    .zero 4096    # Space for Desc Table, Avail Ring, and Used Ring
+	.zero 4096	# Space for Desc Table, Avail Ring, and Used Ring
 disk_header:
-    .word 0       # type: 0 = read
-    .word 0       # reserved
-    .dword 0      # sector: 0 (The very start of disk.img)
+	.word 0	# type: 0 = read
+	.word 0	# reserved
+	.dword 0	# sector: 0 (The very start of disk.img)
 disk_buffer:
-    .zero 512     # Destination for our data
+	.zero 512	# Destination for our data
+disk_status: .byte 0xff 
+pad1: .byte 0
+pad2: .byte 0
+pad3: .byte 0
+
 
 
 global_ptr: .dword		0x0
@@ -798,6 +812,12 @@ main:
 
 	li t0, 0
 	bne tp, t0, skip1
+
+	DECR_STACK 16384
+	li	t0, 4095
+	add	a0, sp, t0
+	li	t0, -4096
+	and	a0, a0, t0
 	DISK_HANDSHAKE
 
 	DECR_STACK 32

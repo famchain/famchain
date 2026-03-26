@@ -1,3 +1,4 @@
 **/*.swp
 famchain.o
 famchain.bin
+tmp
