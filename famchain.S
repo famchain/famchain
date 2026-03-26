@@ -553,7 +553,6 @@ _base\@:
 	# 3. Set Page Size (QEMU default is usually 4096)
 	# (In legacy MMIO, we provide the Page Frame Number)
 	mv t1, a0
-	#LOAD_ADDRESS t1 virtqueue_area
 	sw	t1, VIO_QUEUE_PFN(t0)
 
 	li	t1, 0x80001000	# Descriptor Table Base
@@ -561,8 +560,8 @@ _base\@:
 	# --- Execute the Read ---
 	# 1. Setup Descriptor 0 (Header)
 	mv t1, a0
-	LOAD_ADDRESS t1, virtqueue_area # Base of Descriptor Table
-	LOAD_ADDRESS t2, disk_header
+	li t0, OFF_DISK_HEADER
+	add t2, a0, t0
 	sd	t2, 0(t1)		# Addr
 	li	t2, 16
 	sw	t2, 8(t1)		# Len
@@ -573,10 +572,12 @@ _base\@:
 
 
 	mv t1, a0
-	#LOAD_ADDRESS t1, virtqueue_area # Base of Descriptor Table
 
 	# 2. Setup Descriptor 1 (Data Buffer)
-	LOAD_ADDRESS t2, disk_buffer
+
+        li t0, OFF_DISK_BUFFER
+        add t2, a0, t0
+
 	sd	t2, 16(t1)		# Addr (Table + 16)
 	li	t2, 512
 	sw	t2, 24(t1)		# Len
@@ -587,10 +588,9 @@ _base\@:
 
 
 	mv t1, a0	
-	#LOAD_ADDRESS t1, virtqueue_area # Base of Descriptor Table
-
 	# 3. Setup Descriptor 2 (Status Byte)
-	LOAD_ADDRESS t2, disk_status
+	li t0, OFF_DISK_STATUS
+	add t2, a0, t0
 	sd	t2, 32(t1)		# Addr (Table + 32)
 	li	t2, 1
 	sw	t2, 40(t1)		# Len
@@ -599,8 +599,8 @@ _base\@:
 	sh	zero, 46(t1)		# Next = 0 (End)
 
 	mv t1, a0
-	#LOAD_ADDRESS t1, virtqueue_area	# Base of Descriptor Table
-	LOAD_ADDRESS t2, disk_status
+        li t0, OFF_DISK_STATUS
+        add t2, a0, t0
 
 
 	# 4. Notify the Available Ring
@@ -615,22 +615,6 @@ _base\@:
 
 _start:
 	j		main
-
-page_pad: .zero 4092
-virtqueue_area:
-	.zero 4096	# Space for Desc Table, Avail Ring, and Used Ring
-disk_header:
-	.word 0	# type: 0 = read
-	.word 0	# reserved
-	.dword 0	# sector: 0 (The very start of disk.img)
-disk_buffer:
-	.zero 512	# Destination for our data
-disk_status: .byte 0xff 
-pad1: .byte 0
-pad2: .byte 0
-pad3: .byte 0
-
-
 
 global_ptr: .dword		0x0
 boot_lock: .word		0x0
@@ -844,6 +828,7 @@ main:
 	jal write_byte
 
 	INCR_STACK 32
+	INCR_STACK 16384
 skip1:
 1:	wfi
 	j		1b
