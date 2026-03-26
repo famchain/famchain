@@ -27,28 +27,41 @@
 .altmacro
 
 # System hardware constants
-.equ	EXIT_ADDR,	0x100000
-.equ	EXIT_PASS,	0x5555
-.equ	UART_BASE,	0x10000000
-.equ	UART_RD_MASK,	0x1
-.equ	UART_WR_MASK,	0x20
-.equ	UART_LSR,	5
-.equ	UART_RBR,	0
-.equ	HEAP_MAX,	0x84000000		# 64MB limit from start of RAM
+.equ	EXIT_ADDR,		0x100000
+.equ	EXIT_PASS,		0x5555
+.equ	UART_BASE,		0x10000000
+.equ	UART_RD_MASK,		0x1
+.equ	UART_WR_MASK,		0x20
+.equ	UART_LSR,		5
+.equ	UART_RBR,		0
+.equ	HEAP_MAX,		0x84000000		# 64MB limit from start of RAM
 
-.equ	VIO_DISK_BASE,	0x10001000
-.equ	VIO_MAGIC,	0x000
-.equ	VIO_DEVICE_ID,	0x008
-.equ	VIO_STATUS,	0x070
-.equ	VIO_QUEUE_SEL,	0x030
-.equ	VIO_QUEUE_NUM,	0x038
-.equ	VIO_QUEUE_PFN,	0x040
+.equ	VIO_DISK_BASE,		0x10001000
+.equ	VIO_MAGIC,		0x000
+.equ	VIO_DEVICE_ID,		0x008
+.equ	VIO_STATUS,		0x070
+.equ	VIO_QUEUE_SEL,		0x030
+.equ	VIO_QUEUE_NUM,		0x038
+.equ	VIO_QUEUE_PFN,		0x040
 
-.equ OFF_VIRTQ_AREA,   0      # Starts exactly on the 4KB boundary
-.equ OFF_DISK_HEADER,  4096   # Immediately follows the VirtQueue
-.equ OFF_DISK_BUFFER,  4112   # (4096 + 16 bytes for header)
-.equ OFF_DISK_STATUS,  4624   # (4112 + 512 bytes for buffer)
+.equ	OFF_VIRTQ_AREA,		0			# Starts exactly on the 4KB boundary
+.equ	OFF_DISK_HEADER,	4096			# Immediately follows the VirtQueue
+.equ	OFF_DISK_BUFFER,	4112			# (4096 + 16 bytes for header)
+.equ	OFF_DISK_STATUS,	4624			# (4112 + 512 bytes for buffer)
 
+.equ	PLIC_BASE,		0x0c000000
+.equ	PLIC_PRIO_10,		(PLIC_BASE + 0x28)	# 10 * 4 = 40 (0x28)
+.equ	PLIC_MENABLE,		(PLIC_BASE + 0x2000)	# Machine Mode Enable
+.equ	PLIC_MTHRESH,		(PLIC_BASE + 0x200000)	# Machine Mode Threshold
+.equ	PLIC_MCLAIM,		(PLIC_BASE + 0x200004)	# Claim/Complete Register
+.equ	DISK_IRQ,		1
+.equ	PLIC_ENABLE_BASE,	0x0c002000
+.equ	PLIC_MTHRESH_BASE,	0x0c200000
+.equ	L_INTERS,		0x808			# MSIE (8) | MEIE (800)
+.equ	MIE_GLOBAL,		0x8			# MIE (Global)
+.equ	IPI_CAUSE,		0x8000000000000003	# mcause for an IPI
+.equ	EXTERNAL_CAUSE,		0x800000000000000B	# Machine External Interrupt
+.equ	IPI_BASE,		0x02000000		# Base of the IPI memory loc
 
 .macro LOAD_ADDRESS reg, label
 _base\@:
@@ -505,6 +518,16 @@ _base\@:
 .endm
 
 .macro DISK_HANDSHAKE
+	# --- Zero out the entire 8KB arena (or just up to OFF_DISK_STATUS) ---
+	jal print_hex
+	mv      t2, a0          # Start at aligned base
+	li      t3, 1024        # 1024 * 8 bytes = 8192 bytes (plenty)
+	1:
+	sd      zero, 0(t2)
+        addi    t2, t2, 8
+        addi    t3, t3, -1
+        bnez    t3, 1b
+
 	li	t0, VIO_DISK_BASE
 	lw	t1, VIO_MAGIC(t0)	# Should be 0x74726976 ("virt")
 	li	t2, 0x74726976
@@ -555,17 +578,18 @@ _base\@:
 	mv t1, a0
 	sw	t1, VIO_QUEUE_PFN(t0)
 
-	li	t1, 0x80001000	# Descriptor Table Base
+	#li	t1, 0x80001000	# Descriptor Table Base
 
 	# --- Execute the Read ---
 	# 1. Setup Descriptor 0 (Header)
+	jal print_hex
 	mv t1, a0
 	li t0, OFF_DISK_HEADER
 	add t2, a0, t0
 	sd	t2, 0(t1)		# Addr
 	li	t2, 16
 	sw	t2, 8(t1)		# Len
-	li	t2, 1		# NEXT flag
+	li	t2, 1			# NEXT flag
 	sh	t2, 12(t1)		# Flags
 	li	t2, 1
 	sh	t2, 14(t1)		# Next index = 1
@@ -575,8 +599,8 @@ _base\@:
 
 	# 2. Setup Descriptor 1 (Data Buffer)
 
-        li t0, OFF_DISK_BUFFER
-        add t2, a0, t0
+	li t0, OFF_DISK_BUFFER
+	add t2, a0, t0
 
 	sd	t2, 16(t1)		# Addr (Table + 16)
 	li	t2, 512
@@ -599,8 +623,14 @@ _base\@:
 	sh	zero, 46(t1)		# Next = 0 (End)
 
 	mv t1, a0
-        li t0, OFF_DISK_STATUS
-        add t2, a0, t0
+	li t0, OFF_DISK_STATUS
+	add t2, a0, t0
+	li	a0, '\n'
+	jal write_byte
+	#mv a0, t2
+	jal print_hex
+	li	a0, '\n'
+	jal write_byte
 
 
 	# 4. Notify the Available Ring
@@ -612,15 +642,127 @@ _base\@:
 	sh	t2, 2(t3)		# Set idx = 1 (We have 1 chain ready)
 .endm
 
+.macro SETUP_TRAP_HANDLER
+	LOAD_ADDRESS	t0, trap_handler
+	csrw	mtvec, t0
+
+	csrr	t3, mhartid
+	slli	t2, t3, 12		# HartID * 4096
+	li	t0, PLIC_MTHRESH
+	add	t0, t0, t2
+	sw	zero, 0(t0)		# Threshold = 0 (Accept all)
+
+	# 3. Enable Local Interrupts (External + Software)
+	li	t0, L_INTERS
+	csrs	mie, t0
+	li	t0, MIE_GLOBAL
+	csrs	mstatus, t0
+.endm
+
+.macro SETUP_DISK_HANDLER
+        # 1. Set the Global Priority for the Disk
+        # This only needs to be done once by ANY hart, but is safe to repeat.
+        li      t0, PLIC_BASE
+        li      t1, 1                           # Priority 1 (> Threshold)
+        li      t2, DISK_IRQ
+        slli    t2, t2, 2                       # IRQ * 4 (4 bytes)
+        add     t0, t0, t2
+        sw      t1, 0(t0)
+
+        # 2. Enable the Disk IRQ for THIS Hart specifically
+        # M-Mode Enable contexts are spaced by 0x80 (128 bytes)
+        csrr    t3, mhartid
+        li      t0, PLIC_ENABLE_BASE
+        slli    t2, t3, 7                       # HartID * 128
+        add     t0, t0, t2
+
+        # Read-Modify-Write to enable Bit 1 (Disk)
+        lw      t1, 0(t0)
+        ori     t1, t1, (1 << DISK_IRQ)
+        sw      t1, 0(t0)
+
+        # 3. Ensure Threshold allows this priority
+        # M-Mode Threshold contexts are spaced by 0x1000 (4096 bytes)
+        li      t0, PLIC_MTHRESH_BASE
+        slli    t2, t3, 12                      # HartID * 4096
+        add     t0, t0, t2
+        sw      zero, 0(t0)                     # Threshold 0 
+.endm
+
 
 _start:
 	j		main
 
-global_ptr: .dword		0x0
 boot_lock: .word		0x0
+global_ptr: .dword		0x0
 complete_lock: .word		0x0
 global_lock: .word		0x0
+disk_ptr: .dword		0x0
 
+trap_handler:
+	SETUP	a0, t0, t1, t2, t3, t4, t5, s0, s1, s2
+	csrr	t0, mcause
+	li	t1, IPI_CAUSE		# IPI
+	beq	t0, t1, ipi_handler
+	li	t1, EXTERNAL_CAUSE	# External
+	beq	t0, t1, ext_handler
+
+	# Exception handling (ebreak)
+	csrr	t0, mepc		# get mepc value
+	addi	t0, t0, 4		# add 4
+	csrw	mepc, t0		# csrw
+	li	a0, 'E'
+	jal     write_byte
+	li      a0, '\n'
+	jal     write_byte
+	j	complete_trap		# finish
+ext_handler:
+        csrr    t1, mhartid             # Get current Hart ID
+        slli    t1, t1, 12              # HartID * 4096 (Stride between Hart contexts)
+        li      t0, PLIC_MCLAIM         # PLIC Claim/Complete Base (Hart 0 M-mode)
+        add     t0, t0, t1              # t0 now points to this Hart's Claim register
+
+        # 2. CLAIM the interrupt
+        lw      t2, 0(t0)               # Reading the register "claims" the IRQ
+        # t2 now contains the IRQ ID (e.g., 1 for Disk, 2 for Network, etc.)
+
+        # 3. Handle the specific device
+        # If t2 == 0, it's a "spurious" interrupt (nothing to do)
+        beqz    t2, complete_trap
+        li      t3, DISK_IRQ            # Is it the Disk (IRQ 1)?
+        bne     t2, t3, finish_ext
+
+
+        # Ack virtio
+        li      t4, 0x10001000          # VIRTIO_DISK_BASE
+        lw      t5, 0x60(t4)            # Read InterruptStatus
+        sw      t5, 0x64(t4)            # Write back to InterruptACK to clear it
+
+        # Handle disk trap here
+        sw      t2, 0(t0)
+	jal     proc_disk_evt
+        j       complete_trap           # finish
+finish_ext:
+        sw      t2, 0(t0)
+        j       complete_trap           # finish
+ipi_handler:
+        # DEBUG: we print our hart id here to indicate we recv event
+        csrr    t1, mhartid
+        li      a0, '0'
+        add     a0, a0, t1
+        jal     write_byte
+        li      a0, '\n'
+        jal     write_byte
+        # End debugging
+
+        csrr    t1, mhartid             # get our hartid
+        li      t0, IPI_BASE            # base
+        slli    t1, t1, 2               # multiply by 4
+        add     t0, t0, t1              # add to base
+        sw      zero, 0(t0)             # zero the interrupt
+complete_trap:
+        TEAR_DOWN
+        mret
 
 exit:
 	li		t0, EXIT_ADDR		# load exit addr
@@ -639,15 +781,23 @@ read_byte:
 	ret
 
 write_byte:	
+	SETUP t0, t1
 	li		t0, UART_BASE		# UART Base
 1:	lbu		t1, UART_LSR(t0)	# load state
 	andi		t1, t1, UART_WR_MASK	# mask
 	beqz		t1, 1b			# retry
 	sb		a0, UART_RBR(t0)	# send to UART
+	TEAR_DOWN
 	ret
 
 heap_panic:
 	PANIC heap overflow!!
+
+error_not_virtio:
+	PANIC not virtio!!
+
+error_not_disk:
+	PANIC error not disk!!
 
 stack_panic:
 	li a0, 's'
@@ -785,24 +935,56 @@ print_str:
 2:	
 	ret
 
-error_not_virtio:
-	PANIC not virtio!!
+proc_disk_evt:
+	
+	li	a0, 'x'
+	jal	write_byte
+	li	a0, '\n'
+	jal	write_byte
 
-error_not_disk:
-	PANIC error not disk!!
+	LOAD_ADDRESS a0, disk_ptr
+	
+
+        ld              t1, 0(a0)
+	li		t0, OFF_DISK_BUFFER
+	add		s0, t1, t0
+	mv a0, s0
+	jal print_hex
+
+1:
+	lb		a0, 0(s0)
+	jal		write_byte
+	addi		s0, s0, 1
+	bnez		a0, 1b
+	li		a0, 'C'
+	jal		write_byte
+	li		a0, '\n'
+	jal		write_byte
+	ret
 
 main:
 	INIT_STACK	0x100000
+	SETUP_TRAP_HANDLER
 
-	li t0, 0
-	bne tp, t0, skip1
+	bnez tp, skip1
+	SETUP_DISK_HANDLER
+	ebreak
 
-	DECR_STACK 16384
-	li	t0, 4095
-	add	a0, sp, t0
-	li	t0, -4096
-	and	a0, a0, t0
+	DECR_STACK	16384
+	li		t0, 4095
+	add		a0, sp, t0
+	li		t0, -4096
+	and		a0, a0, t0
+	LOAD_ADDRESS	t6, disk_ptr
+	sd		a0, 0(t6)
+	jal print_hex
+
 	DISK_HANDSHAKE
+
+	# 5. Kick the hardware
+	li	t0, 0x10001000		# VIRTIO_DISK_BASE
+	sw	zero, 0x050(t0)		# Notify Queue 0
+
 
 	DECR_STACK 32
 
@@ -826,9 +1008,10 @@ main:
 
 	li a0, 'q'
 	jal write_byte
+	li a0, '\n'
+	jal write_byte
 
 	INCR_STACK 32
-	INCR_STACK 16384
 skip1:
 1:	wfi
 	j		1b
