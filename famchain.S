@@ -71,7 +71,7 @@ _start:
 		li	t1, 0x80001000	# Descriptor Table Base
 
 li      s8, 0
-li	s9, 2
+li	s9, 11
 li s10, 0   # Total requests sent
 
 77:
@@ -197,9 +197,6 @@ write_byte:
 	sb	a0, 0(t1)
 	ret	
 
-virtqueue_area: 
-	.zero 4096	# Space for Desc Table, Avail Ring, and Used Ring
-
 disk_header:
 	.word 0	# type: 0 = read
 	.word 0	# reserved
@@ -211,3 +208,4 @@ disk_status:
 disk_buffer:
 	.zero 512	# Destination for our data
 
+virtqueue_area:
