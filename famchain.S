@@ -129,6 +129,10 @@ sh	t2, 4(t3)		# Set ring[0] = 0 (Start at Desc 0)
 addi    s10, s10, 1
 sh	s10, 2(t3)		# Set idx = 1 (We have 1 chain ready)
 
+LOAD_ADDRESS t1, disk_status
+li s4, 0xFF
+sb s4, 0(t1)
+
 # 5. Kick the hardware
 li	t0, 0x10001000		# VIRTIO_DISK_BASE
 sw	zero, 0x050(t0)		# Notify Queue 0
@@ -187,9 +191,9 @@ error_features_not_supported:
 
 write_byte: 
 	li	t1, UART_BASE
-1:	lbu	t2, UART_LSR(t1)
+101:	lbu	t2, UART_LSR(t1)
 	andi	t2, t2, UART_WR_MASK
-	beqz	t2, 1b
+	beqz	t2, 101b
 	sb	a0, 0(t1)
 	ret	
 
