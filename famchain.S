@@ -59,8 +59,11 @@
 .equ	PLIC_MTHRESH_BASE,	0x0c200000
 .equ	L_INTERS,		0x808			# MSIE (8) | MEIE (800)
 .equ	MIE_GLOBAL,		0x8			# MIE (Global)
-.equ	IPI_CAUSE,		0x80000003		# mcause for an IPI
-.equ	EXTERNAL_CAUSE,		0x8000000B		# Machine External Interrupt
+.equ	INTERRUPT_BIT,    0x80000000
+.equ	M_SOFT_INT,       (INTERRUPT_BIT | 3)  # IPI (Software)
+.equ	M_EXT_INT,        (INTERRUPT_BIT | 11) # External (PLIC/Disk)
+.equ	IPI_CAUSE,		M_SOFT_INT # mcause for an IPI
+.equ	EXTERNAL_CAUSE,		M_EXT_INT # Machine External Interrupt
 .equ	IPI_BASE,		0x02000000		# Base of the IPI memory loc
 
 # Disk structure
@@ -181,6 +184,9 @@ trap_handler:
 	sw		a6, 64(sp)
 	sw		a7, 68(sp)
 
+	li		a0, 'q'
+	jal             write_byte
+
 	csrr		t0, mstatus
 	sw		t0, 4(sp)
 	csrr		t0, mepc
@@ -188,16 +194,34 @@ trap_handler:
 	csrr		t0, mcause
 	li		t1, IPI_CAUSE
 	beq		t0, t1, ipi_handler
+	li		t1, EXTERNAL_CAUSE
+	beq		t0, t1, ext_handler
 	csrr		t0, mepc
 	addi		t0, t0, 4
 	sw		t0, 0(sp)
 	jal		proc_exception
+	j		end_trap
+ext_handler:
+	li      t0, PLIC_MCLAIM
+        # (Note: You need to add the hart offset if not on Hart 0)
+        lw      t1, 0(t0)           # t1 now contains the IRQ number (e.g., 1)
+
+        # 2. Check if it's the Disk
+        li      t2, DISK_IRQ
+        bne     t1, t2, end_trap
+        
+        # 3. Clear the VirtIO Device Event (The second half of the fix)
+        # You MUST acknowledge the device itself
+        li      t3, VIO_DISK_BASE
+        lw      t4, 0x60(t3)        # Read InterruptStatus
+        sw      t4, 0x64(t3)        # Write back to InterruptACK
 	j		end_trap
 ipi_handler:
 	li		t0, IPI_BASE		# base
 	slli		t1, tp, 2		# multiply by 4
 	add		t0, t0, t1		# add to base
 	sw		zero, 0(t0)		# zero the interrupt
+	fence 		rw, rw
 	jal		proc_ipi
 end_trap:
 	lw		t0, 0(sp)
@@ -566,7 +590,7 @@ main:
 	mv	s9, a0
 	jal	print_hex
 	mv	a0, s9
-	jal	disk_read_sector
+	#jal	disk_read_sector
 	li      t2, DISK_BUFFER
         add     t2, t2, a0
 	lb      a0, 0( t2)

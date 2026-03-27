@@ -1,4 +1,6 @@
 **/*.swp
 famchain.o
 famchain.bin
+disk.o
+disk.bin
 tmp
