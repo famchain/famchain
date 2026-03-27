@@ -41,6 +41,14 @@
 .equ	STACK_SHIFT, 		17			# 2^17 = 128 KiB
 .equ	STACK_SIZE,		(1 << STACK_SHIFT)
 
+.equ	VIO_DISK_BASE,		0x10001000
+.equ	VIO_MAGIC,		0x000
+.equ	VIO_DEVICE_ID,		0x008
+.equ	VIO_STATUS,		0x070
+.equ	VIO_QUEUE_SEL,		0x030
+.equ	VIO_QUEUE_NUM,		0x038
+.equ	VIO_QUEUE_PFN,		0x040
+
 .equ	PLIC_BASE,		0x0c000000
 .equ	PLIC_PRIO_10,		(PLIC_BASE + 0x28)	# 10 * 4 = 40 (0x28)
 .equ	PLIC_MENABLE,		(PLIC_BASE + 0x2000)	# Machine Mode Enable
@@ -54,6 +62,12 @@
 .equ	IPI_CAUSE,		0x80000003		# mcause for an IPI
 .equ	EXTERNAL_CAUSE,		0x8000000B		# Machine External Interrupt
 .equ	IPI_BASE,		0x02000000		# Base of the IPI memory loc
+
+# Disk structure
+.equ	DISK_VIRTQ_AREA,	0
+.equ	DISK_HEADER,		4096
+.equ	DISK_BUFFER,		4112
+.equ	DISK_STATUS,		4624
 
 .macro LOAD_ADDRESS reg, label
 _base\@:
@@ -133,13 +147,13 @@ _base\@:
 	ret
 .endm
 
-.macro WRITE_BYTE       value
-        li              t0, UART_BASE           # UART Base
-1:      lbu             t1, UART_LSR(t0)        # load state
-        andi            t1, t1, UART_WR_MASK    # mask
-        beqz            t1, 1b                  # retry
-        li              t1, \value
-        sb              t1, UART_RBR(t0)        # send to UART
+.macro WRITE_BYTE	value
+	li		t0, UART_BASE		# UART Base
+101:	lbu		t1, UART_LSR(t0)	# load state
+	andi		t1, t1, UART_WR_MASK	# mask
+	beqz		t1, 101b		# retry
+	li		t1, \value
+	sb		t1, UART_RBR(t0)	# send to UART
 .endm
 
 _start:
@@ -214,20 +228,50 @@ stack_panic:
 	WRITE_BYTE	's'
 	WRITE_BYTE	't'
 	WRITE_BYTE	'a'
-        WRITE_BYTE      'c'
-        WRITE_BYTE      'k'
-        WRITE_BYTE      ' '
-        WRITE_BYTE      'o'
-        WRITE_BYTE      'v'
-        WRITE_BYTE      'e'
-        WRITE_BYTE      'r'
-        WRITE_BYTE      'f'
-        WRITE_BYTE      'l'
-        WRITE_BYTE      'o'
-        WRITE_BYTE      'w'
-        WRITE_BYTE      '!'
+	WRITE_BYTE	'c'
+	WRITE_BYTE	'k'
+	WRITE_BYTE	' '
+	WRITE_BYTE	'o'
+	WRITE_BYTE	'v'
+	WRITE_BYTE	'e'
+	WRITE_BYTE	'r'
+	WRITE_BYTE	'f'
+	WRITE_BYTE	'l'
+	WRITE_BYTE	'o'
+	WRITE_BYTE	'w'
+	WRITE_BYTE	'!'
 	WRITE_BYTE	'\n'
 	j		exit
+
+error_not_virtio:
+	WRITE_BYTE	'n'
+	WRITE_BYTE	'v'
+	WRITE_BYTE	'i'
+	WRITE_BYTE	'r'
+	WRITE_BYTE	't'
+	WRITE_BYTE	'\n'
+	j		exit
+
+error_not_disk:
+	WRITE_BYTE	'e'
+	WRITE_BYTE	'd' 
+	WRITE_BYTE	'i'
+	WRITE_BYTE	's'
+	WRITE_BYTE	'k'
+	WRITE_BYTE	'\n'
+	j		exit
+
+error_features_not_supported:
+	WRITE_BYTE	'e'
+	WRITE_BYTE	'f'	
+	WRITE_BYTE	'e'	
+	WRITE_BYTE	'a'
+	WRITE_BYTE	't'	
+	WRITE_BYTE	'u'
+	WRITE_BYTE	'r'
+	WRITE_BYTE	'e'
+	WRITE_BYTE	'\n'
+	j		exit	
 	
 
 proc_exception:
@@ -317,6 +361,40 @@ signal:
 
 	ret
 
+# a0 = Allocated Stack Base (where setup was done)
+# a1 = Sector number to read
+# s10 = VIO_MMIO_BASE
+
+disk_read_sector:
+    # 1. Update the Sector in the Header
+    li      t2, DISK_HEADER
+    add     t2, t2, a0
+    sw      zero, 0(t2)           # Type = Read (0)
+    sw      a1, 8(t2)             # Sector Low
+    sw      zero, 12(t2)          # Sector High
+
+    # 2. Reset Status Byte to "Busy"
+    li      t3, DISK_STATUS
+    add     t3, t3, a0
+    li      t4, 0xFF
+    sb      t4, 0(t3)
+
+    # 3. Memory Barrier (Ensure the hardware sees the new sector/status)
+    fence   w, w
+
+    # 4. Notify the Hardware
+    li      t2, 0                 # Queue Index 0
+    sw      t2, 0x50(s10)         # Doorbell (VIO_QUEUE_NOTIFY)
+
+    # 5. Polling Loop
+wait_for_disk:
+    lb      t2, 0(t3)
+    li      t4, 0xFF
+    beq     t2, t4, wait_for_disk # Loop while status is 0xFF
+    
+    # Check status: t2 should now be 0 for success
+    ret
+
 
 main:
 	csrr		tp, mhartid
@@ -345,7 +423,158 @@ main:
 	li		t0, MIE_GLOBAL
 	csrs		mstatus, t0
 
+	# Only enable for disk hart
+	li		t0, DISK_HART
+	bne		tp, t0, 1f
+	li		t0, PLIC_BASE
+	li		t1, 1			# Priority 1 (> Threshold)
+	li		t2, DISK_IRQ
+	slli		t2, t2, 2		# IRQ * 4 (4 bytes)
+	add		t0, t0, t2
+	sw		t1, 0(t0)
+
+	# 2. Enable the Disk IRQ for THIS Hart specifically
+	# M-Mode Enable contexts are spaced by 0x80 (128 bytes)
+	csrr		t3, mhartid
+	li		t0, PLIC_ENABLE_BASE
+	slli		t2, t3, 7		# HartID * 128
+	add		t0, t0, t2
+
+	# Read-Modify-Write to enable Bit 1 (Disk)
+	lw		t1, 0(t0)
+	ori		t1, t1, (1 << DISK_IRQ)
+	sw		t1, 0(t0)
+
+	# 3. Ensure Threshold allows this priority
+	# M-Mode Threshold contexts are spaced by 0x1000 (4096 bytes)
+	li		t0, PLIC_MTHRESH_BASE
+	slli		t2, t3, 12		# HartID * 4096
+	add		t0, t0, t2
+	sw		zero, 0(t0)		# Threshold 0 
+
+	# Disk handshake
+	li		t0, 12288		# Resreve 3 pages
+	sub		sp, sp, t0
+	blt		sp, s11, stack_panic	# Check allocation
+	li		t0, 4095
+	add		a0, t0, sp
+	li		t0, -4096		# page align
+	and		a0, a0, t0
+
+	li	t0, 12288			# 3 pages
+	add	t1, sp, t0			# t1 points to the END of the 3 pages
+2:
+	addi	t1, t1, -4			# Move pointer down first
+	sw	zero, 0(t1)			# Zero it out
+	bgt	t1, sp, 2b			# If we haven't reached the start (sp), keep going
+
+	li	t0, VIO_DISK_BASE
+	lw	t1, VIO_MAGIC(t0)		# Should be 0x74726976 ("virt")
+	li	t2, 0x74726976
+	bne	t1, t2, error_not_virtio
+	lw	t1, VIO_DEVICE_ID(t0)		# Should be 2 for Block Device
+	li	t2, 2
+	bne	t1, t2, error_not_disk
+
+	# 1. Reset the device
+	sw	zero, VIO_STATUS(t0)
+
+	# 2. Set ACKNOWLEDGE bit (1)
+	li	t1, 1
+	sw	t1, VIO_STATUS(t0)
+
+	# 3. Set DRIVER bit (2)
+	lw	t1, VIO_STATUS(t0)
+	ori	t1, t1, 2
+	sw	t1, VIO_STATUS(t0)
+
+	# 4. Set FEATURES_OK bit (8)
+	lw	t1, VIO_STATUS(t0)
+	ori	t1, t1, 8
+	sw	t1, VIO_STATUS(t0)
+
+	# 5. Check if FEATURES_OK was accepted
+	lw	t1, VIO_STATUS(t0)
+	andi	t2, t1, 8
+	beqz	t2, error_features_not_supported
+
+        # Select Queue 0     
+        sw      zero, VIO_QUEUE_SEL(t0)
+        # Set Queue Size (let's use 16 descriptors)
+        li      t1, 16   
+        sw      t1, VIO_QUEUE_NUM(t0)
+
+        srli    t1, a0, 12      
+        sw      t1, VIO_QUEUE_PFN(t0)
+
+	# Set DRIVER_OK bit (4) - Device is now "Live"
+	lw	t1, VIO_STATUS(t0)
+	ori	t1, t1, 4
+	sw	t1, VIO_STATUS(t0)
+
+	mv	t1, a0
+	li	t2, DISK_HEADER
+	add	t2, t2, t1
+
+	sw	t2, 0(t1)		# Addr
+	sw	zero, 4(t1)		# High 32 bits (MUST be zero for RV32)
+	li	t2, 16
+	sw	t2, 8(t1)		# Len
+	li	t2, 1			# NEXT flag
+	sh	t2, 12(t1)		# Flags
+	li	t2, 1
+	sh	t2, 14(t1)		# Next index = 1
+
+	# Setup Descriptor 1 (Data Buffer)
+	li	t2, DISK_BUFFER
+	add	t2, t2, a0
+
+	sw	t2, 16(t1)		# Addr (Table + 16)
+	sw	zero, 20(t1)		# High 32 bits
+	li	t2, 512
+	sw	t2, 24(t1)		# Len
+	li	t2, 3			# NEXT | WRITE flags
+	sh	t2, 28(t1)		# Flags
+	li	t2, 2
+	sh	t2, 30(t1)		# Next index = 2
+
+
+        # 3. Setup Descriptor 2 (Status Byte)
+        li t2, DISK_STATUS
+        add t2, t2, a0
+        sw      t2, 32(t1)              # Addr (Table + 32)
+	sw	zero, 36(t1)		# zero upper bits
+        li      t2, 1
+        sw      t2, 40(t1)              # Len
+        li      t2, 2           	# WRITE flag
+        sh      t2, 44(t1)              # Flags
+        sh      zero, 46(t1)            # Next = 0 (End)
+
+        # 4. Notify the Available Ring
+        # Available Ring starts at offset 256 (after 16 descriptors)
+        addi    t3, t1, 256
+        sh      zero, 4(t3)               # Set ring[0] = 0 (Start at Desc 0)
+        li      t2, 1
+        sh      t2, 2(t3)               # Set idx = 1 (We have 1 chain ready)
+	fence   w, w
+1:
+
 	bnez		tp, park
+
+	li	s10, VIO_DISK_BASE
+	li	a1, 0
+	mv	s9, a0
+	jal	print_hex
+	mv	a0, s9
+	jal	disk_read_sector
+	li      t2, DISK_BUFFER
+        add     t2, t2, a0
+	lb      a0, 0( t2)
+	addi a0, a0, 'A'
+	jal write_byte
+	li a0, '\n'
+	jal write_byte
+
 
 	ebreak
 	li		a0, 2
