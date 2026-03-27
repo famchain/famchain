@@ -38,8 +38,8 @@
 .equ	HEAP_MAX,		0x84000000		# 64MB limit from start of RAM
 .equ	MM_HART_ID,		0
 .equ	MAX_HARTS,		4
-.equ	STACK_SHIFT, 17		# 2^17 = 128 KiB
-.equ	STACK_SIZE,	(1 << STACK_SHIFT)
+.equ	STACK_SHIFT, 		17			# 2^17 = 128 KiB
+.equ	STACK_SIZE,		(1 << STACK_SHIFT)
 
 .equ	PLIC_BASE,		0x0c000000
 .equ	PLIC_PRIO_10,		(PLIC_BASE + 0x28)	# 10 * 4 = 40 (0x28)
@@ -137,40 +137,69 @@ _base\@:
 _start:
 j	main
 
-mm_complete: .word		0x0
+pad: .space 12 # align trap handler 16
 
 trap_handler:
-	DECR_STACK	128
-	sw		t0, 8(sp)
-        sw              t1, 12(sp)
-	sw		ra, 16(sp)
-	csrr            t0, mstatus
-        sw              t0, 4(sp)
-	csrr            t0, mepc
+	DECR_STACK	80
+	sw		ra, 8(sp)
+	sw		t0, 12(sp)
+	sw		t1, 16(sp)
+	sw		t2, 20(sp)
+	sw		t3, 24(sp)
+	sw		t4, 28(sp)
+	sw		t5, 32(sp)
+	sw		t6, 36(sp)
+
+	sw		a0, 40(sp)
+	sw		a1, 44(sp)
+	sw		a2, 48(sp)
+	sw		a3, 52(sp)
+	sw		a4, 56(sp)
+	sw		a5, 60(sp)
+	sw		a6, 64(sp)
+	sw		a7, 68(sp)
+
+	csrr		t0, mstatus
+	sw		t0, 4(sp)
+	csrr		t0, mepc
 	sw		t0, 0(sp)
 	csrr		t0, mcause
 	li		t1, IPI_CAUSE
 	beq		t0, t1, ipi_handler
-        csrr            t0, mepc
-        addi            t0, t0, 4
-	sw              t0, 0(sp)
-	jal             proc_exception
+	csrr		t0, mepc
+	addi		t0, t0, 4
+	sw		t0, 0(sp)
+	jal		proc_exception
 	j		end_trap
 ipi_handler:
-	li              t0, IPI_BASE            # base
-        slli            t1, tp, 2               # multiply by 4
-        add             t0, t0, t1              # add to base
-        sw              zero, 0(t0)             # zero the interrupt
+	li		t0, IPI_BASE		# base
+	slli		t1, tp, 2		# multiply by 4
+	add		t0, t0, t1		# add to base
+	sw		zero, 0(t0)		# zero the interrupt
 	jal		proc_ipi
 end_trap:
-	lw              t0, 0(sp)
+	lw		t0, 0(sp)
 	csrw		mepc, t0
 	lw		t0, 4(sp)
 	csrw		mstatus, t0
-	lw		t0, 8(sp)
-	lw		t1, 12(sp)
-	lw		ra, 16(sp)
-	INCR_STACK	128
+	lw		ra, 8(sp)
+	lw		t0, 12(sp)
+	lw		t1, 16(sp)
+	lw		t2, 20(sp)
+	lw		t3, 24(sp)
+	lw		t4, 28(sp)
+	lw		t5, 32(sp)
+	lw		t6, 36(sp)
+
+	lw		a0, 40(sp)
+	lw		a1, 44(sp)
+	lw		a2, 48(sp)
+	lw		a3, 52(sp)
+	lw		a4, 56(sp)
+	lw		a5, 60(sp)
+	lw		a6, 64(sp)
+	lw		a7, 68(sp)
+	INCR_STACK	80
 	mret
 
 proc_exception:
@@ -194,8 +223,8 @@ proc_ipi:
 print_hex:
 	SETUP		s0, s1, s2, t0, t1, t2, a0
 	
-	mv		s0, a0		# Save original value
-	li		s2, 0		# flag = 0 (skipping leading)
+	mv		s0, a0			# Save original value
+	li		s2, 0			# flag = 0 (skipping leading)
 
 	# Print "0x" prefix 
 	li		a0, '0' 
@@ -209,17 +238,17 @@ print_hex:
 	jal		write_byte
 	j		4f
 
-1:	li		s1, 28		# Start at highest nibble
+1:	li		s1, 28			# Start at highest nibble
 2:
 	srl		t2, s0, s1		# Isolate nibble
 	andi		t2, t2, 0xF
 
 	# Skip leading zeros logic
-	bnez		t2, 3f		# If nibble != 0, start
-	bnez		s2, 3f		# If already started, print
+	bnez		t2, 3f			# If nibble != 0, start
+	bnez		s2, 3f			# If already started, print
 	j		next_nibble		# Otherwise, skip
 
-3:	li		s2, 1		# Flip "started" flag
+3:	li		s2, 1			# Flip "started" flag
 
 	# Convert nibble to ASCII
 	li		a0, 10
@@ -236,12 +265,13 @@ next_nibble:
 
 
 write_byte:	
+	SETUP		t0, t1
 	li		t0, UART_BASE		# UART Base
 1:	lbu		t1, UART_LSR(t0)	# load state
 	andi		t1, t1, UART_WR_MASK	# mask
 	beqz		t1, 1b			# retry
 	sb		a0, UART_RBR(t0)	# send to UART
-	ret
+	RETURN
 
 exit:
 	li		t0, EXIT_ADDR		# load exit addr
@@ -280,6 +310,13 @@ main:
 	ebreak
 	ebreak
 
+	li	a0, 0
+	li	t0, IPI_BASE			# Load base address (e.g., 0x2000000 on many systems)
+	slli	t1, a0, 2			# Multiply Hart ID by 4 (each MSIP is 32-bits)
+	add	t0, t0, t1			# Final address for Target Core
+	
+	li	t1, 1				# Value to trigger
+	sw	t1, 0(t0)			# Trigger the IPI
 park:
 1:	wfi
 	j		1b
