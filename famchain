@@ -1,6 +1,6 @@
 #!/bin/sh
 
-riscv64-unknown-elf-as -march=rv32ia -mabi=ilp32 -o famchain.o famchain.S || exit 1
+riscv64-unknown-elf-as -march=rv32i -mabi=ilp32 -o famchain.o famchain.S || exit 1
 riscv64-unknown-elf-objcopy -O binary famchain.o famchain.bin || exit 1
 
 qemu-system-riscv32 \
