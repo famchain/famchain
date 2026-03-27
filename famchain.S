@@ -36,7 +36,7 @@
 .equ	UART_LSR,		5
 .equ	UART_RBR,		0
 .equ	HEAP_MAX,		0x84000000		# 64MB limit from start of RAM
-.equ	MM_HART_ID,		0
+.equ	DISK_HART,		0			# Which hart handles disk interrupts
 .equ	MAX_HARTS,		4
 .equ	STACK_SHIFT, 		17			# 2^17 = 128 KiB
 .equ	STACK_SIZE,		(1 << STACK_SHIFT)
@@ -133,6 +133,14 @@ _base\@:
 	ret
 .endm
 
+.macro WRITE_BYTE       value
+        li              t0, UART_BASE           # UART Base
+1:      lbu             t1, UART_LSR(t0)        # load state
+        andi            t1, t1, UART_WR_MASK    # mask
+        beqz            t1, 1b                  # retry
+        li              t1, \value
+        sb              t1, UART_RBR(t0)        # send to UART
+.endm
 
 _start:
 j	main
@@ -201,6 +209,26 @@ end_trap:
 	lw		a7, 68(sp)
 	INCR_STACK	80
 	mret
+
+stack_panic:
+	WRITE_BYTE	's'
+	WRITE_BYTE	't'
+	WRITE_BYTE	'a'
+        WRITE_BYTE      'c'
+        WRITE_BYTE      'k'
+        WRITE_BYTE      ' '
+        WRITE_BYTE      'o'
+        WRITE_BYTE      'v'
+        WRITE_BYTE      'e'
+        WRITE_BYTE      'r'
+        WRITE_BYTE      'f'
+        WRITE_BYTE      'l'
+        WRITE_BYTE      'o'
+        WRITE_BYTE      'w'
+        WRITE_BYTE      '!'
+	WRITE_BYTE	'\n'
+	j		exit
+	
 
 proc_exception:
 	mv t6, ra
@@ -284,8 +312,8 @@ signal:
 	li		t0, IPI_BASE		# Load base address
 	slli		t1, a0, 2		# Multiply Hart ID by 4 (each MSIP is 32-bits)
 	add		t0, t0, t1		# Final address for Target Core
-	li              t1, 1                   # Value to trigger
-        sw              t1, 0(t0)               # Trigger the IPI
+	li		t1, 1		# Value to trigger
+	sw		t1, 0(t0)		# Trigger the IPI
 
 	ret
 
@@ -319,12 +347,10 @@ main:
 
 	bnez		tp, park
 
-	#ebreak
-	#ebreak
-
+	ebreak
 	li		a0, 2
 	jal		signal
-	
+
 park:
 1:	wfi
 	j		1b
