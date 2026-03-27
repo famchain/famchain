@@ -141,71 +141,36 @@ mm_complete: .word		0x0
 
 trap_handler:
 	DECR_STACK	128
+	sw		t0, 8(sp)
+        sw              t1, 12(sp)
+	sw		ra, 16(sp)
+	csrr            t0, mstatus
+        sw              t0, 4(sp)
+	csrr            t0, mepc
 	sw		t0, 0(sp)
-	sw		t1, 4(sp)
 	csrr		t0, mcause
 	li		t1, IPI_CAUSE
 	beq		t0, t1, ipi_handler
-
-	csrr		t0, mepc
-	addi		t0, t0, 4
-	sw		t0, 8(sp)
-	csrr		t0, mstatus
-	sw		t0, 12(sp)
-
+        csrr            t0, mepc
+        addi            t0, t0, 4
+	sw              t0, 0(sp)
 	jal             proc_exception
-
 	j		end_trap
 ipi_handler:
-	csrr            t0, mepc
-        sw              t0, 8(sp)
-	csrr		t0, mstatus
-	sw		t0, 12(sp)
-
+	li              t0, IPI_BASE            # base
+        slli            t1, tp, 2               # multiply by 4
+        add             t0, t0, t1              # add to base
+        sw              zero, 0(t0)             # zero the interrupt
 	jal		proc_ipi
-
 end_trap:
-	lw              t0, 8(sp)
+	lw              t0, 0(sp)
 	csrw		mepc, t0
-	lw		t0, 12(sp)
+	lw		t0, 4(sp)
 	csrw		mstatus, t0
-	lw		t0, 0(sp)
-	lw		t1, 4(sp)
+	lw		t0, 8(sp)
+	lw		t1, 12(sp)
+	lw		ra, 16(sp)
 	INCR_STACK	128
-	mret
-
-trap_handler1:
-	SETUP		t0, t1, t2, t3, t4, t5, t6, a0, a1, a2, a3, a4, a5, a6, a7, s0, s1, s2, s3, s4, s5, s6, s7, s8, s9, s10
-	DECR_STACK	16
-	csrr		t0, mepc 
-	csrr		t1, mcause
-	li		t2, IPI_CAUSE
-	beq		t1, t2, 1f
-	addi		t0, t0, 4
-1:
-	sw		t0, 0(sp)
-
-	csrr		t0, mcause
-	li		t1, IPI_CAUSE		# IPI
-	beq		t0, t1, ipi_handler
-
-
-	jal		proc_exception
-	j		end_trap
-
-ipi_handler1:
-	li		t0, IPI_BASE		# base
-	slli		t1, tp, 2		# multiply by 4
-	add		t0, t0, t1		# add to base
-	sw		zero, 0(t0)		# zero the interrupt
-
-	jal		proc_ipi
-
-end_trap1:
-	lw	t0, 0(sp)
-	csrw	mepc, t0
-	INCR_STACK	16
-	TEAR_DOWN
 	mret
 
 proc_exception:
