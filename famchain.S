@@ -142,7 +142,7 @@ mm_complete: .word		0x0
 trap_handler:
 	DECR_STACK	128
 	sw		t0, 0(sp)
-	lw		t1, 4(sp)
+	sw		t1, 4(sp)
 	csrr		t0, mcause
 	li		t1, IPI_CAUSE
 	beq		t0, t1, ipi_handler
