@@ -24,6 +24,276 @@
 # file: famchain.S - famchain full node
 # ──────────────────────────────────────────────────────────────────────────────
 
+.altmacro
+
+# System hardware constants
+.equ	EXIT_ADDR,		0x100000
+.equ	EXIT_PASS,		0x5555
+.equ	UART_BASE,		0x10000000
+.equ	UART_RD_MASK,		0x1
+.equ	UART_WR_MASK,		0x20
+.equ	UART_LSR,		5
+.equ	UART_RBR,		0
+.equ	HEAP_MAX,		0x84000000		# 64MB limit from start of RAM
+
+.macro LOAD_ADDRESS reg, label
+_base\@:
+	.equ _offset\@, (\label - _base\@)
+	auipc	\reg, %hi(_offset\@)
+	addi	\reg, \reg, %lo(_offset\@)
+.endm
+
+.macro BUMP_HEAP        size
+	li		t0, 1
+	LOAD_ADDRESS	t1, global_lock
+1:      amoswap.w.aq    t3, t0, (t1)
+        bnez            t3, 1b
+	LOAD_ADDRESS    t0, global_ptr
+        ld              t3, 0(t0)
+        li              t0, \size
+        mv              a0, t3
+        add             t3, t3, t0
+        li              t0, HEAP_MAX
+        bgeu            t3, t0, heap_panic
+	LOAD_ADDRESS    t0, global_ptr
+        sd              t3, 0(t0)
+        amoswap.w.rl    t3, zero, (t1)
+.endm
+
+
+.macro DECR_STACK	size
+	addi		sp, sp, -\size
+	blt		sp, s11, stack_panic
+.endm
+
+.macro INCR_STACK	size
+	addi		sp, sp, \size
+.endm
+
+.macro INIT_STACK size
+        LOAD_ADDRESS    t0 boot_lock
+        li              t1, 1
+        amoadd.w.aq     tp, t1, (t0)
+        bnez            tp, 1f
+        LOAD_ADDRESS    gp, data
+        li              t0, 15
+        add             gp, gp, t0
+        li              t0, -16
+        and             gp, gp, t0
+
+        LOAD_ADDRESS    t0, global_ptr
+        sd              gp, 0(t0)
+        li              t1, 1
+        LOAD_ADDRESS    t0 complete_lock
+        amoadd.w.rl     t1, t1, (t0)
+1:
+        LOAD_ADDRESS    t0, complete_lock
+2:      lw              t1, 0(t0)
+        beqz            t1, 2b
+        BUMP_HEAP       \size
+        li              t0, \size
+        add             sp, a0, t0
+        mv		s11, a0
+
+.endm
+
+.set _macro_depth, 0
+
+.macro _def_restore_macro depth, sz, regs:vararg
+        .macro _do_tear_down_\depth
+        .ifnc "\regs", ""
+                .set _off, 8
+                .irp reg, \regs
+                ld \reg, _off(sp)
+                .set _off, _off + 8
+                .endr
+        .endif
+        ld ra, 0(sp)
+        INCR_STACK \sz
+        .endm
+.endm
+
+.macro _exec_tear_down depth
+        _do_tear_down_\depth
+.endm
+
+.macro _kill_tear_down depth
+        .purgem _do_tear_down_\depth
+.endm
+
+# Macro to setup list of registers. Save all to stack
+.macro SETUP regs:vararg
+        .set _macro_depth, _macro_depth + 1
+
+        .set _cnt, 1
+        .ifnc "\regs", ""
+        .irp item, \regs
+                .set _cnt, _cnt + 1
+        .endr
+        .endif
+        .set _sz, ((_cnt * 8) + 15) & -16
+
+        _def_restore_macro %_macro_depth, %_sz, \regs
+
+
+        DECR_STACK _sz
+        sd      ra, 0(sp)
+        .ifnc "\regs", ""
+        .set _off, 8
+        .irp reg, \regs
+                sd \reg, _off(sp)
+                .set _off, _off + 8
+        .endr
+        .endif
+.endm
+
+# Tear down the stack (LIFO order for stack frames)
+.macro TEAR_DOWN
+        _exec_tear_down %_macro_depth
+        _kill_tear_down %_macro_depth
+        .set _macro_depth, _macro_depth - 1
+.endm
+
+.macro RETURN
+        TEAR_DOWN
+        ret
+.endm
+
+_start:
+	j		main
+
+boot_lock: .word		0x0
+global_ptr: .dword		0x0
+complete_lock: .word		0x0
+global_lock: .word		0x0
+disk_ptr: .dword		0x0
+
+print_str:
+	SETUP t0, t1, t2, t3
+        li              t3, UART_BASE           # UART Base
+        mv              t1, a0                  # mv arg to temp
+1:      lbu             t0, 0(t1)               # read nth item
+        beqz            t0, 2f                  # null terminate
+        lbu             t2, UART_LSR(t3)        # check status
+        andi            t2, t2, UART_WR_MASK    # mask
+        beqz            t2, 1b                  # retry
+        sb              t0, UART_RBR(t3)        # send to UART
+        addi            t1, t1, 1               # Next char
+        j               1b                      # Loop back
+2:      RETURN
+
+print_hex:
+        SETUP           s0, s1, s2, t0, t1, t2, a0
+        
+        mv              s0, a0                  # Save original value
+        li              s2, 0                   # flag = 0 (skipping leading)
+
+        # Print "0x" prefix 
+        li              a0, '0' 
+        jal             write_byte
+        li              a0, 'x'
+        jal             write_byte      
+        
+        # Special Case: If value is 0, just print '0' and exit
+        bnez            s0, 1f
+        li              a0, '0'
+        jal             write_byte
+        j               4f
+
+1:      li              s1, 60                  # Start at highest nibble
+2:
+        srl             t2, s0, s1              # Isolate nibble
+        andi            t2, t2, 0xF
+
+        # Skip leading zeros logic
+        bnez            t2, 3f                  # If nibble != 0, start
+        bnez            s2, 3f                  # If already started, print
+        j               next_nibble             # Otherwise, skip
+
+3:      li              s2, 1                   # Flip "started" flag
+
+        # Convert nibble to ASCII
+        li              a0, 10
+        blt             t2, a0, 5f              # If 0-9
+        addi            t2, t2, 7               # Adjust for A-F
+5:      addi            a0, t2, 48              # ASCII '0'
+        jal             write_byte
+
+next_nibble:
+        addi            s1, s1, -4              # Move to next 4 bits
+        bgez            s1, 2b
+
+4:      RETURN
+
+print_dec:
+        SETUP           s0, s1, s2, t0, t1, a0
+        DECR_STACK      32
+
+        mv              s0, a0
+        li              s1, 10
+        li              s2, 0
+        
+        # 1. Handle Negative
+        bgez            s0, 1f
+        li              a0, '-'
+        jal             write_byte
+        neg             s0, s0
+        
+1:      # 2. Special Case: Zero
+        bnez            s0, 2f
+        li              a0, '0'
+        jal             write_byte
+        j               4f
+        
+2:      # 3. Generate Digits (Store at offset 32+)
+        remu            t0, s0, s1
+        divu            s0, s0, s1
+        addi            t0, t0, 48              # Convert to ASCII
+
+        mv              t1, sp                  # Buffer start
+        add             t1, t1, s2              # Buffer + index
+        sb              t0, 0(t1)
+
+        addi            s2, s2, 1
+        bnez            s0, 2b
+
+3:      # 4. Print Digits (Reverse)
+        addi            s2, s2, -1
+        mv              t1, sp
+        add             t1, t1, s2
+        lbu             a0, 0(t1)
+        jal             write_byte
+        bnez            s2, 3b
+
+4:
+        INCR_STACK      32
+        RETURN
+
+
+write_byte:     
+        SETUP t0, t1
+        li              t0, UART_BASE           # UART Base
+1:      lbu             t1, UART_LSR(t0)        # load state
+        andi            t1, t1, UART_WR_MASK    # mask
+        beqz            t1, 1b                  # retry
+        sb              a0, UART_RBR(t0)        # send to UART
+	RETURN
+
+main:
+	INIT_STACK	0x100000
+	LOAD_ADDRESS 	a0, msg
+	jal print_str
+	mv		a0, sp
+	jal print_hex
+        li              a0, '\n'
+        jal write_byte
+	mv		a0, sp
+	jal print_dec
+	li		a0, '\n'
+	jal write_byte
 1:
 	wfi
 	j		1b
+
+msg: .asciz "hello\n"
+data:
