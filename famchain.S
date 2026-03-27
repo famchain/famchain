@@ -38,8 +38,8 @@
 .equ	HEAP_MAX,		0x84000000		# 64MB limit from start of RAM
 .equ	MM_HART_ID,		0
 .equ	MAX_HARTS,		4
-.equ	STACK_SHIFT, 17               # 2^17 = 128 KiB
-.equ	STACK_SIZE,  (1 << STACK_SHIFT)
+.equ	STACK_SHIFT, 17		# 2^17 = 128 KiB
+.equ	STACK_SIZE,	(1 << STACK_SHIFT)
 
 .equ	PLIC_BASE,		0x0c000000
 .equ	PLIC_PRIO_10,		(PLIC_BASE + 0x28)	# 10 * 4 = 40 (0x28)
@@ -74,63 +74,63 @@ _base\@:
 .set _macro_depth, 0
 
 .macro _def_restore_macro depth, sz, regs:vararg
-        .macro _do_tear_down_\depth
-        .ifnc "\regs", ""
-                .set _off, 8
-                .irp reg, \regs
-                lw \reg, _off(sp)
-                .set _off, _off + 8
-                .endr
-        .endif
-        lw ra, 0(sp)
-        INCR_STACK \sz
-        .endm
+	.macro _do_tear_down_\depth
+	.ifnc "\regs", ""
+		.set _off, 8
+		.irp reg, \regs
+		lw \reg, _off(sp)
+		.set _off, _off + 8
+		.endr
+	.endif
+	lw ra, 0(sp)
+	INCR_STACK \sz
+	.endm
 .endm
 
 .macro _exec_tear_down depth
-        _do_tear_down_\depth
+	_do_tear_down_\depth
 .endm
 
 .macro _kill_tear_down depth
-        .purgem _do_tear_down_\depth
+	.purgem _do_tear_down_\depth
 .endm
 
 # Macro to setup list of registers. Save all to stack
 .macro SETUP regs:vararg
-        .set _macro_depth, _macro_depth + 1
+	.set _macro_depth, _macro_depth + 1
 
-        .set _cnt, 1
-        .ifnc "\regs", ""
-        .irp item, \regs
-                .set _cnt, _cnt + 1
-        .endr
-        .endif
-        .set _sz, ((_cnt * 4) + 15) & -16
+	.set _cnt, 1
+	.ifnc "\regs", ""
+	.irp item, \regs
+		.set _cnt, _cnt + 1
+	.endr
+	.endif
+	.set _sz, ((_cnt * 4) + 15) & -16
 
-        _def_restore_macro %_macro_depth, %_sz, \regs
+	_def_restore_macro %_macro_depth, %_sz, \regs
 
 
-        DECR_STACK _sz
-        sw      ra, 0(sp)
-        .ifnc "\regs", ""
-        .set _off, 4
-        .irp reg, \regs
-                sw \reg, _off(sp)
-                .set _off, _off + 4
-        .endr
-        .endif
+	DECR_STACK _sz
+	sw	ra, 0(sp)
+	.ifnc "\regs", ""
+	.set _off, 4
+	.irp reg, \regs
+		sw \reg, _off(sp)
+		.set _off, _off + 4
+	.endr
+	.endif
 .endm
 
 # Tear down the stack (LIFO order for stack frames)
 .macro TEAR_DOWN
-        _exec_tear_down %_macro_depth
-        _kill_tear_down %_macro_depth
-        .set _macro_depth, _macro_depth - 1
+	_exec_tear_down %_macro_depth
+	_kill_tear_down %_macro_depth
+	.set _macro_depth, _macro_depth - 1
 .endm
 
 .macro RETURN
-        TEAR_DOWN
-        ret
+	TEAR_DOWN
+	ret
 .endm
 
 
@@ -140,11 +140,46 @@ j	main
 mm_complete: .word		0x0
 
 trap_handler:
+	DECR_STACK	128
+	sw		t0, 0(sp)
+	lw		t1, 4(sp)
+	csrr		t0, mcause
+	li		t1, IPI_CAUSE
+	beq		t0, t1, ipi_handler
+
+	csrr		t0, mepc
+	addi		t0, t0, 4
+	sw		t0, 8(sp)
+	csrr		t0, mstatus
+	sw		t0, 12(sp)
+
+	jal             proc_exception
+
+	j		end_trap
+ipi_handler:
+	csrr            t0, mepc
+        sw              t0, 8(sp)
+	csrr		t0, mstatus
+	sw		t0, 12(sp)
+
+	jal		proc_ipi
+
+end_trap:
+	lw              t0, 8(sp)
+	csrw		mepc, t0
+	lw		t0, 12(sp)
+	csrw		mstatus, t0
+	lw		t0, 0(sp)
+	lw		t1, 4(sp)
+	INCR_STACK	128
+	mret
+
+trap_handler1:
 	SETUP		t0, t1, t2, t3, t4, t5, t6, a0, a1, a2, a3, a4, a5, a6, a7, s0, s1, s2, s3, s4, s5, s6, s7, s8, s9, s10
 	DECR_STACK	16
-	csrr            t0, mepc 
-	csrr            t1, mcause
-	li              t2, IPI_CAUSE
+	csrr		t0, mepc 
+	csrr		t1, mcause
+	li		t2, IPI_CAUSE
 	beq		t1, t2, 1f
 	addi		t0, t0, 4
 1:
@@ -158,7 +193,7 @@ trap_handler:
 	jal		proc_exception
 	j		end_trap
 
-ipi_handler:
+ipi_handler1:
 	li		t0, IPI_BASE		# base
 	slli		t1, tp, 2		# multiply by 4
 	add		t0, t0, t1		# add to base
@@ -166,9 +201,9 @@ ipi_handler:
 
 	jal		proc_ipi
 
-end_trap:
-	lw      t0, 0(sp)
-	csrw    mepc, t0
+end_trap1:
+	lw	t0, 0(sp)
+	csrw	mepc, t0
 	INCR_STACK	16
 	TEAR_DOWN
 	mret
@@ -184,15 +219,15 @@ proc_exception:
 	ret
 
 proc_ipi:
-        li a0, 'y'
-        jal write_byte
-        li a0, '0'
-        add a0, a0, tp
-        jal write_byte
+	li a0, 'y'
+	jal write_byte
+	li a0, '0'
+	add a0, a0, tp
+	jal write_byte
 	ret
 
 print_hex:
-	SETUP           s0, s1, s2, t0, t1, t2, a0
+	SETUP		s0, s1, s2, t0, t1, t2, a0
 	
 	mv		s0, a0		# Save original value
 	li		s2, 0		# flag = 0 (skipping leading)
