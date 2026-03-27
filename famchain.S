@@ -105,7 +105,7 @@ _base\@:
                 .set _cnt, _cnt + 1
         .endr
         .endif
-        .set _sz, ((_cnt * 8) + 15) & -16
+        .set _sz, ((_cnt * 4) + 15) & -16
 
         _def_restore_macro %_macro_depth, %_sz, \regs
 
@@ -113,10 +113,10 @@ _base\@:
         DECR_STACK _sz
         sw      ra, 0(sp)
         .ifnc "\regs", ""
-        .set _off, 8
+        .set _off, 4
         .irp reg, \regs
                 sw \reg, _off(sp)
-                .set _off, _off + 8
+                .set _off, _off + 4
         .endr
         .endif
 .endm
