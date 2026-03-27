@@ -280,6 +280,16 @@ exit:
 1:	wfi					# wait for interrupt in loop
 	j		1b
 
+signal:
+	li		t0, IPI_BASE		# Load base address
+	slli		t1, a0, 2		# Multiply Hart ID by 4 (each MSIP is 32-bits)
+	add		t0, t0, t1		# Final address for Target Core
+	li              t1, 1                   # Value to trigger
+        sw              t1, 0(t0)               # Trigger the IPI
+
+	ret
+
+
 main:
 	csrr		tp, mhartid
 	li		t0, MAX_HARTS
@@ -307,16 +317,14 @@ main:
 	li		t0, MIE_GLOBAL
 	csrs		mstatus, t0
 
-	ebreak
-	ebreak
+	bnez		tp, park
 
-	li	a0, 0
-	li	t0, IPI_BASE			# Load base address (e.g., 0x2000000 on many systems)
-	slli	t1, a0, 2			# Multiply Hart ID by 4 (each MSIP is 32-bits)
-	add	t0, t0, t1			# Final address for Target Core
+	#ebreak
+	#ebreak
+
+	li		a0, 2
+	jal		signal
 	
-	li	t1, 1				# Value to trigger
-	sw	t1, 0(t0)			# Trigger the IPI
 park:
 1:	wfi
 	j		1b
