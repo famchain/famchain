@@ -66,15 +66,21 @@ _start:
 		# 3. Set Page Size (QEMU default is usually 4096)
 		# (In legacy MMIO, we provide the Page Frame Number)
 		LOAD_ADDRESS t1 virtqueue_area
-		#li      t1, 0x80001000 >> 12   # Assume our queue starts at 0x80001000
 		sw	t1, VIO_QUEUE_PFN(t0)
 
 		li	t1, 0x80001000	# Descriptor Table Base
 
+li      s8, 0
+li	s9, 2
+li s10, 0   # Total requests sent
+
+77:
+	bge s8, s9, 78f
 	# --- Execute the Read ---
 	# 1. Setup Descriptor 0 (Header)
 	LOAD_ADDRESS t1, virtqueue_area	# Base of Descriptor Table
 	LOAD_ADDRESS t2, disk_header
+	sw s8, 8(t2)
 	sw	t2, 0(t1)		# Addr
 	sw	zero, 4(t1)
 	li	t2, 16
@@ -115,14 +121,13 @@ sh	zero, 46(t1)		# Next = 0 (End)
 LOAD_ADDRESS t1, virtqueue_area	# Base of Descriptor Table
 LOAD_ADDRESS t2, disk_status
 
-
 # 4. Notify the Available Ring
 # Available Ring starts at offset 256 (after 16 descriptors)
 addi	t3, t1, 256		
 li	t2, 0
 sh	t2, 4(t3)		# Set ring[0] = 0 (Start at Desc 0)
-li	t2, 1
-sh	t2, 2(t3)		# Set idx = 1 (We have 1 chain ready)
+addi    s10, s10, 1
+sh	s10, 2(t3)		# Set idx = 1 (We have 1 chain ready)
 
 # 5. Kick the hardware
 li	t0, 0x10001000		# VIRTIO_DISK_BASE
@@ -148,8 +153,13 @@ j 1b
 2:
 
 
-		li a0, '\n'
-		jal write_byte
+addi s8, s8, 1
+j 77b
+78:
+
+                li a0, '\n'
+                jal write_byte
+
 
 1:		wfi	
 		j 1b
