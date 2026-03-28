@@ -162,48 +162,47 @@ _base\@:
 
 	# 6. Wait for disk_status to change from 0xFF
 1:
-        lbu     t4, 0(t3)
-        li      t5, 0xFF
-        beq     t4, t5, 1b
+	lbu		t4, 0(t3)
+	li		t5, 0xFF
+	beq		t4, t5, 1b
 .endm
 
 _start:
 	INIT_DISK
 
-	li	s7, BIN_SIZE
-	li	s8, 0
-	li	s9, 11
-	li s10, 0	# Total requests sent
+	li		s0, BIN_SIZE
+	li		s1, 0
+	li		s2, 0				# Total requests sent
 
-77:
-	blez s7, 78f
-	addi s7, s7, -512
+begin_loop:
+	blez		s0, end_loop
+	addi		s0, s0, -512
 
-	mv a1, s8
-	mv a0, s10
+	mv		a1, s1
+	mv		a0, s2 
 	READ_BLOCK	
-	addi s10, s10, 1
+	addi		s2, s2, 1
 
 
-# Load the first byte of the disk buffer
-LOAD_ADDRESS s1, data
+	# Point to disk buffer
+	LOAD_ADDRESS s3, data
 1:
-lbu	a0, 0(s1)	# Get the first character from the 512 bytes
-beqz a0, 2f
-jal	write_byte	# Print it to the UART
-addi s1, s1, 1
-j 1b
+	lbu		a0, 0(s3)			# Get next byte
+	beqz		a0, 2f
+	jal		write_byte			# Print it to the UART
+	addi		s3, s3, 1
+	j		1b
 2:
 
 
-addi s8, s8, 1
-j 77b
-78:
+	addi s1, s1, 1
+	j begin_loop
+end_loop:
 
 
 
-1:		wfi	
-		j 1b
+3:		wfi
+		j 3b
 
 error_not_virtio:
 		li a0, '0'
