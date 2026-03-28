@@ -54,62 +54,61 @@ _base\@:
 .endm
 
 .macro INIT_DISK
-	li	t0, VIRTIO_DISK_BASE
-	lw	t1, VIO_MAGIC(t0)	# Should be 0x74726976 ("virt")
-	li	t2, VIRT_MAGIC
-	bne	t1, t2, error_not_virtio
+	li		t0, VIRTIO_DISK_BASE
+	lw		t1, VIO_MAGIC(t0)		# Should be 0x74726976 ("virt")
+	li		t2, VIRT_MAGIC
+	bne		t1, t2, error_not_virtio
 
-	lw	t1, VIO_DEVICE_ID(t0)	# Should be 2 for Block Device
-	li	t2, 2
-	bne	t1, t2, error_not_disk
+	lw		t1, VIO_DEVICE_ID(t0)		# Should be 2 for Block Device
+	li		t2, 2
+	bne		t1, t2, error_not_disk
 
 	# Reset the device
-	sw	zero, VIO_STATUS(t0)
+	sw		zero, VIO_STATUS(t0)
 
 	# Set ACKNOWLEDGE bit (1)
-	li	t1, 1
-	sw	t1, VIO_STATUS(t0)
+	li		t1, 1
+	sw		t1, VIO_STATUS(t0)
 
 	# Set DRIVER bit (2)
-	lw	t1, VIO_STATUS(t0)
-	ori	t1, t1, 2
-	sw	t1, VIO_STATUS(t0)
+	lw		t1, VIO_STATUS(t0)
+	ori		t1, t1, 2
+	sw		t1, VIO_STATUS(t0)
 
 	# Set FEATURES_OK bit (8)
-	lw	t1, VIO_STATUS(t0)
-	ori	t1, t1, 8
-	sw	t1, VIO_STATUS(t0)
+	lw		t1, VIO_STATUS(t0)
+	ori		t1, t1, 8
+	sw		t1, VIO_STATUS(t0)
 
 	# Check if FEATURES_OK was accepted
-	lw	t1, VIO_STATUS(t0)
-	andi	t2, t1, 8
-	beqz	t2, error_features_not_supported
+	lw		t1, VIO_STATUS(t0)
+	andi		t2, t1, 8
+	beqz		t2, error_features_not_supported
 
 	# Set DRIVER_OK bit (4) - Device is now "Live"
-	lw	t1, VIO_STATUS(t0)
-	ori	t1, t1, 4
-	sw	t1, VIO_STATUS(t0)
+	lw		t1, VIO_STATUS(t0)
+	ori		t1, t1, 4
+	sw		t1, VIO_STATUS(t0)
 
 	# Select Queue 0
-	sw	zero, VIO_QUEUE_SEL(t0)
+	sw		zero, VIO_QUEUE_SEL(t0)
 
 	# Set Queue Size - 16
-	li	t1, 16
-	sw	t1, VIO_QUEUE_NUM(t0)
+	li		t1, 16
+	sw		t1, VIO_QUEUE_NUM(t0)
 
+	# zero the buffer
 	LOAD_ADDRESS t1 data
+	mv		t2, t1
+	li		t3, 4626
+	add		t3, t3, t2
 
-	# Zero the buffer
-	li	t2, 0
-	li	t3, 5122
-1:
-	add t4, t2, t1
-	sb zero, 0(t4)
-	bge t2, t3, 2f
-	addi t2, t2, 1
-	j 1b
-2:
-	addi	t1, t1, 512
+1:	
+	sb		zero, 0(t2)
+	addi		t2, t2, 1
+	blt		t2, t3, 1b
+
+	addi	t1, t1, VIRT_DESCRIPTOR_TABLE
 	sw	t1, VIO_QUEUE_PFN(t0)
 .endm
 
