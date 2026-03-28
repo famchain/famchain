@@ -210,7 +210,6 @@ begin_loop:
 
 
 	# Point to disk buffer
-	#LOAD_ADDRESS	s3, data
 	LOAD_DATA s3, s11
 1:
 	lbu		a0, 0(s3)			# Get next byte
@@ -243,6 +242,7 @@ end_loop:
 	li		t0, LOAD_LOC
 	LOAD_DATA s5, s11
 	add		s5, s5, t0
+	fence		rw, rw				# Ensure writes
 	jr		s5
 
 3:	wfi
