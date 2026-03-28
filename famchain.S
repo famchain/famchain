@@ -38,7 +38,7 @@
 .equ	VIO_QUEUE_PFN,		0x040
 .equ	VIRT_QUEUE0,		0x050
 .equ	VIRT_MAGIC,		0x74726976
-.equ	BIN_SIZE,		97265
+.equ	BIN_SIZE,		20
 
 .equ	VIRT_DISK_BUFFER,	0
 .equ	VIRT_DESCRIPTOR_TABLE,	512
@@ -171,9 +171,8 @@ _base\@:
 	sw		zero, VIRT_QUEUE0(t5)		# Notify Queue 0
 
 	# 6. Wait for disk_status to change from 0xFF
-1:
-	lbu		t4, 0(t3)
 	li		t5, 0xFF
+1:	lbu		t4, 0(t3)
 	beq		t4, t5, 1b
 .endm
 
@@ -183,11 +182,13 @@ _start:
 	li		s0, BIN_SIZE
 	li		s1, 0
 	li		s2, 1				# Total requests sent
+	li		t0, LOAD_LOC
+	LOAD_ADDRESS	s5, data
+	add		s5, s5, t0
 
 begin_loop:
 	blez		s0, end_loop
 	li		s4, 512
-	addi		s0, s0, -512
 
 	mv		a1, s1
 	mv		a0, s2 
@@ -199,50 +200,70 @@ begin_loop:
 	LOAD_ADDRESS	s3, data
 1:
 	lbu		a0, 0(s3)			# Get next byte
-	jal		write_byte			# Print it to the UART
+	sb		a0, 0(s5)
+	addi		s5, s5, 1
 	addi		s3, s3, 1
 	addi		s4, s4, -1
+	addi		s0, s0, -1
 	blez		s4, 2f
+	blez		s0, 2f
 	j		1b
 2:
 
-	addi s1, s1, 1
-	j begin_loop
+	addi		s1, s1, 1
+	j		begin_loop
 end_loop:
 
+	li		t0, LOAD_LOC
+	LOAD_ADDRESS	s5, data
+	add		s5, s5, t0
+	li		t0, BIN_SIZE
+	add		s6, s5, t0
+	li		s7, 0
+1:
+	lbu		a0, 0(s5)
+	#jal		write_byte
+	addi		s5, s5, 1
+	addi		s7, s7, 1
+	blt		s5, s6, 1b
 	li		a0, 'x'
 	jal		write_byte
 
-3:		wfi
-		j 3b
+	li		t0, LOAD_LOC
+	LOAD_ADDRESS	s5, data
+	add		s5, s5, t0
+	jr		s5
+
+3:	wfi
+	j		3b
 
 error_not_virtio:
-		li a0, '0'
-		jal write_byte
-		li a0, '\n'
-100:		wfi	
-		j 100b
+	li		a0, '0'
+	jal		write_byte
+	li		a0, '\n'
+100:	wfi
+	j		100b
 
 error_not_disk:
-		li a0, '1'
-		jal write_byte
-		li a0, '\n'
-101:		wfi
-		j 101b
+	li		a0, '1'
+	jal		write_byte
+	li		a0, '\n'
+101:	wfi
+	j		101b
 
 error_features_not_supported:
-		li a0, '2'
-		jal write_byte
-		li a0, '\n'
-102:		wfi
-		j 102b
+	li		a0, '2'
+	jal		write_byte
+	li		a0, '\n'
+102:	wfi
+	j		102b
 
 write_byte: 
-	li	t1, UART_BASE
-103:	lbu	t2, UART_LSR(t1)
-	andi	t2, t2, UART_WR_MASK
-	beqz	t2, 103b
-	sb	a0, 0(t1)
+	li		t1, UART_BASE
+103:	lbu		t2, UART_LSR(t1)
+	andi		t2, t2, UART_WR_MASK
+	beqz		t2, 103b
+	sb		a0, 0(t1)
 	ret	
 
 data:
