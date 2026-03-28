@@ -146,27 +146,18 @@ _base\@:
 	sh		zero, 46(t1)			# Next = 0 (End)
 
 
-LOAD_ADDRESS t1, data # Base of Descriptor Table
-addi    t1, t1, 512
+	# 4. Notify the Available Ring
+	# Available Ring starts at offset 256 (after 16 descriptors)
+	addi		t4, t1, 256		
+	sh		zero, 4(t4)		# Set ring[0] = 0 (Start at Desc 0)
+	sh		a0, 2(t4)		# Set idx = 1 (We have 1 chain ready)
 
-# 4. Notify the Available Ring
-# Available Ring starts at offset 256 (after 16 descriptors)
-addi    t3, t1, 256             
-li      t2, 0
-sh      t2, 4(t3)               # Set ring[0] = 0 (Start at Desc 0)
-addi    s10, s10, 1
-sh      s10, 2(t3)              # Set idx = 1 (We have 1 chain ready)
+	li		t5, 0xFF
+	sb		t5, 0(t4)
 
-LOAD_ADDRESS t1, data
-li      s5, 4608
-add t1, t1, s5
-
-li s4, 0xFF
-sb s4, 0(t1)
-
-# 5. Kick the hardware
-li      t0, 0x10001000          # VIRTIO_DISK_BASE
-sw      zero, 0x050(t0)         # Notify Queue 0
+	# 5. Kick the hardware
+	li		t5, 0x10001000		# VIRTIO_DISK_BASE
+	sw		zero, 0x050(t5)		# Notify Queue 0
 
 .endm
 
