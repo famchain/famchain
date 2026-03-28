@@ -25,24 +25,25 @@
 # ──────────────────────────────────────────────────────────────────────────────
 
 # --- System Constants ---
-.equ UART_BASE,		0x10000000
-.equ UART_LSR,		5
-.equ UART_WR_MASK,	0x20
-.equ VIRTIO_DISK_BASE,	0x10001000	
-.equ VIO_MAGIC,		0x000
-.equ VIO_DEVICE_ID,	0x008
-.equ VIO_STATUS,	0x070
+.equ	UART_BASE,		0x10000000
+.equ	UART_LSR,		5
+.equ	UART_WR_MASK,		0x20
+.equ	VIRTIO_DISK_BASE,	0x10001000	
+.equ	VIO_MAGIC,		0x000
+.equ	VIO_DEVICE_ID,		0x008
+.equ	VIO_STATUS,		0x070
 
-.equ VIO_QUEUE_SEL,	0x030
-.equ VIO_QUEUE_NUM,	0x038
-.equ VIO_QUEUE_PFN,	0x040
-.equ VIRT_MAGIC,	0x74726976
-.equ BIN_SIZE,		97265
+.equ	VIO_QUEUE_SEL,		0x030
+.equ	VIO_QUEUE_NUM,		0x038
+.equ	VIO_QUEUE_PFN,		0x040
+.equ	VIRT_QUEUE0,		0x050
+.equ	VIRT_MAGIC,		0x74726976
+.equ	BIN_SIZE,		97265
 
-.equ	VIRT_DISK_BUFFER,		0
-.equ	VIRT_DESCRIPTOR_TABLE,		512
-.equ	VIRT_DISK_STATUS,		4608
-.equ	VIRT_DISK_HEADER,		4610
+.equ	VIRT_DISK_BUFFER,	0
+.equ	VIRT_DESCRIPTOR_TABLE,	512
+.equ	VIRT_DISK_STATUS,	4608
+.equ	VIRT_DISK_HEADER,	4610
 
 .macro LOAD_ADDRESS reg, label
 _base\@:
@@ -149,16 +150,21 @@ _base\@:
 	# 4. Notify the Available Ring
 	# Available Ring starts at offset 256 (after 16 descriptors)
 	addi		t4, t1, 256		
-	sh		zero, 4(t4)		# Set ring[0] = 0 (Start at Desc 0)
-	sh		a0, 2(t4)		# Set idx = 1 (We have 1 chain ready)
+	sh		zero, 4(t4)			# Set ring[0] = 0 (Start at Desc 0)
+	sh		a0, 2(t4)			# Set idx = 1 (We have 1 chain ready)
 
 	li		t5, 0xFF
 	sb		t5, 0(t4)
 
 	# 5. Kick the hardware
-	li		t5, 0x10001000		# VIRTIO_DISK_BASE
-	sw		zero, 0x050(t5)		# Notify Queue 0
+	li		t5, VIRTIO_DISK_BASE		# VIRTIO_DISK_BASE
+	sw		zero, VIRT_QUEUE0(t5)		# Notify Queue 0
 
+	# 6. Wait for disk_status to change from 0xFF
+1:
+        lbu     t4, 0(t3)
+        li      t5, 0xFF
+        beq     t4, t5, 1b
 .endm
 
 _start:
@@ -178,95 +184,6 @@ _start:
 	READ_BLOCK	
 	addi s10, s10, 1
 
-	# --- Execute the Read ---
-	# 1. Setup Descriptor 0 (Header)
-
-
-/*
-	LOAD_ADDRESS t1, data # Base of Descriptor Table
-	addi	t1, t1, 512
-	LOAD_ADDRESS t2, data
-	li	s5, 4610
-	add t2, t2, s5
-
-	sw s8, 8(t2)
-	sw	t2, 0(t1)		# Addr
-	sw	zero, 4(t1)
-	li	t2, 16
-	sw	t2, 8(t1)		# Len
-	li	t2, 1		# NEXT flag
-	sh	t2, 12(t1)		# Flags
-	li	t2, 1
-	sh	t2, 14(t1)		# Next index = 1
-
-
-LOAD_ADDRESS t1, data # Base of Descriptor Table
-addi	t1, t1, 512
-
-# 2. Setup Descriptor 1 (Data Buffer)
-LOAD_ADDRESS t2, data
-sw	t2, 16(t1)		# Addr
-sw	zero, 20(t1)
-
-li	t2, 512
-sw	t2, 24(t1)		# Len
-li	t2, 3		# NEXT | WRITE flags
-sh	t2, 28(t1)		# Flags
-li	t2, 2
-sh	t2, 30(t1)		# Next index = 2
-
-
-
-LOAD_ADDRESS t1, data # Base of Descriptor Table
-addi	t1, t1, 512
-
-# 3. Setup Descriptor 2 (Status Byte)
-LOAD_ADDRESS t2, data
-li	s5, 4608
-add t2, t2, s5
-sw	t2, 32(t1)		# Addr (Table + 32)
-sw	zero, 36(t1)
-li	t2, 1
-sw	t2, 40(t1)		# Len
-li	t2, 2		# WRITE flag
-sh	t2, 44(t1)		# Flags
-sh	zero, 46(t1)		# Next = 0 (End)
-
-
-LOAD_ADDRESS t1, data # Base of Descriptor Table
-addi	t1, t1, 512
-
-# 4. Notify the Available Ring
-# Available Ring starts at offset 256 (after 16 descriptors)
-addi	t3, t1, 256		
-li	t2, 0
-sh	t2, 4(t3)		# Set ring[0] = 0 (Start at Desc 0)
-addi	s10, s10, 1
-sh	s10, 2(t3)		# Set idx = 1 (We have 1 chain ready)
-
-LOAD_ADDRESS t1, data
-li	s5, 4608
-add t1, t1, s5
-
-li s4, 0xFF
-sb s4, 0(t1)
-
-# 5. Kick the hardware
-li	t0, 0x10001000		# VIRTIO_DISK_BASE
-sw	zero, 0x050(t0)		# Notify Queue 0
-*/
-
-# 6. Wait for disk_status to change from 0xFF
-wait_read:
-LOAD_ADDRESS t1, data
-li	s5, 4608
-add t1, t1, s5
-
-	lbu	t2, 0(t1)
-	li	t3, 0xFF
-	beq	t2, t3, wait_read
-
-# Read complete!
 
 # Load the first byte of the disk buffer
 LOAD_ADDRESS s1, data
