@@ -110,15 +110,17 @@ _base\@:
 	addi		t1, t0, VIRT_DESCRIPTOR_TABLE	# t1 = Disk table
 	li		t2, VIRT_DISK_HEADER		# t2 = Disk header
 	add		t2, t2, t0
+	li		t3, VIRT_DISK_STATUS
+	add		t3, t3, t0			# t3 = Disk status
 
 	sw		a1, 8(t2)
 	sw		t2, 0(t1)			# Addr
 	sw		zero, 4(t1)
-	li		t3, 16
-	sw		t3, 8(t1)			# Len
-	li		t3, 1				# NEXT flag
-	sh		t3, 12(t1)			# Flags
-	sh		t3, 14(t1)
+	li		t4, 16
+	sw		t4, 8(t1)			# Len
+	li		t4, 1				# NEXT flag
+	sh		t4, 12(t1)			# Flags
+	sh		t4, 14(t1)
 
 
 
@@ -127,12 +129,12 @@ _base\@:
 	sw		t0, 16(t1)			# Addr
 	sw		zero, 20(t1)
 
-	li		t3, 512
-	sw		t3, 24(t1)			# Len
-	li		t3, 3				# NEXT | WRITE flags
-	sh		t3, 28(t1)			# Flags
-	li		t3, 2
-	sh 		t3, 30(t1)			# Next index = 2
+	li		t4, 512
+	sw		t4, 24(t1)			# Len
+	li		t4, 3				# NEXT | WRITE flags
+	sh		t4, 28(t1)			# Flags
+	li		t4, 2
+	sh 		t4, 30(t1)			# Next index = 2
 
 .endm
 
