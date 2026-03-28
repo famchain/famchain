@@ -81,7 +81,10 @@ li s10, 0   # Total requests sent
 	# 1. Setup Descriptor 0 (Header)
 	LOAD_ADDRESS t1, data # Base of Descriptor Table
 	addi    t1, t1, 512
-	LOAD_ADDRESS t2, disk_header
+	LOAD_ADDRESS t2, data
+	li   s5, 4610
+	add t2, t2, s5
+
 	sw s8, 8(t2)
 	sw	t2, 0(t1)		# Addr
 	sw	zero, 4(t1)
@@ -209,10 +212,5 @@ write_byte:
 	beqz	t2, 101b
 	sb	a0, 0(t1)
 	ret	
-
-disk_header:
-	.word 0	# type: 0 = read
-	.word 0	# reserved
-	.dword 0	# sector: 0 (The very start of disk.img)
 
 data:
