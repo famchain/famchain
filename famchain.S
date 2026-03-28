@@ -238,6 +238,12 @@ end_loop:
 	addi		s7, s7, 1
 	blt		s5, s6, 1b
 
+	li		sp, 40000
+	add		sp, sp, s10
+
+	jal		chacha20_block
+
+
 	li		t0, LOAD_LOC
 	mv		s5, s10
 	add		s5, s5, t0
@@ -277,54 +283,54 @@ write_byte:
 	ret	
 
 .macro QR_STEP a, b, d, rot
-    add  \a, \a, \b
-    xor  \d, \d, \a
-    slli t0, \d, \rot        # t0 = d << rot
-    srli \d, \d, (32 - \rot)  # d = d >> (32 - rot)
-    or   \d, \d, t0          # d = (d << rot) | (d >> (32 - rot))
+	add	\a, \a, \b
+	xor	\d, \d, \a
+	slli t0, \d, \rot	# t0 = d << rot
+	srli \d, \d, (32 - \rot)	# d = d >> (32 - rot)
+	or	\d, \d, t0		# d = (d << rot) | (d >> (32 - rot))
 .endm
 
 # chacha_qr:
 # Input/Output: a0=a, a1=b, a2=c, a3=d
 chacha_qr:
-    # 1. Step 1 & 3 focus on (a, b, d)
-    # 2. Step 2 & 4 focus on (c, d, b)
-    QR_STEP a0, a1, a3, 16  # a += b; d ^= a; d <<< 16
-    QR_STEP a2, a3, a1, 12  # c += d; b ^= c; b <<< 12
-    QR_STEP a0, a1, a3, 8   # a += b; d ^= a; d <<< 8
-    QR_STEP a2, a3, a1, 7   # c += d; b ^= c; b <<< 7
-    ret
+	# 1. Step 1 & 3 focus on (a, b, d)
+	# 2. Step 2 & 4 focus on (c, d, b)
+	QR_STEP a0, a1, a3, 16	# a += b; d ^= a; d <<< 16
+	QR_STEP a2, a3, a1, 12	# c += d; b ^= c; b <<< 12
+	QR_STEP a0, a1, a3, 8	# a += b; d ^= a; d <<< 8
+	QR_STEP a2, a3, a1, 7	# c += d; b ^= c; b <<< 7
+	ret
 
 # Macro-like helper to load, call QR, and store
 # This saves bytes by reusing the same loading logic
 .macro DO_QR i0, i1, i2, i3
-    lw      a0, \i0*4(sp)
-    lw      a1, \i1*4(sp)
-    lw      a2, \i2*4(sp)
-    lw      a3, \i3*4(sp)
-    jal     chacha_qr
-    sw      a0, \i0*4(sp)
-    sw      a1, \i1*4(sp)
-    sw      a2, \i2*4(sp)
-    sw      a3, \i3*4(sp)
+	lw	a0, \i0*4(sp)
+	lw	a1, \i1*4(sp)
+	lw	a2, \i2*4(sp)
+	lw	a3, \i3*4(sp)
+	jal	chacha_qr
+	sw	a0, \i0*4(sp)
+	sw	a1, \i1*4(sp)
+	sw	a2, \i2*4(sp)
+	sw	a3, \i3*4(sp)
 .endm
 
 chacha_round:
-    mv      s11, ra         # Save return address
+	mv	s11, ra		# Save return address
 
-    # Column Rounds
-    DO_QR 0, 4, 8, 12
-    DO_QR 1, 5, 9, 13
-    DO_QR 2, 6, 10, 14
-    DO_QR 3, 7, 11, 15
+	# Column Rounds
+	DO_QR 0, 4, 8, 12
+	DO_QR 1, 5, 9, 13
+	DO_QR 2, 6, 10, 14
+	DO_QR 3, 7, 11, 15
 
-    # Diagonal Rounds
-    DO_QR 0, 5, 10, 15
-    DO_QR 1, 6, 11, 12
-    DO_QR 2, 7, 8, 13
-    DO_QR 3, 4, 9, 14
+	# Diagonal Rounds
+	DO_QR 0, 5, 10, 15
+	DO_QR 1, 6, 11, 12
+	DO_QR 2, 7, 8, 13
+	DO_QR 3, 4, 9, 14
 
-    jr      s11	
+	jr	s11	
 
 chacha_rounds:
 	mv		s2, ra
@@ -335,5 +341,46 @@ chacha_rounds:
 	addi		s0, s0, 1
 	blt		s0, s1, 1b
 	jr		s2
+
+# chacha20_block
+# Input:  sp points to 64 bytes of initial state (Original)
+# Output: sp-64 contains the 64-byte transformed block
+# Registers used: t0-t5, s0-s2, s11 (via sub-calls)
+chacha20_block:
+    addi    sp, sp, -64     # Create space for the Working Copy
+    mv      s3, ra          # Save return address to a saved register
+
+    # --- Phase 1: Copy Original to Working ---
+    # Original is now at 64(sp), Working is at 0(sp)
+    addi    t3, sp, 64      # Source pointer (Original)
+    addi    t4, sp, 0       # Destination pointer (Working)
+    addi    t5, sp, 128     # End of Original block (64 + 64)
+copy_loop:
+    lw      t1, 0(t3)       # Load word from Original
+    sw      t1, 0(t4)       # Store word to Working
+    addi    t3, t3, 4       # Advance Original pointer
+    addi    t4, t4, 4       # Advance Working pointer
+    blt     t3, t5, copy_loop
+
+    # --- Phase 2: Run 20 Rounds ---
+    # chacha_rounds modifies the 64 bytes starting at 0(sp)
+    jal     chacha_rounds
+
+    # --- Phase 3: Add Original back to Working ---
+    addi    t3, sp, 64      # Source pointer (Original)
+    addi    t4, sp, 0       # Destination pointer (Working)
+    addi    t5, sp, 128     # End trigger
+add_back_loop:
+    lw      t1, 0(t4)       # Get post-round word (Working)
+    lw      t2, 0(t3)       # Get original word (Original)
+    add     t1, t1, t2      # ChaCha20 Add: Result = Round(State) + State
+    sw      t1, 0(t4)       # Update Working copy with final result
+    addi    t3, t3, 4
+    addi    t4, t4, 4
+    blt     t3, t5, add_back_loop
+
+    # --- Cleanup ---
+    mv      ra, s3          # Restore return address
+    ret                     # Result is now at 0(sp)
 
 data:
