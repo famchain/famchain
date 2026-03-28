@@ -42,9 +42,9 @@
 
 .equ	VIRT_DISK_BUFFER,	0
 .equ	VIRT_DESCRIPTOR_TABLE,	512
-.equ	VIRT_DISK_STATUS,	4608
-.equ	VIRT_DISK_HEADER,	4610
-.equ	LOAD_LOC,		4626
+.equ	VIRT_DISK_STATUS,	8704		# reserve space for 'used ring'
+.equ	VIRT_DISK_HEADER,	8706
+.equ	LOAD_LOC,		8722
 
 .macro LOAD_ADDRESS reg, label
 _base\@:
@@ -161,7 +161,7 @@ _base\@:
 	# Available Ring starts at offset 256 (after 16 descriptors)
 	addi		t4, t1, 256		
 	sh		zero, 4(t4)			# Set ring[0] = 0 (Start at Desc 0)
-	sh		a0, 2(t4)			# Set idx = 1 (We have 1 chain ready)
+	sh		a0, 2(t4)			# Set idx
 
 	li		t5, 0xFF
 	sb		t5, 0(t3)
@@ -222,12 +222,9 @@ end_loop:
 	li		s7, 0
 1:
 	lbu		a0, 0(s5)
-	#jal		write_byte
 	addi		s5, s5, 1
 	addi		s7, s7, 1
 	blt		s5, s6, 1b
-	li		a0, 'x'
-	jal		write_byte
 
 	li		t0, LOAD_LOC
 	LOAD_ADDRESS	s5, data
