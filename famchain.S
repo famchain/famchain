@@ -307,7 +307,7 @@ end_loop:
 
 	mv		a0, sp
 	addi		sp, sp, -64
-	li		t0, 1235
+	li		t0, 1234
 	sw		t0, 0(a0)
 	jal		chacha20_block
 
@@ -452,123 +452,32 @@ chacha_rounds:
 chacha20_block:
 	mv		t5, ra
 	addi		sp, sp, -64
-	
-	lw		t0, 0(a0)
-	sw		t0, 0(sp)
-        lw              t0, 4(a0)
-        sw              t0, 4(sp)
-        lw              t0, 8(a0)
-        sw              t0, 8(sp)
-        lw              t0, 12(a0)
-        sw              t0, 12(sp)
-        lw              t0, 16(a0)
-        sw              t0, 16(sp)
-        lw              t0, 20(a0)
-        sw              t0, 20(sp)
-        lw              t0, 24(a0)
-        sw              t0, 24(sp)
-        lw              t0, 28(a0)
-        sw              t0, 28(sp)
-        lw              t0, 32(a0)
-        sw              t0, 32(sp)
-        lw              t0, 36(a0)
-        sw              t0, 36(sp)
-        lw              t0, 40(a0)
-        sw              t0, 40(sp)
-        lw              t0, 44(a0)
-        sw              t0, 44(sp)
-        lw              t0, 48(a0)
-        sw              t0, 48(sp)
-        lw              t0, 52(a0)
-        sw              t0, 52(sp)
-        lw              t0, 56(a0)
-        sw              t0, 56(sp)
-        lw              t0, 60(a0)
-        sw              t0, 60(sp)
 
+	.macro COPY_BLOCK src, dest
+		.set i, 0
+		.rept 16
+			lw      t0, (i * 4)(\src)
+			sw      t0, (i * 4)(\dest)
+			.set i, i + 1
+		.endr
+	.endm
+
+	COPY_BLOCK a0, sp
 	jal		chacha_rounds
 
 
-	# --- Add original state (on stack) back to scrambled state (in a0) ---
-        lw      t0, 0(sp)     # Load original word 0
-        lw      t1, 0(a0)     # Load scrambled word 0
-        add     t1, t1, t0    # Add them
-        sw      t1, 0(a0)     # Store result back to word 0
+	.macro CHACHA_ADD_BACK src, orig_stack
+    		.set i, 0
+    		.rept 16
+        		lw      t0, (i * 4)(\orig_stack)  # Load original word
+        		lw      t1, (i * 4)(\src)         # Load scrambled word
+        		add     t1, t1, t0                # Add them
+        		sw      t1, (i * 4)(\src)         # Store result back
+        		.set i, i + 1
+    		.endr
+	.endm
 
-        lw      t0, 4(sp)     # Word 1
-        lw      t1, 4(a0)
-        add     t1, t1, t0
-        sw      t1, 4(a0)
-
-        lw      t0, 8(sp)     # Word 2
-        lw      t1, 8(a0)
-        add     t1, t1, t0
-        sw      t1, 8(a0)
-
-        lw      t0, 12(sp)    # Word 3
-        lw      t1, 12(a0)
-        add     t1, t1, t0
-        sw      t1, 12(a0)
-
-        lw      t0, 16(sp)    # Word 4
-        lw      t1, 16(a0)
-        add     t1, t1, t0
-        sw      t1, 16(a0)
-
-        lw      t0, 20(sp)    # Word 5
-        lw      t1, 20(a0)
-        add     t1, t1, t0
-        sw      t1, 20(a0)
-
-        lw      t0, 24(sp)    # Word 6
-        lw      t1, 24(a0)
-        add     t1, t1, t0
-        sw      t1, 24(a0)
-
-        lw      t0, 28(sp)    # Word 7
-        lw      t1, 28(a0)
-        add     t1, t1, t0
-        sw      t1, 28(a0)
-
-        lw      t0, 32(sp)    # Word 8
-        lw      t1, 32(a0)
-        add     t1, t1, t0
-        sw      t1, 32(a0)
-
-        lw      t0, 36(sp)    # Word 9
-        lw      t1, 36(a0)
-        add     t1, t1, t0
-        sw      t1, 36(a0)
-
-        lw      t0, 40(sp)    # Word 10
-        lw      t1, 40(a0)
-        add     t1, t1, t0
-        sw      t1, 40(a0)
-
-        lw      t0, 44(sp)    # Word 11
-        lw      t1, 44(a0)
-        add     t1, t1, t0
-        sw      t1, 44(a0)
-
-        lw      t0, 48(sp)    # Word 12
-        lw      t1, 48(a0)
-        add     t1, t1, t0
-        sw      t1, 48(a0)
-
-        lw      t0, 52(sp)    # Word 13
-        lw      t1, 52(a0)
-        add     t1, t1, t0
-        sw      t1, 52(a0)
-
-        lw      t0, 56(sp)    # Word 14
-        lw      t1, 56(a0)
-        add     t1, t1, t0
-        sw      t1, 56(a0)
-
-        lw      t0, 60(sp)    # Word 15
-        lw      t1, 60(a0)
-        add     t1, t1, t0
-        sw      t1, 60(a0)
+	CHACHA_ADD_BACK a0, sp
 
 	mv		ra, t5			# Restore return address
 	addi		sp, sp, 64
