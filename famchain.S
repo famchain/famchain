@@ -97,10 +97,14 @@ _base\@:
 	sw	t1, VIO_QUEUE_PFN(t0)
 .endm
 
+.macro READ_BLOCK
+
+.endm
+
 _start:
 	INIT_DISK
 
-	li	s7, 97265
+	li	s7, BIN_SIZE
 	li	s8, 0
 	li	s9, 11
 	li s10, 0	# Total requests sent
@@ -108,7 +112,6 @@ _start:
 77:
 	blez s7, 78f
 	addi s7, s7, -512
-	#bge s8, s9, 78f
 	# --- Execute the Read ---
 	# 1. Setup Descriptor 0 (Header)
 	LOAD_ADDRESS t1, data # Base of Descriptor Table
@@ -161,7 +164,6 @@ sh	zero, 46(t1)		# Next = 0 (End)
 
 LOAD_ADDRESS t1, data # Base of Descriptor Table
 addi	t1, t1, 512
-#LOAD_ADDRESS t2, disk_status
 
 # 4. Notify the Available Ring
 # Available Ring starts at offset 256 (after 16 descriptors)
