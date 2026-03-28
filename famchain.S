@@ -37,6 +37,7 @@
 .equ VIO_QUEUE_NUM,	0x038
 .equ VIO_QUEUE_PFN,	0x040
 .equ VIRT_MAGIC,	0x74726976
+.equ BIN_SIZE,		97265
 
 .macro LOAD_ADDRESS reg, label
 _base\@:
@@ -99,12 +100,15 @@ _base\@:
 _start:
 	INIT_DISK
 
+	li	s7, 97265
 	li	s8, 0
 	li	s9, 11
 	li s10, 0	# Total requests sent
 
 77:
-	bge s8, s9, 78f
+	blez s7, 78f
+	addi s7, s7, -512
+	#bge s8, s9, 78f
 	# --- Execute the Read ---
 	# 1. Setup Descriptor 0 (Header)
 	LOAD_ADDRESS t1, data # Base of Descriptor Table
@@ -205,8 +209,6 @@ addi s8, s8, 1
 j 77b
 78:
 
-		li a0, '\n'
-		jal write_byte
 
 
 1:		wfi	
