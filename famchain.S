@@ -65,7 +65,7 @@ _start:
 
 		# 3. Set Page Size (QEMU default is usually 4096)
 		# (In legacy MMIO, we provide the Page Frame Number)
-		LOAD_ADDRESS t1 virtqueue_area
+		LOAD_ADDRESS t1 data
 		addi	t1, t1, 512
 		sw	t1, VIO_QUEUE_PFN(t0)
 
@@ -79,8 +79,8 @@ li s10, 0   # Total requests sent
 	bge s8, s9, 78f
 	# --- Execute the Read ---
 	# 1. Setup Descriptor 0 (Header)
-	LOAD_ADDRESS t1, virtqueue_area	# Base of Descriptor Table
-addi    t1, t1, 512
+	LOAD_ADDRESS t1, data # Base of Descriptor Table
+	addi    t1, t1, 512
 	LOAD_ADDRESS t2, disk_header
 	sw s8, 8(t2)
 	sw	t2, 0(t1)		# Addr
@@ -93,12 +93,11 @@ addi    t1, t1, 512
 	sh	t2, 14(t1)		# Next index = 1
 
 
-LOAD_ADDRESS t1, virtqueue_area	# Base of Descriptor Table
+LOAD_ADDRESS t1, data # Base of Descriptor Table
 addi    t1, t1, 512
 
 # 2. Setup Descriptor 1 (Data Buffer)
-#LOAD_ADDRESS t2, disk_buffer
-LOAD_ADDRESS t2, virtqueue_area
+LOAD_ADDRESS t2, data
 sw	t2, 16(t1)		# Addr
 sw	zero, 20(t1)
 
@@ -110,7 +109,7 @@ li	t2, 2
 sh	t2, 30(t1)		# Next index = 2
 
 
-LOAD_ADDRESS t1, virtqueue_area	# Base of Descriptor Table
+LOAD_ADDRESS t1, data # Base of Descriptor Table
 addi    t1, t1, 512
 
 # 3. Setup Descriptor 2 (Status Byte)
@@ -123,7 +122,7 @@ li	t2, 2		# WRITE flag
 sh	t2, 44(t1)		# Flags
 sh	zero, 46(t1)		# Next = 0 (End)
 
-LOAD_ADDRESS t1, virtqueue_area	# Base of Descriptor Table
+LOAD_ADDRESS t1, data # Base of Descriptor Table
 addi    t1, t1, 512
 LOAD_ADDRESS t2, disk_status
 
@@ -153,8 +152,7 @@ wait_read:
 # Read complete!
 
 # Load the first byte of the disk buffer
-#LOAD_ADDRESS s1, disk_buffer
-LOAD_ADDRESS s1, virtqueue_area
+LOAD_ADDRESS s1, data
 1:
 lbu	a0, 0(s1)	# Get the first character from the 512 bytes
 beqz a0, 2f
@@ -211,4 +209,4 @@ disk_header:
 
 disk_status:
 	.byte 0xff	# Initial value
-virtqueue_area:
+data:
