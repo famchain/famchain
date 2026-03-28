@@ -63,41 +63,40 @@ _base\@:
 	li	t2, 2
 	bne	t1, t2, error_not_disk
 
-	# 1. Reset the device
+	# Reset the device
 	sw	zero, VIO_STATUS(t0)
 
-	# 2. Set ACKNOWLEDGE bit (1)
+	# Set ACKNOWLEDGE bit (1)
 	li	t1, 1
 	sw	t1, VIO_STATUS(t0)
 
-	# 3. Set DRIVER bit (2)
+	# Set DRIVER bit (2)
 	lw	t1, VIO_STATUS(t0)
 	ori	t1, t1, 2
 	sw	t1, VIO_STATUS(t0)
 
-	# 4. Set FEATURES_OK bit (8)
+	# Set FEATURES_OK bit (8)
 	lw	t1, VIO_STATUS(t0)
 	ori	t1, t1, 8
 	sw	t1, VIO_STATUS(t0)
 
-	# 5. Check if FEATURES_OK was accepted
+	# Check if FEATURES_OK was accepted
 	lw	t1, VIO_STATUS(t0)
 	andi	t2, t1, 8
 	beqz	t2, error_features_not_supported
 
-	# 6. Set DRIVER_OK bit (4) - Device is now "Live"
+	# Set DRIVER_OK bit (4) - Device is now "Live"
 	lw	t1, VIO_STATUS(t0)
 	ori	t1, t1, 4
 	sw	t1, VIO_STATUS(t0)
 
-	# 1. Select Queue 0
+	# Select Queue 0
 	sw	zero, VIO_QUEUE_SEL(t0)
 
-	# 2. Set Queue Size - 16
+	# Set Queue Size - 16
 	li	t1, 16
 	sw	t1, VIO_QUEUE_NUM(t0)
 
-	# 3. Set Page Size (QEMU default is usually 4096)
 	LOAD_ADDRESS t1 data
 
 	# Zero the buffer
@@ -200,7 +199,6 @@ begin_loop:
 	LOAD_ADDRESS	s3, data
 1:
 	lbu		a0, 0(s3)			# Get next byte
-	beqz		a0, 2f
 	jal		write_byte			# Print it to the UART
 	addi		s3, s3, 1
 	addi		s4, s4, -1
@@ -208,15 +206,12 @@ begin_loop:
 	j		1b
 2:
 
-	li s11, 1
-	#bgt s1, s11, end_loop
-
 	addi s1, s1, 1
 	j begin_loop
 end_loop:
 
-li a0, 'x'
-jal write_byte
+	li		a0, 'x'
+	jal		write_byte
 
 3:		wfi
 		j 3b
