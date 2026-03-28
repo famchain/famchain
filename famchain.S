@@ -154,7 +154,7 @@ _base\@:
 	sh		a0, 2(t4)			# Set idx = 1 (We have 1 chain ready)
 
 	li		t5, 0xFF
-	sb		t5, 0(t4)
+	sb		t5, 0(t3)
 
 	# 5. Kick the hardware
 	li		t5, VIRTIO_DISK_BASE		# VIRTIO_DISK_BASE
@@ -176,7 +176,7 @@ _start:
 
 begin_loop:
 	blez		s0, end_loop
-	mv		s4, s0
+	li		s4, 512
 	addi		s0, s0, -512
 
 	mv		a1, s1
