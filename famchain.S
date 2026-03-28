@@ -99,6 +99,17 @@ _base\@:
 
 	# 3. Set Page Size (QEMU default is usually 4096)
 	LOAD_ADDRESS t1 data
+
+	# Zero the buffer
+	li	t2, 0
+	li	t3, 5122
+1:
+	add t4, t2, t1
+	sb zero, 0(t4)
+	bge t2, t3, 2f
+	addi t2, t2, 1
+	j 1b
+2:
 	addi	t1, t1, 512
 	sw	t1, VIO_QUEUE_PFN(t0)
 .endm
@@ -198,7 +209,7 @@ begin_loop:
 2:
 
 	li s11, 1
-	bgt s1, s11, end_loop
+	#bgt s1, s11, end_loop
 
 	addi s1, s1, 1
 	j begin_loop
