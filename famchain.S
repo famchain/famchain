@@ -115,6 +115,7 @@ _base\@:
 	add		t3, t3, t0			# t3 = Disk status
 
 	sw		a1, 8(t2)
+
 	sw		t2, 0(t1)			# Addr
 	sw		zero, 4(t1)
 	li		t4, 16
@@ -126,7 +127,6 @@ _base\@:
 
 
 	# 2. Setup Descriptor 1 (Data Buffer)
-	LOAD_ADDRESS	t2, data
 	sw		t0, 16(t1)			# Addr
 	sw		zero, 20(t1)
 
@@ -172,10 +172,11 @@ _start:
 
 	li		s0, BIN_SIZE
 	li		s1, 0
-	li		s2, 0				# Total requests sent
+	li		s2, 1				# Total requests sent
 
 begin_loop:
 	blez		s0, end_loop
+	mv		s4, s0
 	addi		s0, s0, -512
 
 	mv		a1, s1
@@ -185,21 +186,26 @@ begin_loop:
 
 
 	# Point to disk buffer
-	LOAD_ADDRESS s3, data
+	LOAD_ADDRESS	s3, data
 1:
 	lbu		a0, 0(s3)			# Get next byte
 	beqz		a0, 2f
 	jal		write_byte			# Print it to the UART
 	addi		s3, s3, 1
+	addi		s4, s4, -1
+	blez		s4, 2f
 	j		1b
 2:
 
+	li s11, 1
+	bgt s1, s11, end_loop
 
 	addi s1, s1, 1
 	j begin_loop
 end_loop:
 
-
+li a0, 'x'
+jal write_byte
 
 3:		wfi
 		j 3b
