@@ -106,37 +106,33 @@ _base\@:
 # a0 = sector
 # a1 = counter
 .macro READ_BLOCK
-	LOAD_ADDRESS	t3, data
-	LOAD_ADDRESS	t1, data
-	addi		t0, t1, VIRT_DESCRIPTOR_TABLE
-	li		t2, VIRT_DISK_HEADER
-	add		t1, t1, t2
-	
-	sw		a1,	8(t1)
-	sw		t1, 0(t0)			# Addr
-	sw		zero, 4(t0)
-	li		t2, 16
-	sw		t2, 8(t0)			# Len
-	li		t2, 1				# NEXT flag
-	sh		t2, 12(t0)			# Flags
-	li		t2, 1
-	sh		t2, 14(t0)
+	LOAD_ADDRESS	t0, data			# t0 = Disk buffer
+	addi		t1, t0, VIRT_DESCRIPTOR_TABLE	# t1 = Disk table
+	li		t2, VIRT_DISK_HEADER		# t2 = Disk header
+	add		t2, t2, t0
+
+	sw		a1, 8(t2)
+	sw		t2, 0(t1)			# Addr
+	sw		zero, 4(t1)
+	li		t3, 16
+	sw		t3, 8(t1)			# Len
+	li		t3, 1				# NEXT flag
+	sh		t3, 12(t1)			# Flags
+	sh		t3, 14(t1)
 
 
-	LOAD_ADDRESS t1, data # Base of Descriptor Table
-	addi	t1, t1, VIRT_DESCRIPTOR_TABLE
 
 	# 2. Setup Descriptor 1 (Data Buffer)
 	LOAD_ADDRESS	t2, data
-	sw		t2, 16(t1)		# Addr
+	sw		t0, 16(t1)			# Addr
 	sw		zero, 20(t1)
 
-	li		t2, 512
-	sw		t2, 24(t1)		# Len
-	li		t2, 3		# NEXT | WRITE flags
-	sh		t2, 28(t1)		# Flags
-	li		t2, 2
-	sh		t2, 30(t1)		# Next index = 2
+	li		t3, 512
+	sw		t3, 24(t1)			# Len
+	li		t3, 3				# NEXT | WRITE flags
+	sh		t3, 28(t1)			# Flags
+	li		t3, 2
+	sh 		t3, 30(t1)			# Next index = 2
 
 .endm
 
