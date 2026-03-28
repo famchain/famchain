@@ -44,6 +44,7 @@
 .equ	VIRT_DESCRIPTOR_TABLE,	512
 .equ	VIRT_DISK_STATUS,	4608
 .equ	VIRT_DISK_HEADER,	4610
+.equ	LOAD_LOC,		4626
 
 .macro LOAD_ADDRESS reg, label
 _base\@:
@@ -100,7 +101,7 @@ _base\@:
 	# zero the buffer
 	LOAD_ADDRESS t1 data
 	mv		t2, t1
-	li		t3, 4626
+	li		t3, LOAD_LOC
 	add		t3, t3, t2
 
 1:	
