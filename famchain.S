@@ -39,6 +39,11 @@
 .equ VIRT_MAGIC,	0x74726976
 .equ BIN_SIZE,		97265
 
+.equ    VIRT_DISK_BUFFER,               0
+.equ    VIRT_DESCRIPTOR_TABLE,          512
+.equ    VIRT_DISK_STATUS,               4608
+.equ    VIRT_DISK_HEADER,               4610
+
 .macro LOAD_ADDRESS reg, label
 _base\@:
 	# Uses \@ to make a unique constant name for every expansion
@@ -97,8 +102,24 @@ _base\@:
 	sw	t1, VIO_QUEUE_PFN(t0)
 .endm
 
-.macro READ_BLOCK
 
+# a0 = sector
+# a1 = counter
+.macro READ_BLOCK
+	LOAD_ADDRESS	t1, data
+	addi		t0, t1, VIRT_DESCRIPTOR_TABLE
+	li		t2, VIRT_DISK_HEADER
+	add		t1, t1, t2
+	
+	sw		a1,	8(t1)
+	sw		t1, 0(t0)			# Addr
+	sw		zero, 4(t0)
+	li		t2, 16
+	sw		t2, 8(t0)			# Len
+	li		t2, 1				# NEXT flag
+	sh		t2, 12(t0)			# Flags
+	li		t2, 1
+	sh		t2, 14(t0)
 .endm
 
 _start:
@@ -112,8 +133,15 @@ _start:
 77:
 	blez s7, 78f
 	addi s7, s7, -512
+
+	mv a1, s8
+	READ_BLOCK	
+
 	# --- Execute the Read ---
 	# 1. Setup Descriptor 0 (Header)
+
+
+/*
 	LOAD_ADDRESS t1, data # Base of Descriptor Table
 	addi	t1, t1, 512
 	LOAD_ADDRESS t2, data
@@ -129,6 +157,7 @@ _start:
 	sh	t2, 12(t1)		# Flags
 	li	t2, 1
 	sh	t2, 14(t1)		# Next index = 1
+*/
 
 
 LOAD_ADDRESS t1, data # Base of Descriptor Table
