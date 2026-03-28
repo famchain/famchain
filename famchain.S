@@ -39,10 +39,10 @@
 .equ VIRT_MAGIC,	0x74726976
 .equ BIN_SIZE,		97265
 
-.equ    VIRT_DISK_BUFFER,               0
-.equ    VIRT_DESCRIPTOR_TABLE,          512
-.equ    VIRT_DISK_STATUS,               4608
-.equ    VIRT_DISK_HEADER,               4610
+.equ	VIRT_DISK_BUFFER,		0
+.equ	VIRT_DESCRIPTOR_TABLE,		512
+.equ	VIRT_DISK_STATUS,		4608
+.equ	VIRT_DISK_HEADER,		4610
 
 .macro LOAD_ADDRESS reg, label
 _base\@:
@@ -106,6 +106,7 @@ _base\@:
 # a0 = sector
 # a1 = counter
 .macro READ_BLOCK
+	LOAD_ADDRESS	t3, data
 	LOAD_ADDRESS	t1, data
 	addi		t0, t1, VIRT_DESCRIPTOR_TABLE
 	li		t2, VIRT_DISK_HEADER
@@ -120,6 +121,23 @@ _base\@:
 	sh		t2, 12(t0)			# Flags
 	li		t2, 1
 	sh		t2, 14(t0)
+
+
+	LOAD_ADDRESS t1, data # Base of Descriptor Table
+	addi	t1, t1, VIRT_DESCRIPTOR_TABLE
+
+	# 2. Setup Descriptor 1 (Data Buffer)
+	LOAD_ADDRESS	t2, data
+	sw		t2, 16(t1)		# Addr
+	sw		zero, 20(t1)
+
+	li		t2, 512
+	sw		t2, 24(t1)		# Len
+	li		t2, 3		# NEXT | WRITE flags
+	sh		t2, 28(t1)		# Flags
+	li		t2, 2
+	sh		t2, 30(t1)		# Next index = 2
+
 .endm
 
 _start:
@@ -157,7 +175,6 @@ _start:
 	sh	t2, 12(t1)		# Flags
 	li	t2, 1
 	sh	t2, 14(t1)		# Next index = 1
-*/
 
 
 LOAD_ADDRESS t1, data # Base of Descriptor Table
@@ -174,6 +191,8 @@ li	t2, 3		# NEXT | WRITE flags
 sh	t2, 28(t1)		# Flags
 li	t2, 2
 sh	t2, 30(t1)		# Next index = 2
+
+*/
 
 
 LOAD_ADDRESS t1, data # Base of Descriptor Table
