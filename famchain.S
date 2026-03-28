@@ -58,8 +58,10 @@ _base\@:
 	LOAD_ADDRESS \reg, data
 	li \tmp, 4095
 	add \reg, \reg, \tmp
-	li \tmp, 4096
+	li \tmp, -4096
 	and \reg, \reg, \tmp
+	li \tmp, 3584
+	add \reg, \reg, \tmp
 .endm
 
 .macro INIT_DISK
@@ -107,7 +109,8 @@ _base\@:
 	sw		t1, VIO_QUEUE_NUM(t0)
 
 	# zero the buffer
-	LOAD_ADDRESS t1 data
+	#LOAD_ADDRESS t1 data
+	LOAD_DATA t1, s11
 	mv		t2, t1
 	li		t3, LOAD_LOC
 	add		t3, t3, t2
@@ -125,7 +128,8 @@ _base\@:
 # a0 = sector
 # a1 = counter
 .macro READ_BLOCK
-	LOAD_ADDRESS	t0, data			# t0 = Disk buffer
+	#LOAD_ADDRESS	t0, data			# t0 = Disk buffer
+	LOAD_DATA t0, s11
 	addi		t1, t0, VIRT_DESCRIPTOR_TABLE	# t1 = Disk table
 	li		t2, VIRT_DISK_HEADER		# t2 = Disk header
 	add		t2, t2, t0
@@ -191,7 +195,8 @@ _start:
 	li		s1, 0
 	li		s2, 1				# Total requests sent
 	li		t0, LOAD_LOC
-	LOAD_ADDRESS	s5, data
+	#LOAD_ADDRESS	s5, data
+	LOAD_DATA s5, s11
 	add		s5, s5, t0
 
 begin_loop:
@@ -205,7 +210,8 @@ begin_loop:
 
 
 	# Point to disk buffer
-	LOAD_ADDRESS	s3, data
+	#LOAD_ADDRESS	s3, data
+	LOAD_DATA s3, s11
 1:
 	lbu		a0, 0(s3)			# Get next byte
 	sb		a0, 0(s5)
@@ -223,7 +229,7 @@ begin_loop:
 end_loop:
 
 	li		t0, LOAD_LOC
-	LOAD_ADDRESS	s5, data
+	LOAD_DATA s5, s11
 	add		s5, s5, t0
 	li		t0, BIN_SIZE
 	add		s6, s5, t0
@@ -235,11 +241,9 @@ end_loop:
 	blt		s5, s6, 1b
 
 	li		t0, LOAD_LOC
-	LOAD_ADDRESS	s5, data
+	LOAD_DATA s5, s11
 	add		s5, s5, t0
 	jr		s5
-
-	LOAD_DATA s11 t0
 
 3:	wfi
 	j		3b
