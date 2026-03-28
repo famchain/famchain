@@ -24,6 +24,8 @@
 # file: famchain.S - famchain full node
 # ──────────────────────────────────────────────────────────────────────────────
 
+.altmacro
+
 # --- System Constants ---
 .equ	UART_BASE,		0x10000000
 .equ	UART_LSR,		5
@@ -186,6 +188,68 @@ _base\@:
 	beq		t4, t5, 1b
 .endm
 
+.set _macro_depth, 0
+
+.macro _def_restore_macro depth, sz, regs:vararg
+        .macro _do_tear_down_\depth
+        .ifnc "\regs", ""
+                .set _off, 8
+                .irp reg, \regs
+                lw \reg, _off(sp)
+                .set _off, _off + 8
+                .endr
+        .endif
+        lw ra, 0(sp)
+        addi sp, sp, \sz
+        .endm
+.endm
+
+.macro _exec_tear_down depth
+        _do_tear_down_\depth
+.endm
+
+.macro _kill_tear_down depth
+        .purgem _do_tear_down_\depth
+.endm
+
+# Macro to setup list of registers. Save all to stack
+.macro SETUP regs:vararg
+        .set _macro_depth, _macro_depth + 1
+
+        .set _cnt, 1
+        .ifnc "\regs", ""
+        .irp item, \regs
+                .set _cnt, _cnt + 1
+        .endr
+        .endif
+        .set _sz, ((_cnt * 4) + 15) & -16
+
+        _def_restore_macro %_macro_depth, %_sz, \regs
+
+
+        addi sp, sp, -_sz
+        sw      ra, 0(sp)
+        .ifnc "\regs", ""
+        .set _off, 4
+        .irp reg, \regs
+                sw \reg, _off(sp)
+                .set _off, _off + 4
+        .endr
+        .endif
+.endm
+
+# Tear down the stack (LIFO order for stack frames)
+.macro TEAR_DOWN
+        _exec_tear_down %_macro_depth
+        _kill_tear_down %_macro_depth
+        .set _macro_depth, _macro_depth - 1
+.endm
+
+.macro RETURN
+        TEAR_DOWN
+        ret
+.endm
+
 
 _start:
 	LOAD_DATA	s10, t0
@@ -240,8 +304,94 @@ end_loop:
 
 	li		sp, 40000
 	add		sp, sp, s10
+	li		a0, 0x1235
+	sw		a0, 0(sp)
 
 	jal		chacha20_block
+	mv		s9, sp
+
+	lw		a0, 0(s9)
+	jal		print_hex
+	li		a0, '\n'
+	jal		write_byte
+
+        lw              a0, 4(s9)
+        jal             print_hex
+        li              a0, '\n'
+        jal             write_byte
+
+        lw              a0, 8(s9)
+        jal             print_hex
+        li              a0, '\n'
+        jal             write_byte
+
+        lw              a0, 12(s9)
+        jal             print_hex
+        li              a0, '\n'
+        jal             write_byte
+
+        lw              a0, 16(s9)
+        jal             print_hex
+        li              a0, '\n'
+        jal             write_byte
+
+        lw              a0, 20(s9)
+        jal             print_hex
+        li              a0, '\n'
+        jal             write_byte
+
+        lw              a0, 24(s9)
+        jal             print_hex
+        li              a0, '\n'
+        jal             write_byte
+
+
+        lw              a0, 28(s9)
+        jal             print_hex
+        li              a0, '\n'
+        jal             write_byte
+
+        lw              a0, 32(s9)
+        jal             print_hex
+        li              a0, '\n'
+        jal             write_byte
+
+        lw              a0, 36(s9)
+        jal             print_hex
+        li              a0, '\n'
+        jal             write_byte
+
+
+        lw              a0, 40(s9)
+        jal             print_hex
+        li              a0, '\n'
+        jal             write_byte
+
+        lw              a0, 44(s9)
+        jal             print_hex
+        li              a0, '\n'
+        jal             write_byte
+
+        lw              a0, 48(s9)
+        jal             print_hex
+        li              a0, '\n'
+        jal             write_byte
+
+        lw              a0, 52(s9)
+        jal             print_hex
+        li              a0, '\n'
+        jal             write_byte
+
+        lw              a0, 56(s9)
+        jal             print_hex
+        li              a0, '\n'
+        jal             write_byte
+
+        lw              a0, 60(s9)
+        jal             print_hex
+        li              a0, '\n'
+        jal             write_byte
+
 
 
 	li		t0, LOAD_LOC
@@ -382,5 +532,49 @@ add_back_loop:
     # --- Cleanup ---
     mv      ra, s3          # Restore return address
     ret                     # Result is now at 0(sp)
+
+print_hex:
+        SETUP           s0, s1, s2, t0, t1, t2, a0
+
+        mv              s0, a0                  # Save original value
+        li              s2, 0                   # flag = 0 (skipping leading)
+
+        # Print "0x" prefix 
+        li              a0, '0' 
+        jal             write_byte
+        li              a0, 'x'
+        jal             write_byte 
+        
+        # Special Case: If value is 0, just print '0' and exit
+        bnez            s0, 1f
+        li              a0, '0'
+        jal             write_byte
+        j               4f
+
+1:      li              s1, 28                  # Start at highest nibble
+2:
+        srl             t2, s0, s1              # Isolate nibble
+        andi            t2, t2, 0xF
+
+        # Skip leading zeros logic
+        bnez            t2, 3f                  # If nibble != 0, start
+        bnez            s2, 3f                  # If already started, print
+        j               next_nibble             # Otherwise, skip
+
+3:      li              s2, 1                   # Flip "started" flag
+
+        # Convert nibble to ASCII
+        li              a0, 10
+        blt             t2, a0, 5f              # If 0-9
+        addi            t2, t2, 7               # Adjust for A-F
+5:      addi            a0, t2, 48              # ASCII '0'
+        jal             write_byte
+
+next_nibble:
+        addi            s1, s1, -4              # Move to next 4 bits
+        bgez            s1, 2b
+
+4:      RETURN
+
 
 data:
