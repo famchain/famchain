@@ -186,6 +186,7 @@ _base\@:
 	beq		t4, t5, 1b
 .endm
 
+
 _start:
 	LOAD_DATA	s10, t0
 	INIT_DISK
@@ -274,5 +275,65 @@ write_byte:
 	beqz		t2, 103b
 	sb		a0, 0(t1)
 	ret	
+
+.macro QR_STEP a, b, d, rot
+    add  \a, \a, \b
+    xor  \d, \d, \a
+    slli t0, \d, \rot        # t0 = d << rot
+    srli \d, \d, (32 - \rot)  # d = d >> (32 - rot)
+    or   \d, \d, t0          # d = (d << rot) | (d >> (32 - rot))
+.endm
+
+# chacha_qr:
+# Input/Output: a0=a, a1=b, a2=c, a3=d
+chacha_qr:
+    # 1. Step 1 & 3 focus on (a, b, d)
+    # 2. Step 2 & 4 focus on (c, d, b)
+    QR_STEP a0, a1, a3, 16  # a += b; d ^= a; d <<< 16
+    QR_STEP a2, a3, a1, 12  # c += d; b ^= c; b <<< 12
+    QR_STEP a0, a1, a3, 8   # a += b; d ^= a; d <<< 8
+    QR_STEP a2, a3, a1, 7   # c += d; b ^= c; b <<< 7
+    ret
+
+# Macro-like helper to load, call QR, and store
+# This saves bytes by reusing the same loading logic
+.macro DO_QR i0, i1, i2, i3
+    lw      a0, \i0*4(sp)
+    lw      a1, \i1*4(sp)
+    lw      a2, \i2*4(sp)
+    lw      a3, \i3*4(sp)
+    jal     chacha_qr
+    sw      a0, \i0*4(sp)
+    sw      a1, \i1*4(sp)
+    sw      a2, \i2*4(sp)
+    sw      a3, \i3*4(sp)
+.endm
+
+chacha_round:
+    mv      s11, ra         # Save return address
+
+    # Column Rounds
+    DO_QR 0, 4, 8, 12
+    DO_QR 1, 5, 9, 13
+    DO_QR 2, 6, 10, 14
+    DO_QR 3, 7, 11, 15
+
+    # Diagonal Rounds
+    DO_QR 0, 5, 10, 15
+    DO_QR 1, 6, 11, 12
+    DO_QR 2, 7, 8, 13
+    DO_QR 3, 4, 9, 14
+
+    jr      s11	
+
+chacha_rounds:
+	mv		s2, ra
+	li		s0, 0
+	li		s1, 10
+1:
+	jal		chacha_round
+	addi		s0, s0, 1
+	blt		s0, s1, 1b
+	jr		s2
 
 data:
