@@ -191,63 +191,63 @@ _base\@:
 .set _macro_depth, 0
 
 .macro _def_restore_macro depth, sz, regs:vararg
-        .macro _do_tear_down_\depth
-        .ifnc "\regs", ""
-                .set _off, 8
-                .irp reg, \regs
-                lw \reg, _off(sp)
-                .set _off, _off + 8
-                .endr
-        .endif
-        lw ra, 0(sp)
-        addi sp, sp, \sz
-        .endm
+	.macro _do_tear_down_\depth
+	.ifnc "\regs", ""
+		.set _off, 8
+		.irp reg, \regs
+		lw \reg, _off(sp)
+		.set _off, _off + 8
+		.endr
+	.endif
+	lw ra, 0(sp)
+	addi sp, sp, \sz
+	.endm
 .endm
 
 .macro _exec_tear_down depth
-        _do_tear_down_\depth
+	_do_tear_down_\depth
 .endm
 
 .macro _kill_tear_down depth
-        .purgem _do_tear_down_\depth
+	.purgem _do_tear_down_\depth
 .endm
 
 # Macro to setup list of registers. Save all to stack
 .macro SETUP regs:vararg
-        .set _macro_depth, _macro_depth + 1
+	.set _macro_depth, _macro_depth + 1
 
-        .set _cnt, 1
-        .ifnc "\regs", ""
-        .irp item, \regs
-                .set _cnt, _cnt + 1
-        .endr
-        .endif
-        .set _sz, ((_cnt * 4) + 15) & -16
+	.set _cnt, 1
+	.ifnc "\regs", ""
+	.irp item, \regs
+		.set _cnt, _cnt + 1
+	.endr
+	.endif
+	.set _sz, ((_cnt * 4) + 15) & -16
 
-        _def_restore_macro %_macro_depth, %_sz, \regs
+	_def_restore_macro %_macro_depth, %_sz, \regs
 
 
-        addi sp, sp, -_sz
-        sw      ra, 0(sp)
-        .ifnc "\regs", ""
-        .set _off, 4
-        .irp reg, \regs
-                sw \reg, _off(sp)
-                .set _off, _off + 4
-        .endr
-        .endif
+	addi sp, sp, -_sz
+	sw	ra, 0(sp)
+	.ifnc "\regs", ""
+	.set _off, 4
+	.irp reg, \regs
+		sw \reg, _off(sp)
+		.set _off, _off + 4
+	.endr
+	.endif
 .endm
 
 # Tear down the stack (LIFO order for stack frames)
 .macro TEAR_DOWN
-        _exec_tear_down %_macro_depth
-        _kill_tear_down %_macro_depth
-        .set _macro_depth, _macro_depth - 1
+	_exec_tear_down %_macro_depth
+	_kill_tear_down %_macro_depth
+	.set _macro_depth, _macro_depth - 1
 .endm
 
 .macro RETURN
-        TEAR_DOWN
-        ret
+	TEAR_DOWN
+	ret
 .endm
 
 
@@ -302,95 +302,49 @@ end_loop:
 	addi		s7, s7, 1
 	blt		s5, s6, 1b
 
-	li		sp, 40000
+	li		sp, 10000
 	add		sp, sp, s10
-	li		a0, 0x1235
-	sw		a0, 0(sp)
 
+	mv		a0, sp
+	addi		sp, sp, -64
+	li		t0, 1235
+	sw		t0, 0(a0)
 	jal		chacha20_block
-	mv		s9, sp
 
-	lw		a0, 0(s9)
+	mv		a1, a0
+	lw		a0, 0(a1)
+	jal		print_hex
+	li		a0, '\n'
+	jal		write_byte
+	lw		a0, 4(a1)
+	jal		print_hex
+	li		a0, '\n'
+	jal		write_byte
+	lw		a0, 8(a1)
+	jal		print_hex
+	li		a0, '\n'
+	jal		write_byte
+	lw		a0, 12(a1)
+	jal		print_hex
+	li		a0, '\n'
+	jal		write_byte
+	lw		a0, 16(a1)
+	jal		print_hex
+	li		a0, '\n'
+	jal		write_byte
+	lw		a0, 20(a1)
+	jal		print_hex
+	li		a0, '\n'
+	jal		write_byte
+	lw		a0, 24(a1)
+	jal		print_hex
+	li		a0, '\n'
+	jal		write_byte
+	lw		a0, 28(a1)
 	jal		print_hex
 	li		a0, '\n'
 	jal		write_byte
 
-        lw              a0, 4(s9)
-        jal             print_hex
-        li              a0, '\n'
-        jal             write_byte
-
-        lw              a0, 8(s9)
-        jal             print_hex
-        li              a0, '\n'
-        jal             write_byte
-
-        lw              a0, 12(s9)
-        jal             print_hex
-        li              a0, '\n'
-        jal             write_byte
-
-        lw              a0, 16(s9)
-        jal             print_hex
-        li              a0, '\n'
-        jal             write_byte
-
-        lw              a0, 20(s9)
-        jal             print_hex
-        li              a0, '\n'
-        jal             write_byte
-
-        lw              a0, 24(s9)
-        jal             print_hex
-        li              a0, '\n'
-        jal             write_byte
-
-
-        lw              a0, 28(s9)
-        jal             print_hex
-        li              a0, '\n'
-        jal             write_byte
-
-        lw              a0, 32(s9)
-        jal             print_hex
-        li              a0, '\n'
-        jal             write_byte
-
-        lw              a0, 36(s9)
-        jal             print_hex
-        li              a0, '\n'
-        jal             write_byte
-
-
-        lw              a0, 40(s9)
-        jal             print_hex
-        li              a0, '\n'
-        jal             write_byte
-
-        lw              a0, 44(s9)
-        jal             print_hex
-        li              a0, '\n'
-        jal             write_byte
-
-        lw              a0, 48(s9)
-        jal             print_hex
-        li              a0, '\n'
-        jal             write_byte
-
-        lw              a0, 52(s9)
-        jal             print_hex
-        li              a0, '\n'
-        jal             write_byte
-
-        lw              a0, 56(s9)
-        jal             print_hex
-        li              a0, '\n'
-        jal             write_byte
-
-        lw              a0, 60(s9)
-        jal             print_hex
-        li              a0, '\n'
-        jal             write_byte
 
 
 
@@ -432,12 +386,12 @@ write_byte:
 	sb		a0, 0(t1)
 	ret	
 
-.macro QR_STEP a, b, d, rot
+.macro QR_STEP a, b, d, tmp, rot
 	add	\a, \a, \b
 	xor	\d, \d, \a
-	slli t0, \d, \rot	# t0 = d << rot
+	slli \tmp, \d, \rot		# t0 = d << rot
 	srli \d, \d, (32 - \rot)	# d = d >> (32 - rot)
-	or	\d, \d, t0		# d = (d << rot) | (d >> (32 - rot))
+	or	\d, \d, \tmp		# d = (d << rot) | (d >> (32 - rot))
 .endm
 
 # chacha_qr:
@@ -445,136 +399,223 @@ write_byte:
 chacha_qr:
 	# 1. Step 1 & 3 focus on (a, b, d)
 	# 2. Step 2 & 4 focus on (c, d, b)
-	QR_STEP a0, a1, a3, 16	# a += b; d ^= a; d <<< 16
-	QR_STEP a2, a3, a1, 12	# c += d; b ^= c; b <<< 12
-	QR_STEP a0, a1, a3, 8	# a += b; d ^= a; d <<< 8
-	QR_STEP a2, a3, a1, 7	# c += d; b ^= c; b <<< 7
+	QR_STEP a0, a1, a3, t0, 16	# a += b; d ^= a; d <<< 16
+	QR_STEP a2, a3, a1, t0, 12	# c += d; b ^= c; b <<< 12
+	QR_STEP a0, a1, a3, t0, 8	# a += b; d ^= a; d <<< 8
+	QR_STEP a2, a3, a1, t0, 7	# c += d; b ^= c; b <<< 7
 	ret
 
 # Macro-like helper to load, call QR, and store
 # This saves bytes by reusing the same loading logic
-.macro DO_QR i0, i1, i2, i3
-	lw	a0, \i0*4(sp)
-	lw	a1, \i1*4(sp)
-	lw	a2, \i2*4(sp)
-	lw	a3, \i3*4(sp)
+.macro DO_QR i0, i1, i2, i3 ptr
+	lw	a0, \i0*4(\ptr)
+	lw	a1, \i1*4(\ptr)
+	lw	a2, \i2*4(\ptr)
+	lw	a3, \i3*4(\ptr)
 	jal	chacha_qr
-	sw	a0, \i0*4(sp)
-	sw	a1, \i1*4(sp)
-	sw	a2, \i2*4(sp)
-	sw	a3, \i3*4(sp)
+	sw	a0, \i0*4(\ptr)
+	sw	a1, \i1*4(\ptr)
+	sw	a2, \i2*4(\ptr)
+	sw	a3, \i3*4(\ptr)
 .endm
 
 chacha_round:
-	mv	s11, ra		# Save return address
+	mv	t1, ra		# Save return address
+	mv	a4, a0
 
 	# Column Rounds
-	DO_QR 0, 4, 8, 12
-	DO_QR 1, 5, 9, 13
-	DO_QR 2, 6, 10, 14
-	DO_QR 3, 7, 11, 15
+	DO_QR 0, 4, 8, 12 a4
+	DO_QR 1, 5, 9, 13 a4
+	DO_QR 2, 6, 10, 14 a4
+	DO_QR 3, 7, 11, 15 a4
 
 	# Diagonal Rounds
-	DO_QR 0, 5, 10, 15
-	DO_QR 1, 6, 11, 12
-	DO_QR 2, 7, 8, 13
-	DO_QR 3, 4, 9, 14
-
-	jr	s11	
+	DO_QR 0, 5, 10, 15 a4
+	DO_QR 1, 6, 11, 12 a4
+	DO_QR 2, 7, 8, 13 a4
+	DO_QR 3, 4, 9, 14 a4
+	mv		a0, a4
+	jr	t1	
 
 chacha_rounds:
-	mv		s2, ra
-	li		s0, 0
-	li		s1, 10
+	mv		t2, ra
+	li		t3, 0
+	li		t4, 10
 1:
 	jal		chacha_round
-	addi		s0, s0, 1
-	blt		s0, s1, 1b
-	jr		s2
+	addi		t3, t3, 1
+	blt		t3, t4, 1b
+	jr		t2
 
 # chacha20_block
-# Input:  sp points to 64 bytes of initial state (Original)
-# Output: sp-64 contains the 64-byte transformed block
-# Registers used: t0-t5, s0-s2, s11 (via sub-calls)
+# Input:  a0 points to 64 byte input value
 chacha20_block:
-    addi    sp, sp, -64     # Create space for the Working Copy
-    mv      s3, ra          # Save return address to a saved register
+	mv		t5, ra
+	addi		sp, sp, -64
+	
+	lw		t0, 0(a0)
+	sw		t0, 0(sp)
+        lw              t0, 4(a0)
+        sw              t0, 4(sp)
+        lw              t0, 8(a0)
+        sw              t0, 8(sp)
+        lw              t0, 12(a0)
+        sw              t0, 12(sp)
+        lw              t0, 16(a0)
+        sw              t0, 16(sp)
+        lw              t0, 20(a0)
+        sw              t0, 20(sp)
+        lw              t0, 24(a0)
+        sw              t0, 24(sp)
+        lw              t0, 28(a0)
+        sw              t0, 28(sp)
+        lw              t0, 32(a0)
+        sw              t0, 32(sp)
+        lw              t0, 36(a0)
+        sw              t0, 36(sp)
+        lw              t0, 40(a0)
+        sw              t0, 40(sp)
+        lw              t0, 44(a0)
+        sw              t0, 44(sp)
+        lw              t0, 48(a0)
+        sw              t0, 48(sp)
+        lw              t0, 52(a0)
+        sw              t0, 52(sp)
+        lw              t0, 56(a0)
+        sw              t0, 56(sp)
+        lw              t0, 60(a0)
+        sw              t0, 60(sp)
 
-    # --- Phase 1: Copy Original to Working ---
-    # Original is now at 64(sp), Working is at 0(sp)
-    addi    t3, sp, 64      # Source pointer (Original)
-    addi    t4, sp, 0       # Destination pointer (Working)
-    addi    t5, sp, 128     # End of Original block (64 + 64)
-copy_loop:
-    lw      t1, 0(t3)       # Load word from Original
-    sw      t1, 0(t4)       # Store word to Working
-    addi    t3, t3, 4       # Advance Original pointer
-    addi    t4, t4, 4       # Advance Working pointer
-    blt     t3, t5, copy_loop
+	jal		chacha_rounds
 
-    # --- Phase 2: Run 20 Rounds ---
-    # chacha_rounds modifies the 64 bytes starting at 0(sp)
-    jal     chacha_rounds
 
-    # --- Phase 3: Add Original back to Working ---
-    addi    t3, sp, 64      # Source pointer (Original)
-    addi    t4, sp, 0       # Destination pointer (Working)
-    addi    t5, sp, 128     # End trigger
-add_back_loop:
-    lw      t1, 0(t4)       # Get post-round word (Working)
-    lw      t2, 0(t3)       # Get original word (Original)
-    add     t1, t1, t2      # ChaCha20 Add: Result = Round(State) + State
-    sw      t1, 0(t4)       # Update Working copy with final result
-    addi    t3, t3, 4
-    addi    t4, t4, 4
-    blt     t3, t5, add_back_loop
+	# --- Add original state (on stack) back to scrambled state (in a0) ---
+        lw      t0, 0(sp)     # Load original word 0
+        lw      t1, 0(a0)     # Load scrambled word 0
+        add     t1, t1, t0    # Add them
+        sw      t1, 0(a0)     # Store result back to word 0
 
-    # --- Cleanup ---
-    mv      ra, s3          # Restore return address
-    ret                     # Result is now at 0(sp)
+        lw      t0, 4(sp)     # Word 1
+        lw      t1, 4(a0)
+        add     t1, t1, t0
+        sw      t1, 4(a0)
+
+        lw      t0, 8(sp)     # Word 2
+        lw      t1, 8(a0)
+        add     t1, t1, t0
+        sw      t1, 8(a0)
+
+        lw      t0, 12(sp)    # Word 3
+        lw      t1, 12(a0)
+        add     t1, t1, t0
+        sw      t1, 12(a0)
+
+        lw      t0, 16(sp)    # Word 4
+        lw      t1, 16(a0)
+        add     t1, t1, t0
+        sw      t1, 16(a0)
+
+        lw      t0, 20(sp)    # Word 5
+        lw      t1, 20(a0)
+        add     t1, t1, t0
+        sw      t1, 20(a0)
+
+        lw      t0, 24(sp)    # Word 6
+        lw      t1, 24(a0)
+        add     t1, t1, t0
+        sw      t1, 24(a0)
+
+        lw      t0, 28(sp)    # Word 7
+        lw      t1, 28(a0)
+        add     t1, t1, t0
+        sw      t1, 28(a0)
+
+        lw      t0, 32(sp)    # Word 8
+        lw      t1, 32(a0)
+        add     t1, t1, t0
+        sw      t1, 32(a0)
+
+        lw      t0, 36(sp)    # Word 9
+        lw      t1, 36(a0)
+        add     t1, t1, t0
+        sw      t1, 36(a0)
+
+        lw      t0, 40(sp)    # Word 10
+        lw      t1, 40(a0)
+        add     t1, t1, t0
+        sw      t1, 40(a0)
+
+        lw      t0, 44(sp)    # Word 11
+        lw      t1, 44(a0)
+        add     t1, t1, t0
+        sw      t1, 44(a0)
+
+        lw      t0, 48(sp)    # Word 12
+        lw      t1, 48(a0)
+        add     t1, t1, t0
+        sw      t1, 48(a0)
+
+        lw      t0, 52(sp)    # Word 13
+        lw      t1, 52(a0)
+        add     t1, t1, t0
+        sw      t1, 52(a0)
+
+        lw      t0, 56(sp)    # Word 14
+        lw      t1, 56(a0)
+        add     t1, t1, t0
+        sw      t1, 56(a0)
+
+        lw      t0, 60(sp)    # Word 15
+        lw      t1, 60(a0)
+        add     t1, t1, t0
+        sw      t1, 60(a0)
+
+	mv		ra, t5			# Restore return address
+	addi		sp, sp, 64
+	ret					# Result is now at 0(sp)
 
 print_hex:
-        SETUP           s0, s1, s2, t0, t1, t2, a0
+	SETUP		s0, s1, s2, t0, t1, t2, a0
 
-        mv              s0, a0                  # Save original value
-        li              s2, 0                   # flag = 0 (skipping leading)
+	mv		s0, a0			# Save original value
+	li		s2, 0			# flag = 0 (skipping leading)
 
-        # Print "0x" prefix 
-        li              a0, '0' 
-        jal             write_byte
-        li              a0, 'x'
-        jal             write_byte 
-        
-        # Special Case: If value is 0, just print '0' and exit
-        bnez            s0, 1f
-        li              a0, '0'
-        jal             write_byte
-        j               4f
+	# Print "0x" prefix 
+	li		a0, '0' 
+	jal		write_byte
+	li		a0, 'x'
+	jal		write_byte 
+	
+	# Special Case: If value is 0, just print '0' and exit
+	bnez		s0, 1f
+	li		a0, '0'
+	jal		write_byte
+	j		4f
 
-1:      li              s1, 28                  # Start at highest nibble
+1:	li		s1, 28		# Start at highest nibble
 2:
-        srl             t2, s0, s1              # Isolate nibble
-        andi            t2, t2, 0xF
+	srl		t2, s0, s1		# Isolate nibble
+	andi		t2, t2, 0xF
 
-        # Skip leading zeros logic
-        bnez            t2, 3f                  # If nibble != 0, start
-        bnez            s2, 3f                  # If already started, print
-        j               next_nibble             # Otherwise, skip
+	# Skip leading zeros logic
+	bnez		t2, 3f		# If nibble != 0, start
+	bnez		s2, 3f		# If already started, print
+	j		next_nibble		# Otherwise, skip
 
-3:      li              s2, 1                   # Flip "started" flag
+3:	li		s2, 1		# Flip "started" flag
 
-        # Convert nibble to ASCII
-        li              a0, 10
-        blt             t2, a0, 5f              # If 0-9
-        addi            t2, t2, 7               # Adjust for A-F
-5:      addi            a0, t2, 48              # ASCII '0'
-        jal             write_byte
+	# Convert nibble to ASCII
+	li		a0, 10
+	blt		t2, a0, 5f		# If 0-9
+	addi		t2, t2, 7		# Adjust for A-F
+5:	addi		a0, t2, 48		# ASCII '0'
+	jal		write_byte
 
 next_nibble:
-        addi            s1, s1, -4              # Move to next 4 bits
-        bgez            s1, 2b
+	addi		s1, s1, -4		# Move to next 4 bits
+	bgez		s1, 2b
 
-4:      RETURN
+4:	RETURN
 
 
 data:
