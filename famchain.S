@@ -10,6 +10,7 @@
 .equ VIO_QUEUE_SEL,	0x030
 .equ VIO_QUEUE_NUM,	0x038
 .equ VIO_QUEUE_PFN,	0x040
+.equ VIRT_MAGIC,	0x74726976
 
 .macro LOAD_ADDRESS reg, label
 _base\@:
@@ -19,57 +20,59 @@ _base\@:
 	addi	\reg, \reg, %lo(_offset\@)
 .endm
 
+.macro INIT_DISK
+                li      t0, VIRTIO_DISK_BASE
+                lw      t1, VIO_MAGIC(t0)       # Should be 0x74726976 ("virt")
+                li      t2, VIRT_MAGIC
+                bne     t1, t2, error_not_virtio
+
+                lw      t1, VIO_DEVICE_ID(t0)   # Should be 2 for Block Device
+                li      t2, 2
+                bne     t1, t2, error_not_disk
+
+                # 1. Reset the device
+                sw      zero, VIO_STATUS(t0)
+
+                # 2. Set ACKNOWLEDGE bit (1)
+                li      t1, 1
+                sw      t1, VIO_STATUS(t0)
+
+                # 3. Set DRIVER bit (2)
+                lw      t1, VIO_STATUS(t0)
+                ori     t1, t1, 2
+                sw      t1, VIO_STATUS(t0)
+
+                # 4. Set FEATURES_OK bit (8)
+                lw      t1, VIO_STATUS(t0)
+                ori     t1, t1, 8
+                sw      t1, VIO_STATUS(t0)
+
+                # 5. Check if FEATURES_OK was accepted
+                lw      t1, VIO_STATUS(t0)
+                andi    t2, t1, 8
+                beqz    t2, error_features_not_supported
+
+                # 6. Set DRIVER_OK bit (4) - Device is now "Live"
+                lw      t1, VIO_STATUS(t0)
+                ori     t1, t1, 4
+                sw      t1, VIO_STATUS(t0)
+
+                # 1. Select Queue 0
+                sw      zero, VIO_QUEUE_SEL(t0)
+
+                # 2. Set Queue Size (let's use 16 descriptors)
+                li      t1, 16
+                sw      t1, VIO_QUEUE_NUM(t0)
+
+                # 3. Set Page Size (QEMU default is usually 4096)
+                # (In legacy MMIO, we provide the Page Frame Number)
+                LOAD_ADDRESS t1 data
+                addi    t1, t1, 512
+                sw      t1, VIO_QUEUE_PFN(t0)
+.endm
+
 _start:
-		li	t0, VIRTIO_DISK_BASE
-		lw	t1, VIO_MAGIC(t0)	# Should be 0x74726976 ("virt")
-		li	t2, 0x74726976
-		bne	t1, t2, error_not_virtio
-	
-		lw	t1, VIO_DEVICE_ID(t0)	# Should be 2 for Block Device
-		li	t2, 2
-		bne	t1, t2, error_not_disk
-
-		# 1. Reset the device
-		sw	zero, VIO_STATUS(t0)
-
-		# 2. Set ACKNOWLEDGE bit (1)
-		li	t1, 1
-		sw	t1, VIO_STATUS(t0)
-
-		# 3. Set DRIVER bit (2)
-		lw	t1, VIO_STATUS(t0)
-		ori	t1, t1, 2
-		sw	t1, VIO_STATUS(t0)
-
-		# 4. Set FEATURES_OK bit (8)
-		lw	t1, VIO_STATUS(t0)
-		ori	t1, t1, 8
-		sw	t1, VIO_STATUS(t0)
-
-		# 5. Check if FEATURES_OK was accepted
-		lw	t1, VIO_STATUS(t0)
-		andi	t2, t1, 8
-		beqz	t2, error_features_not_supported
-
-		# 6. Set DRIVER_OK bit (4) - Device is now "Live"
-		lw	t1, VIO_STATUS(t0)
-		ori	t1, t1, 4
-		sw	t1, VIO_STATUS(t0)
-
-		# 1. Select Queue 0
-		sw	zero, VIO_QUEUE_SEL(t0)
-
-		# 2. Set Queue Size (let's use 16 descriptors)
-		li	t1, 16
-		sw	t1, VIO_QUEUE_NUM(t0)
-
-		# 3. Set Page Size (QEMU default is usually 4096)
-		# (In legacy MMIO, we provide the Page Frame Number)
-		LOAD_ADDRESS t1 data
-		addi	t1, t1, 512
-		sw	t1, VIO_QUEUE_PFN(t0)
-
-		li	t1, 0x80001000	# Descriptor Table Base
+	INIT_DISK
 
 li      s8, 0
 li	s9, 11
