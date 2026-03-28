@@ -109,7 +109,7 @@ _base\@:
 	sw		t1, VIO_QUEUE_NUM(t0)
 
 	# zero the buffer
-	LOAD_DATA	t1, s11
+	mv		t1, s10
 	mv		t2, t1
 	li		t3, LOAD_LOC
 	add		t3, t3, t2
@@ -127,7 +127,7 @@ _base\@:
 # a0 = sector
 # a1 = counter
 .macro READ_BLOCK
-	LOAD_DATA	t0, s11
+	mv		t0, s10
 	addi		t1, t0, VIRT_DESCRIPTOR_TABLE	# t1 = Disk table
 	li		t2, VIRT_DISK_HEADER		# t2 = Disk header
 	add		t2, t2, t0
@@ -187,13 +187,14 @@ _base\@:
 .endm
 
 _start:
+	LOAD_DATA	s10, t0
 	INIT_DISK
 
 	li		s0, BIN_SIZE
 	li		s1, 0
 	li		s2, 1				# Total requests sent
 	li		t0, LOAD_LOC
-	LOAD_DATA	s5, s11
+	mv		s5, s10
 	add		s5, s5, t0
 
 begin_loop:
@@ -207,7 +208,7 @@ begin_loop:
 
 
 	# Point to disk buffer
-	LOAD_DATA	s3, s11
+	mv		s3, s10
 1:
 	lbu		a0, 0(s3)			# Get next byte
 	sb		a0, 0(s5)
@@ -225,7 +226,7 @@ begin_loop:
 end_loop:
 
 	li		t0, LOAD_LOC
-	LOAD_DATA	s5, s11
+	mv		s5, s10
 	add		s5, s5, t0
 	li		t0, BIN_SIZE
 	add		s6, s5, t0
@@ -237,7 +238,7 @@ end_loop:
 	blt		s5, s6, 1b
 
 	li		t0, LOAD_LOC
-	LOAD_DATA	s5, s11
+	mv		s5, s10
 	add		s5, s5, t0
 	fence		rw, rw				# Ensure writes
 	jr		s5
