@@ -54,6 +54,14 @@ _base\@:
 	addi	\reg, \reg, %lo(_offset\@)
 .endm
 
+.macro LOAD_DATA reg tmp
+	LOAD_ADDRESS \reg, data
+	li \tmp, 4095
+	add \reg, \reg, \tmp
+	li \tmp, 4096
+	and \reg, \reg, \tmp
+.endm
+
 .macro INIT_DISK
 	li		t0, VIRTIO_DISK_BASE
 	lw		t1, VIO_MAGIC(t0)		# Should be 0x74726976 ("virt")
@@ -230,6 +238,8 @@ end_loop:
 	LOAD_ADDRESS	s5, data
 	add		s5, s5, t0
 	jr		s5
+
+	LOAD_DATA s11 t0
 
 3:	wfi
 	j		3b
