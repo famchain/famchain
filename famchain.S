@@ -136,6 +136,15 @@ _base\@:
 	li		t4, 2
 	sh 		t4, 30(t1)			# Next index = 2
 
+
+	sw		t3, 32(t1)			# Addr (Table + 32)
+	sw		zero, 36(t1)
+	li		t4, 1
+	sw		t4, 40(t1)			# Len
+	li		t4, 2				# WRITE flag
+	sh		t4, 44(t1)			# Flags
+	sh		zero, 46(t1)			# Next = 0 (End)
+
 .endm
 
 _start:
@@ -190,7 +199,6 @@ sh	t2, 28(t1)		# Flags
 li	t2, 2
 sh	t2, 30(t1)		# Next index = 2
 
-*/
 
 
 LOAD_ADDRESS t1, data # Base of Descriptor Table
@@ -207,6 +215,8 @@ sw	t2, 40(t1)		# Len
 li	t2, 2		# WRITE flag
 sh	t2, 44(t1)		# Flags
 sh	zero, 46(t1)		# Next = 0 (End)
+
+*/
 
 LOAD_ADDRESS t1, data # Base of Descriptor Table
 addi	t1, t1, 512
