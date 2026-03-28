@@ -113,7 +113,9 @@ LOAD_ADDRESS t1, data # Base of Descriptor Table
 addi    t1, t1, 512
 
 # 3. Setup Descriptor 2 (Status Byte)
-LOAD_ADDRESS t2, disk_status
+LOAD_ADDRESS t2, data
+li   s5, 4608
+add t2, t2, s5
 sw	t2, 32(t1)		# Addr (Table + 32)
 sw	zero, 36(t1)
 li	t2, 1
@@ -124,7 +126,7 @@ sh	zero, 46(t1)		# Next = 0 (End)
 
 LOAD_ADDRESS t1, data # Base of Descriptor Table
 addi    t1, t1, 512
-LOAD_ADDRESS t2, disk_status
+#LOAD_ADDRESS t2, disk_status
 
 # 4. Notify the Available Ring
 # Available Ring starts at offset 256 (after 16 descriptors)
@@ -134,7 +136,10 @@ sh	t2, 4(t3)		# Set ring[0] = 0 (Start at Desc 0)
 addi    s10, s10, 1
 sh	s10, 2(t3)		# Set idx = 1 (We have 1 chain ready)
 
-LOAD_ADDRESS t1, disk_status
+LOAD_ADDRESS t1, data
+li   s5, 4608
+add t1, t1, s5
+
 li s4, 0xFF
 sb s4, 0(t1)
 
@@ -144,7 +149,10 @@ sw	zero, 0x050(t0)		# Notify Queue 0
 
 # 6. Wait for disk_status to change from 0xFF
 wait_read:
-	LOAD_ADDRESS t1, disk_status
+LOAD_ADDRESS t1, data
+li   s5, 4608
+add t1, t1, s5
+
 	lbu	t2, 0(t1)
 	li	t3, 0xFF
 	beq	t2, t3, wait_read
@@ -207,6 +215,4 @@ disk_header:
 	.word 0	# reserved
 	.dword 0	# sector: 0 (The very start of disk.img)
 
-disk_status:
-	.byte 0xff	# Initial value
 data:
