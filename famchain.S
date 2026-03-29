@@ -120,34 +120,32 @@ _base\@:
 	CHACHA_ROUND
 .endm
 
-.macro CHACHA20_BLOCK
-	SETUP		s0, s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11
-	mv		s11, a0
+.macro ADD_BACK reg ind
+	lw		t5, \ind(a0)
+	add		t5, \reg, t5
+	sw		t5, \ind(a0)
+.endm
 
-	lw		s0, 0(s11)
-	lw		s1, 4(s11)
-	lw		s2, 8(s11)
-	lw		s3, 12(s11)
-	lw		s4, 16(s11)
-	lw		s5, 20(s11)
-	lw		s6, 24(s11)
-	lw		s7, 28(s11)
-	lw		s8, 32(s11)
-	lw		s9, 36(s11)
-	lw		s10, 40(s11)
-	lw		t0, 44(s11)
-	lw		t1, 48(s11)
-	lw		t2, 52(s11)
-	lw		t3, 56(s11)
-	lw		t4, 60(s11)
+
+.macro CHACHA20_BLOCK
+	lw		s0, 0(a0)
+	lw		s1, 4(a0)
+	lw		s2, 8(a0)
+	lw		s3, 12(a0)
+	lw		s4, 16(a0)
+	lw		s5, 20(a0)
+	lw		s6, 24(a0)
+	lw		s7, 28(a0)
+	lw		s8, 32(a0)
+	lw		s9, 36(a0)
+	lw		s10, 40(a0)
+	lw		t0, 44(a0)
+	lw		t1, 48(a0)
+	lw		t2, 52(a0)
+	lw		t3, 56(a0)
+	lw		t4, 60(a0)
 
 	CHACHA_ROUNDS
-
-	.macro ADD_BACK reg ind
-		lw		t5, \ind(s11)
-		add		t5, \reg, t5
-		sw		t5, \ind(s11)
-	.endm
 
 	ADD_BACK	s0, 0
 	ADD_BACK	s1, 4
@@ -166,8 +164,9 @@ _base\@:
 	ADD_BACK	t3, 56
 	ADD_BACK	t4, 60
 
-	TEAR_DOWN
 .endm
+
+
 
 	# Setup stack
 	LOAD_ADDRESS	sp, data
@@ -177,10 +176,13 @@ _base\@:
 	add		sp, sp, t0
 	
 	mv		a0, sp
+	addi		sp, sp, -64
+	mv		a2, sp
 	li		t0, 1
 	sw		t0, 0(a0)
-
-	CHACHA20_BLOCK
+	li		a1, 64
+	jal		chacha20_hash
+	mv		a0, a2
 	jal		print_hash
 	li		a0, '\n'
 	jal		write_byte
@@ -188,6 +190,73 @@ _base\@:
 
 1:	wfi
 	j		1b
+
+chacha20_hash:
+.macro ZERO_BLOCK ptr
+        .set i, 0
+        .rept 16
+                sw zero, (i * 4)(\ptr)
+        .set i, i + 1
+        .endr
+.endm
+
+.macro XOR_BLOCK state_ptr, input_ptr
+        .set i, 0
+        .rept 16
+        lw      t0, (i * 4)(\state_ptr)
+        lw      t1, (i * 4)(\input_ptr)
+        xor     t0, t0, t1
+        sw      t0, (i * 4)(\state_ptr)
+        .set i, i + 1
+        .endr
+.endm
+
+.macro COPY_64 dest, src
+        .set i, 0
+        .rept 16
+        lw      t0, (i * 4)(\src)
+        sw      t0, (i * 4)(\dest)
+        .set i, i + 1
+        .endr
+.endm
+
+	SETUP		s0, s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11
+	addi		sp, sp, -64
+	mv		s11, a1			# original len
+
+	mv		a3, a0			# a0 is used so copy a0 to a3
+	mv		a0, sp
+	ZERO_BLOCK	a0
+
+1:	li		t0, 64
+	blt		a1, t0, 2f	
+	XOR_BLOCK	a0, a3
+	CHACHA20_BLOCK
+	addi		a1, a1, -64
+	addi		a3, a3, 64
+2:
+	beqz		a1, 4f			# skip if exactly 64 bytes
+	mv		t3, a0
+3:
+	lbu		t0, 0(t3)
+	lbu		t1, 0(a3)
+	xor		t0, t0, t1
+	sb		t0, 0(t3)
+	addi		a3, a3, 1
+	addi		t3, t3, 1
+	addi		a1, a1, -1
+	bnez		a1, 3b 
+	CHACHA20_BLOCK
+4:
+ 	lw		t0, 0(a0)
+	xor		t0, t0, s11	# Mix total length
+	sw		t0, 0(a0)
+	CHACHA20_BLOCK
+	COPY_64		a2, a0
+
+	addi		sp, sp, 64
+	RETURN
+
 
 print_hash:
 	.macro PRINT_INDEX ind
