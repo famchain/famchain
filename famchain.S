@@ -48,6 +48,17 @@
 .equ	VIRT_DISK_HEADER,	8706
 .equ	LOAD_LOC,		8722
 
+# Checksum
+.equ	PROG_CHECKSUM0,		0x7A2227C1
+.equ	PROG_CHECKSUM1,		0x58B41863
+.equ    PROG_CHECKSUM2,         0x29E95974
+.equ    PROG_CHECKSUM3,         0x249BDA7
+.equ    PROG_CHECKSUM4,         0x97ACAB90
+.equ    PROG_CHECKSUM5,         0x716B577
+.equ    PROG_CHECKSUM6,         0x4CD69079
+.equ    PROG_CHECKSUM7,         0x69BF8A72
+
+
 .macro LOAD_ADDRESS reg, label
 _base\@:
 	# Uses \@ to make a unique constant name for every expansion
@@ -316,6 +327,38 @@ end_loop:
         mv              a0, s10
 	jal		chacha20_hash
 
+	li		t0, PROG_CHECKSUM0
+	lw		t1, 0(a2)
+	bne		t0, t1, checksum_mismatch
+
+	li              t0, PROG_CHECKSUM1
+        lw              t1, 4(a2)
+        bne             t0, t1, checksum_mismatch
+
+        li              t0, PROG_CHECKSUM2
+        lw              t1, 8(a2)
+        bne             t0, t1, checksum_mismatch
+
+        li              t0, PROG_CHECKSUM3
+        lw              t1, 12(a2)
+        bne             t0, t1, checksum_mismatch
+
+        li              t0, PROG_CHECKSUM4
+        lw              t1, 16(a2)
+        bne             t0, t1, checksum_mismatch
+
+        li              t0, PROG_CHECKSUM5
+        lw              t1, 20(a2)
+        bne             t0, t1, checksum_mismatch
+
+        li              t0, PROG_CHECKSUM6
+        lw              t1, 24(a2)
+        bne             t0, t1, checksum_mismatch
+
+        li              t0, PROG_CHECKSUM7
+        lw              t1, 28(a2)
+        bne             t0, t1, checksum_mismatch
+
 	mv		a1, a2
 
 	lw		a0, 0(a1)
@@ -350,7 +393,6 @@ end_loop:
 	jal		print_hex
 	li		a0, '\n'
 	jal		write_byte
-
 
 
 
@@ -608,6 +650,12 @@ next_nibble:
 	bgez		s1, 2b
 
 4:	RETURN
+
+checksum_mismatch:
+	li		a0, 'x'
+	jal		write_byte
+1:	wfi
+	j		1b
 
 
 data:
