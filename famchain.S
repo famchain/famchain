@@ -506,6 +506,15 @@ chacha20_block:
 	.endr
 .endm
 
+.macro COPY_64 src, dest
+    .set i, 0
+    .rept 16
+        lw      t0, (i * 4)(\src)
+        sw      t0, (i * 4)(\dest)
+        .set i, i + 1
+    .endr
+.endm
+
 chacha20_hash:
 	SETUP		s0, s1, s2, s4, s5, s6
 	addi		sp, sp, -64
@@ -542,8 +551,8 @@ chacha20_hash:
 	xor		t0, t0, s6
 	sw		t0, 0(sp)
 	jal             chacha20_block
-	
-	mv		a2, a0
+
+	COPY_64		a0, a2
 	addi		sp, sp, 64	
 	RETURN
 
