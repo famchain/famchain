@@ -315,6 +315,7 @@ end_loop:
 	jal		chacha20_hash
 
 	mv		a1, a2
+
 	lw		a0, 0(a1)
 	jal		print_hex
 	li		a0, '\n'
@@ -521,6 +522,8 @@ chacha20_hash:
 	mv		s0, a0
 	mv		s1, a1
 	mv		s2, a2
+
+
 	mv		s5, sp
 	mv		s6, a1
 
@@ -552,7 +555,9 @@ chacha20_hash:
 	sw		t0, 0(sp)
 	jal             chacha20_block
 
+	mv		a2, s2
 	COPY_64		a0, a2
+
 	addi		sp, sp, 64	
 	RETURN
 
