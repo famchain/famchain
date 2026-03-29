@@ -32,7 +32,7 @@
 .equ	UART_WR_MASK,		0x20
 .equ	VIRTIO_DISK_BASE,	0x10001000	
 .equ	VIRTIO_NET_BASE,	0x10002000
-.equ	VIO_NET_ID,		1          # Device ID for Network is 1
+.equ	VIO_NET_ID,		1		# Device ID for Network is 1
 .equ	VIO_MAGIC,		0x000
 .equ	VIO_DEVICE_ID,		0x008
 .equ	VIO_STATUS,		0x070
@@ -53,12 +53,12 @@
 # Checksum
 .equ	PROG_CHECKSUM0,		0x7A2227C1
 .equ	PROG_CHECKSUM1,		0x58B41863
-.equ    PROG_CHECKSUM2,         0x29E95974
-.equ    PROG_CHECKSUM3,         0x249BDA7
-.equ    PROG_CHECKSUM4,         0x97ACAB90
-.equ    PROG_CHECKSUM5,         0x716B577
-.equ    PROG_CHECKSUM6,         0x4CD69079
-.equ    PROG_CHECKSUM7,         0x69BF8A72
+.equ	PROG_CHECKSUM2,		0x29E95974
+.equ	PROG_CHECKSUM3,		0x249BDA7
+.equ	PROG_CHECKSUM4,		0x97ACAB90
+.equ	PROG_CHECKSUM5,		0x716B577
+.equ	PROG_CHECKSUM6,		0x4CD69079
+.equ	PROG_CHECKSUM7,		0x69BF8A72
 
 
 .macro LOAD_ADDRESS reg, label
@@ -139,74 +139,74 @@ _base\@:
 .endm
 
 .macro INIT_NET
-    li      t0, VIRTIO_NET_BASE
+	li	t0, VIRTIO_NET_BASE
 
-    # 1. Verify it's a VirtIO Network Device
-    lw      t1, VIO_MAGIC(t0)
-    li      t2, 0x74726976
-    bne     t1, t2, error_not_virtio
+	# 1. Verify it's a VirtIO Network Device
+	lw	t1, VIO_MAGIC(t0)
+	li	t2, 0x74726976
+	bne	t1, t2, error_not_virtio
 
-    lw      t1, VIO_DEVICE_ID(t0)
-    li      t2, VIO_NET_ID
-    bne     t1, t2, error_not_net
+	lw	t1, VIO_DEVICE_ID(t0)
+	li	t2, VIO_NET_ID
+	bne	t1, t2, error_not_net
 
-    # 2. Reset and Handshake (Standard VirtIO)
-    sw      zero, VIO_STATUS(t0)   # Reset
-    li      t1, 1
-    sw      t1, VIO_STATUS(t0)     # ACK
-    ori     t1, t1, 2
-    sw      t1, VIO_STATUS(t0)     # DRIVER
+	# 2. Reset and Handshake (Standard VirtIO)
+	sw	zero, VIO_STATUS(t0)	# Reset
+	li	t1, 1
+	sw	t1, VIO_STATUS(t0)	# ACK
+	ori	t1, t1, 2
+	sw	t1, VIO_STATUS(t0)	# DRIVER
 
-    # (Negotiating "defaults" by setting FEATURES_OK)
-    lw      t1, VIO_STATUS(t0)
-    ori     t1, t1, 8
-    sw      t1, VIO_STATUS(t0)
+	# (Negotiating "defaults" by setting FEATURES_OK)
+	lw	t1, VIO_STATUS(t0)
+	ori	t1, t1, 8
+	sw	t1, VIO_STATUS(t0)
 
-    li      t1, 4
-    sw      t1, VIO_STATUS(t0)     # DRIVER_OK
+	li	t1, 4
+	sw	t1, VIO_STATUS(t0)	# DRIVER_OK
 
-    # 3. Setup Queue 0 (RECEIVE QUEUE)
-    sw      zero, VIO_QUEUE_SEL(t0)
-    li      t1, 16                 # 16 slots
-    sw      t1, VIO_QUEUE_NUM(t0)
+	# 3. Setup Queue 0 (RECEIVE QUEUE)
+	sw	zero, VIO_QUEUE_SEL(t0)
+	li	t1, 16		# 16 slots
+	sw	t1, VIO_QUEUE_NUM(t0)
 
-    LOAD_ADDRESS t1, net_rx_ring   # Give it its own memory area!
-    srli    t1, t1, 12             # Convert to PFN
-    sw      t1, VIO_QUEUE_PFN(t0)
+	LOAD_ADDRESS t1, net_rx_ring	# Give it its own memory area!
+	srli	t1, t1, 12		# Convert to PFN
+	sw	t1, VIO_QUEUE_PFN(t0)
 
-    # 4. Give the hardware a "Bucket" to catch packets
-    # In Networking, we have to provide a Buffer BEFORE a packet arrives.
-    LOAD_ADDRESS t1, net_rx_ring   # Descriptor Table Base
+	# 4. Give the hardware a "Bucket" to catch packets
+	# In Networking, we have to provide a Buffer BEFORE a packet arrives.
+	LOAD_ADDRESS t1, net_rx_ring	# Descriptor Table Base
 
-    # Descriptor 0: The Network Header (12 bytes)
-    # VirtIO Net needs a small header before the actual data
-    LOAD_ADDRESS t2, net_rx_header
-    sw      t2, 0(t1)              # Addr
-    li      t2, 12
-    sw      t2, 8(t1)              # Len
-    li      t2, 3                  # NEXT | WRITE flags
-    sh      t2, 12(t1)             # Flags
-    li      t2, 1
-    sh      t2, 14(t1)             # Next = 1
+	# Descriptor 0: The Network Header (12 bytes)
+	# VirtIO Net needs a small header before the actual data
+	LOAD_ADDRESS t2, net_rx_header
+	sw	t2, 0(t1)		# Addr
+	li	t2, 12
+	sw	t2, 8(t1)		# Len
+	li	t2, 3		# NEXT | WRITE flags
+	sh	t2, 12(t1)		# Flags
+	li	t2, 1
+	sh	t2, 14(t1)		# Next = 1
 
-    # Descriptor 1: The Data Buffer (Where the packet goes)
-    LOAD_ADDRESS t2, net_rx_buffer
-    sw      t2, 16(t1)             # Addr (Table + 16)
-    li      t2, 1514               # Standard Ethernet Max Size
-    sw      t2, 24(t1)             # Len
-    li      t2, 2                  # WRITE flag (No NEXT, end of chain)
-    sh      t2, 28(t1)             # Flags
-    sh      zero, 30(t1)
+	# Descriptor 1: The Data Buffer (Where the packet goes)
+	LOAD_ADDRESS t2, net_rx_buffer
+	sw	t2, 16(t1)		# Addr (Table + 16)
+	li	t2, 1514		# Standard Ethernet Max Size
+	sw	t2, 24(t1)		# Len
+	li	t2, 2		# WRITE flag (No NEXT, end of chain)
+	sh	t2, 28(t1)		# Flags
+	sh	zero, 30(t1)
 
-    # 5. Notify the hardware that a "Receive Bucket" is ready
-    addi    t3, t1, 256            # Avail Ring offset
-    li      t2, 0
-    sh      t2, 4(t3)              # ring[0] points to Desc 0
-    li      t2, 1
-    sh      t2, 2(t3)              # idx = 1 (Ready to receive 1 packet)
+	# 5. Notify the hardware that a "Receive Bucket" is ready
+	addi	t3, t1, 256		# Avail Ring offset
+	li	t2, 0
+	sh	t2, 4(t3)		# ring[0] points to Desc 0
+	li	t2, 1
+	sh	t2, 2(t3)		# idx = 1 (Ready to receive 1 packet)
 
-    # Kick Queue 0 (RX)
-    sw      zero, 0x050(t0)
+	# Kick Queue 0 (RX)
+	sw	zero, 0x050(t0)
 .endm
 
 
@@ -398,41 +398,41 @@ end_loop:
 	li		a1, BIN_SIZE
 	addi		sp, sp, -64
 	mv		a2, sp
-        li              a0, LOAD_LOC
-        mv              a0, s10
+	li		a0, LOAD_LOC
+	mv		a0, s10
 	jal		chacha20_hash
 
 	li		t0, PROG_CHECKSUM0
 	lw		t1, 0(a2)
 	bne		t0, t1, checksum_mismatch
 
-	li              t0, PROG_CHECKSUM1
-        lw              t1, 4(a2)
-        bne             t0, t1, checksum_mismatch
+	li		t0, PROG_CHECKSUM1
+	lw		t1, 4(a2)
+	bne		t0, t1, checksum_mismatch
 
-        li              t0, PROG_CHECKSUM2
-        lw              t1, 8(a2)
-        bne             t0, t1, checksum_mismatch
+	li		t0, PROG_CHECKSUM2
+	lw		t1, 8(a2)
+	bne		t0, t1, checksum_mismatch
 
-        li              t0, PROG_CHECKSUM3
-        lw              t1, 12(a2)
-        bne             t0, t1, checksum_mismatch
+	li		t0, PROG_CHECKSUM3
+	lw		t1, 12(a2)
+	bne		t0, t1, checksum_mismatch
 
-        li              t0, PROG_CHECKSUM4
-        lw              t1, 16(a2)
-        bne             t0, t1, checksum_mismatch
+	li		t0, PROG_CHECKSUM4
+	lw		t1, 16(a2)
+	bne		t0, t1, checksum_mismatch
 
-        li              t0, PROG_CHECKSUM5
-        lw              t1, 20(a2)
-        bne             t0, t1, checksum_mismatch
+	li		t0, PROG_CHECKSUM5
+	lw		t1, 20(a2)
+	bne		t0, t1, checksum_mismatch
 
-        li              t0, PROG_CHECKSUM6
-        lw              t1, 24(a2)
-        bne             t0, t1, checksum_mismatch
+	li		t0, PROG_CHECKSUM6
+	lw		t1, 24(a2)
+	bne		t0, t1, checksum_mismatch
 
-        li              t0, PROG_CHECKSUM7
-        lw              t1, 28(a2)
-        bne             t0, t1, checksum_mismatch
+	li		t0, PROG_CHECKSUM7
+	lw		t1, 28(a2)
+	bne		t0, t1, checksum_mismatch
 
 	mv		a1, a2
 
@@ -579,8 +579,8 @@ chacha20_block:
 	.macro COPY_BLOCK src, dest
 		.set i, 0
 		.rept 16
-			lw      t0, (i * 4)(\src)
-			sw      t0, (i * 4)(\dest)
+			lw	t0, (i * 4)(\src)
+			sw	t0, (i * 4)(\dest)
 			.set i, i + 1
 		.endr
 	.endm
@@ -590,14 +590,14 @@ chacha20_block:
 
 
 	.macro CHACHA_ADD_BACK src, orig_stack
-    		.set i, 0
-    		.rept 16
-        		lw      t0, (i * 4)(\orig_stack)  # Load original word
-        		lw      t1, (i * 4)(\src)         # Load scrambled word
-        		add     t1, t1, t0                # Add them
-        		sw      t1, (i * 4)(\src)         # Store result back
-        		.set i, i + 1
-    		.endr
+			.set i, 0
+			.rept 16
+			lw	t0, (i * 4)(\orig_stack)	# Load original word
+			lw	t1, (i * 4)(\src)		# Load scrambled word
+			add	t1, t1, t0		# Add them
+			sw	t1, (i * 4)(\src)		# Store result back
+			.set i, i + 1
+			.endr
 	.endm
 
 	CHACHA_ADD_BACK a0, sp
@@ -608,14 +608,14 @@ chacha20_block:
 
 # Macro: XOR_BLOCK
 .macro XOR_BLOCK state_ptr, input_ptr
-    .set i, 0
-    .rept 16
-        lw      t0, (i * 4)(\state_ptr)
-        lw      t1, (i * 4)(\input_ptr)
-        xor     t0, t0, t1
-        sw      t0, (i * 4)(\state_ptr)
-        .set i, i + 1
-    .endr
+	.set i, 0
+	.rept 16
+	lw	t0, (i * 4)(\state_ptr)
+	lw	t1, (i * 4)(\input_ptr)
+	xor	t0, t0, t1
+	sw	t0, (i * 4)(\state_ptr)
+	.set i, i + 1
+	.endr
 .endm
 
 .macro ZERO_BLOCK ptr
@@ -627,61 +627,61 @@ chacha20_block:
 .endm
 
 .macro COPY_64 src, dest
-    .set i, 0
-    .rept 16
-        lw      t0, (i * 4)(\src)
-        sw      t0, (i * 4)(\dest)
-        .set i, i + 1
-    .endr
+	.set i, 0
+	.rept 16
+	lw	t0, (i * 4)(\src)
+	sw	t0, (i * 4)(\dest)
+	.set i, i + 1
+	.endr
 .endm
 
 chacha20_hash:
-        # We can drop s5 if we use t-registers for the tail loop
-        SETUP           s0, s1, s2, s4, s5
-        addi            sp, sp, -64
-        mv              s0, a0          # Input
-        mv              s1, a1          # Len
-        mv              s2, a2          # Dest
-        mv              s5, a1          # Orig Len
+	# We can drop s5 if we use t-registers for the tail loop
+	SETUP		s0, s1, s2, s4, s5
+	addi		sp, sp, -64
+	mv		s0, a0		# Input
+	mv		s1, a1		# Len
+	mv		s2, a2		# Dest
+	mv		s5, a1		# Orig Len
 
-        ZERO_BLOCK      sp
+	ZERO_BLOCK	sp
 1:
-        li              t0, 64
-        blt             s1, t0, 2f
-        XOR_BLOCK       sp, s0
-        mv              a0, sp
-        jal             ra, chacha20_block
-        addi            s1, s1, -64
-        addi            s0, s0, 64
-        j               1b
+	li		t0, 64
+	blt		s1, t0, 2f
+	XOR_BLOCK	sp, s0
+	mv		a0, sp
+	jal		ra, chacha20_block
+	addi		s1, s1, -64
+	addi		s0, s0, 64
+	j		1b
 2:
-        beqz            s1, 4f
-        mv              t2, sp          # Use a temp for the stack offset
-3:      
-        lbu             t0, 0(s0)
-        lbu             t1, 0(t2)
-        xor             t0, t0, t1
-        sb              t0, 0(t2)
-        addi            s0, s0, 1
-        addi            t2, t2, 1
-        addi            s1, s1, -1
-        bnez            s1, 3b          # Loop back if bytes remaining
+	beqz		s1, 4f
+	mv		t2, sp		# Use a temp for the stack offset
+3:	
+	lbu		t0, 0(s0)
+	lbu		t1, 0(t2)
+	xor		t0, t0, t1
+	sb		t0, 0(t2)
+	addi		s0, s0, 1
+	addi		t2, t2, 1
+	addi		s1, s1, -1
+	bnez		s1, 3b		# Loop back if bytes remaining
 
-        mv              a0, sp
-        jal             ra, chacha20_block
+	mv		a0, sp
+	jal		ra, chacha20_block
 4:
-        lw              t0, 0(sp)
-        xor             t0, t0, s5      # Mix total length
-        sw              t0, 0(sp)
-        
-        mv              a0, sp
-        jal             ra, chacha20_block
+	lw		t0, 0(sp)
+	xor		t0, t0, s5	# Mix total length
+	sw		t0, 0(sp)
+	
+	mv		a0, sp
+	jal		ra, chacha20_block
 
 	mv		a2, s2
-        COPY_64         sp, s2
+	COPY_64		sp, s2
 
-        addi            sp, sp, 64
-        RETURN
+	addi		sp, sp, 64
+	RETURN
 
 print_hex:
 	SETUP		s0, s1, s2, t0, t1, t2, a0
@@ -733,17 +733,17 @@ checksum_mismatch:
 	j		1b
 
 error_not_net:
-                li a0, 'n'
-                jal write_byte
-                li a0, '\n'
-                jal write_byte
-                j exit
-1:              wfi
-                j 1b
+		li a0, 'n'
+		jal write_byte
+		li a0, '\n'
+		jal write_byte
+		j exit
+1:		wfi
+		j 1b
 
 net_rx_header: .zero 12
-net_rx_buffer: .zero 1536   # Large enough for a full Ethernet frame
-net_rx_ring:   .zero 4096
+net_rx_buffer: .zero 1536	# Large enough for a full Ethernet frame
+net_rx_ring:	.zero 4096
 
 
 data:
