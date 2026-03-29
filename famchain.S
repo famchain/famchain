@@ -307,11 +307,13 @@ end_loop:
 
 	addi		sp, sp, -64
 	mv		a0, sp
-	li		t0, 1235
+	li		t0, 1234
 	sw		t0, 0(a0)
-	li		a1, 64
+	li		a1, BIN_SIZE
 	addi		sp, sp, -64
 	mv		a2, sp
+        li              a0, LOAD_LOC
+        mv              a0, s10
 	jal		chacha20_hash
 
 	mv		a1, a2
