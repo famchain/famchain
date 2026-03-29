@@ -31,6 +31,8 @@
 .equ	UART_LSR,		5
 .equ	UART_WR_MASK,		0x20
 .equ	VIRTIO_DISK_BASE,	0x10001000	
+.equ	VIRTIO_NET_BASE,	0x10002000
+.equ	VIO_NET_ID,		1          # Device ID for Network is 1
 .equ	VIO_MAGIC,		0x000
 .equ	VIO_DEVICE_ID,		0x008
 .equ	VIO_STATUS,		0x070
@@ -135,6 +137,78 @@ _base\@:
 	addi	t1, t1, VIRT_DESCRIPTOR_TABLE
 	sw	t1, VIO_QUEUE_PFN(t0)
 .endm
+
+.macro INIT_NET
+    li      t0, VIRTIO_NET_BASE
+
+    # 1. Verify it's a VirtIO Network Device
+    lw      t1, VIO_MAGIC(t0)
+    li      t2, 0x74726976
+    bne     t1, t2, error_not_virtio
+
+    lw      t1, VIO_DEVICE_ID(t0)
+    li      t2, VIO_NET_ID
+    bne     t1, t2, error_not_net
+
+    # 2. Reset and Handshake (Standard VirtIO)
+    sw      zero, VIO_STATUS(t0)   # Reset
+    li      t1, 1
+    sw      t1, VIO_STATUS(t0)     # ACK
+    ori     t1, t1, 2
+    sw      t1, VIO_STATUS(t0)     # DRIVER
+
+    # (Negotiating "defaults" by setting FEATURES_OK)
+    lw      t1, VIO_STATUS(t0)
+    ori     t1, t1, 8
+    sw      t1, VIO_STATUS(t0)
+
+    li      t1, 4
+    sw      t1, VIO_STATUS(t0)     # DRIVER_OK
+
+    # 3. Setup Queue 0 (RECEIVE QUEUE)
+    sw      zero, VIO_QUEUE_SEL(t0)
+    li      t1, 16                 # 16 slots
+    sw      t1, VIO_QUEUE_NUM(t0)
+
+    LOAD_ADDRESS t1, net_rx_ring   # Give it its own memory area!
+    srli    t1, t1, 12             # Convert to PFN
+    sw      t1, VIO_QUEUE_PFN(t0)
+
+    # 4. Give the hardware a "Bucket" to catch packets
+    # In Networking, we have to provide a Buffer BEFORE a packet arrives.
+    LOAD_ADDRESS t1, net_rx_ring   # Descriptor Table Base
+
+    # Descriptor 0: The Network Header (12 bytes)
+    # VirtIO Net needs a small header before the actual data
+    LOAD_ADDRESS t2, net_rx_header
+    sw      t2, 0(t1)              # Addr
+    li      t2, 12
+    sw      t2, 8(t1)              # Len
+    li      t2, 3                  # NEXT | WRITE flags
+    sh      t2, 12(t1)             # Flags
+    li      t2, 1
+    sh      t2, 14(t1)             # Next = 1
+
+    # Descriptor 1: The Data Buffer (Where the packet goes)
+    LOAD_ADDRESS t2, net_rx_buffer
+    sw      t2, 16(t1)             # Addr (Table + 16)
+    li      t2, 1514               # Standard Ethernet Max Size
+    sw      t2, 24(t1)             # Len
+    li      t2, 2                  # WRITE flag (No NEXT, end of chain)
+    sh      t2, 28(t1)             # Flags
+    sh      zero, 30(t1)
+
+    # 5. Notify the hardware that a "Receive Bucket" is ready
+    addi    t3, t1, 256            # Avail Ring offset
+    li      t2, 0
+    sh      t2, 4(t3)              # ring[0] points to Desc 0
+    li      t2, 1
+    sh      t2, 2(t3)              # idx = 1 (Ready to receive 1 packet)
+
+    # Kick Queue 0 (RX)
+    sw      zero, 0x050(t0)
+.endm
+
 
 
 # a0 = sector
@@ -265,6 +339,7 @@ _base\@:
 _start:
 	LOAD_DATA	s10, t0
 	INIT_DISK
+	INIT_NET
 
 	li		s0, BIN_SIZE
 	li		s1, 0
@@ -656,6 +731,19 @@ checksum_mismatch:
 	jal		write_byte
 1:	wfi
 	j		1b
+
+error_not_net:
+                li a0, 'n'
+                jal write_byte
+                li a0, '\n'
+                jal write_byte
+                j exit
+1:              wfi
+                j 1b
+
+net_rx_header: .zero 12
+net_rx_buffer: .zero 1536   # Large enough for a full Ethernet frame
+net_rx_ring:   .zero 4096
 
 
 data:
