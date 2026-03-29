@@ -302,16 +302,19 @@ end_loop:
 	addi		s7, s7, 1
 	blt		s5, s6, 1b
 
-	li		sp, 10000
+	li		sp, 0x10000
 	add		sp, sp, s10
 
-	mv		a0, sp
 	addi		sp, sp, -64
-	li		t0, 1234
+	mv		a0, sp
+	li		t0, 1235
 	sw		t0, 0(a0)
-	jal		chacha20_block
+	li		a1, 64
+	addi		sp, sp, -64
+	mv		a2, sp
+	jal		chacha20_hash
 
-	mv		a1, a0
+	mv		a1, a2
 	lw		a0, 0(a1)
 	jal		print_hex
 	li		a0, '\n'
@@ -483,9 +486,8 @@ chacha20_block:
 	addi		sp, sp, 64
 	ret					# Result is now at 0(sp)
 
-
-# Macro for the XOR step in the hash loop
-.macro CHACHA_XOR_BLOCK state_ptr, input_ptr
+# Macro: XOR_BLOCK
+.macro XOR_BLOCK state_ptr, input_ptr
     .set i, 0
     .rept 16
         lw      t0, (i * 4)(\state_ptr)
@@ -496,70 +498,54 @@ chacha20_block:
     .endr
 .endm
 
+.macro ZERO_BLOCK ptr
+	.set i, 0
+	.rept 16
+		sw zero, (i * 4)(\ptr)
+	.set i, i + 1
+	.endr
+.endm
+
 chacha20_hash:
-        SETUP           s0, s1, s2
-        mv              s0, a0          # s0 = input pointer
-        mv              s1, a1          # s1 = total len
-        mv              s2, a2          # s2 = output pointer
+	SETUP		s0, s1, s2, s4, s5, s6
+	addi		sp, sp, -64
+	mv		s0, a0
+	mv		s1, a1
+	mv		s2, a2
+	mv		s5, sp
+	mv		s6, a1
 
-        # Allocate 64 bytes on stack for 'buf' and zero it
-        addi            sp, sp, -64
-        .set i, 0
-        .rept 16
-            sw      zero, (i * 4)(sp)
-            .set i, i + 1
-        .endr
-
-hash_loop:
-        li              t0, 64
-        blt             s1, t0, final_tail # if len < 64, handle the remainder
-
-        # Full 64-byte block processing
-        CHACHA_XOR_BLOCK sp, s0
-        mv              a0, sp
-        call            chacha20_block
-
-        addi            s0, s0, 64
-        addi            s1, s1, -64
-        j               hash_loop
-
-final_tail:
-        # 1. XOR whatever bytes are left in s1 into buf
-        # We use a simple byte-by-byte loop here since s1 < 64
-        beqz            s1, skip_tail
-        mv              t0, zero        # offset
-tail_loop:
-        add             t1, s0, t0      # input + offset
-        lbu             t2, 0(t1)       # load byte from input
-        add             t3, sp, t0      # buf + offset
-        lbu             t4, 0(t3)       # load byte from buf
-        xor             t4, t4, t2      # buf[t0] ^= input[t0]
-        sb              t4, 0(t3)
-        
-        addi            t0, t0, 1
-        blt             t0, s1, tail_loop
-
-skip_tail:
-        # 2. buf ^= original_len (using the initial a1 or current s1)
-        # To match your C code exactly: buf ^= len
-        lw              t0, 0(sp)
-        xor             t0, t0, s1      
-        sw              t0, 0(sp)
-
-        # 3. Final permutation
-        mv              a0, sp
-        call            chacha20_block
-
-        # 4. Copy 64-byte result to output s2
-        .set i, 0
-        .rept 16
-            lw      t0, (i * 4)(sp)
-            sw      t0, (i * 4)(s2)
-            .set i, i + 1
-        .endr
-
-        addi            sp, sp, 64
-        RETURN
+	ZERO_BLOCK	sp
+1:
+	li		t0, 64
+	blt		s1, t0, 2f
+	XOR_BLOCK	sp, s0
+	mv		a0, sp
+	jal		chacha20_block
+	addi		s1, s1, -64
+	addi		s0, s0, 64
+	j		1b
+2:
+	beqz		s1, 5f
+3:	beqz		s1, 4f
+	lbu		t0, 0(s0)
+	lbu		t1, 0(s5)
+	xor		t0, t0, t1
+	sb		t0, 0(s5)
+	addi		s0, s0, 1
+	addi		s5, s5, 1
+	addi		s1, s1, -1
+	j		3b
+4:	jal		chacha20_block
+5:
+	lw		t0, 0(sp)
+	xor		t0, t0, s6
+	sw		t0, 0(sp)
+	jal             chacha20_block
+	
+	mv		a2, a0
+	addi		sp, sp, 64	
+	RETURN
 
 print_hex:
 	SETUP		s0, s1, s2, t0, t1, t2, a0
