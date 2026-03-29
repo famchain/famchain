@@ -517,49 +517,52 @@ chacha20_block:
 .endm
 
 chacha20_hash:
-	SETUP		s0, s1, s2, s4, s5, s6
-	addi		sp, sp, -64
-	mv		s0, a0
-	mv		s1, a1
-	mv		s2, a2
+        # We can drop s5 if we use t-registers for the tail loop
+        SETUP           s0, s1, s2, s4, s5
+        addi            sp, sp, -64
+        mv              s0, a0          # Input
+        mv              s1, a1          # Len
+        mv              s2, a2          # Dest
+        mv              s5, a1          # Orig Len
 
-
-	mv		s5, sp
-	mv		s6, a1
-
-	ZERO_BLOCK	sp
+        ZERO_BLOCK      sp
 1:
-	li		t0, 64
-	blt		s1, t0, 2f
-	XOR_BLOCK	sp, s0
-	mv		a0, sp
-	jal		chacha20_block
-	addi		s1, s1, -64
-	addi		s0, s0, 64
-	j		1b
+        li              t0, 64
+        blt             s1, t0, 2f
+        XOR_BLOCK       sp, s0
+        mv              a0, sp
+        jal             ra, chacha20_block
+        addi            s1, s1, -64
+        addi            s0, s0, 64
+        j               1b
 2:
-	beqz		s1, 5f
-3:	beqz		s1, 4f
-	lbu		t0, 0(s0)
-	lbu		t1, 0(s5)
-	xor		t0, t0, t1
-	sb		t0, 0(s5)
-	addi		s0, s0, 1
-	addi		s5, s5, 1
-	addi		s1, s1, -1
-	j		3b
-4:	jal		chacha20_block
-5:
-	lw		t0, 0(sp)
-	xor		t0, t0, s6
-	sw		t0, 0(sp)
-	jal             chacha20_block
+        beqz            s1, 4f
+        mv              t2, sp          # Use a temp for the stack offset
+3:      
+        lbu             t0, 0(s0)
+        lbu             t1, 0(t2)
+        xor             t0, t0, t1
+        sb              t0, 0(t2)
+        addi            s0, s0, 1
+        addi            t2, t2, 1
+        addi            s1, s1, -1
+        bnez            s1, 3b          # Loop back if bytes remaining
+
+        mv              a0, sp
+        jal             ra, chacha20_block
+4:
+        lw              t0, 0(sp)
+        xor             t0, t0, s5      # Mix total length
+        sw              t0, 0(sp)
+        
+        mv              a0, sp
+        jal             ra, chacha20_block
 
 	mv		a2, s2
-	COPY_64		a0, a2
+        COPY_64         sp, s2
 
-	addi		sp, sp, 64	
-	RETURN
+        addi            sp, sp, 64
+        RETURN
 
 print_hex:
 	SETUP		s0, s1, s2, t0, t1, t2, a0
