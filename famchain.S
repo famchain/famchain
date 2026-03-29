@@ -192,33 +192,33 @@ _base\@:
 	j		1b
 
 chacha20_hash:
-.macro ZERO_BLOCK ptr
-        .set i, 0
-        .rept 16
-                sw zero, (i * 4)(\ptr)
-        .set i, i + 1
-        .endr
-.endm
+	.macro ZERO_BLOCK ptr
+		.set i, 0
+		.rept 16
+			sw zero, (i * 4)(\ptr)
+			.set i, i + 1
+		.endr
+	.endm
 
-.macro XOR_BLOCK state_ptr, input_ptr
-        .set i, 0
-        .rept 16
-        lw      t0, (i * 4)(\state_ptr)
-        lw      t1, (i * 4)(\input_ptr)
-        xor     t0, t0, t1
-        sw      t0, (i * 4)(\state_ptr)
-        .set i, i + 1
-        .endr
-.endm
+	.macro XOR_BLOCK state_ptr, input_ptr
+		.set i, 0
+		.rept 16
+			lw	t0, (i * 4)(\state_ptr)
+			lw	t1, (i * 4)(\input_ptr)
+			xor	t0, t0, t1
+			sw	t0, (i * 4)(\state_ptr)
+			.set i, i + 1
+		.endr
+	.endm
 
-.macro COPY_64 dest, src
-        .set i, 0
-        .rept 16
-        lw      t0, (i * 4)(\src)
-        sw      t0, (i * 4)(\dest)
-        .set i, i + 1
-        .endr
-.endm
+	.macro COPY_64 dest, src
+		.set i, 0
+		.rept 16
+			lw	t0, (i * 4)(\src)
+			sw	t0, (i * 4)(\dest)
+			.set i, i + 1
+		.endr
+	.endm
 
 	SETUP		s0, s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11
 	addi		sp, sp, -64
