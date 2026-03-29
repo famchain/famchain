@@ -77,7 +77,7 @@ _base\@:
 .macro QR_STEP a, b, d, tmp, rot
 	add	\a, \a, \b
 	xor	\d, \d, \a
-	slli \tmp, \d, \rot		# t0 = d << rot
+	slli \tmp, \d, \rot		# tmp = d << rot
 	srli \d, \d, (32 - \rot)	# d = d >> (32 - rot)
 	or	\d, \d, \tmp		# d = (d << rot) | (d >> (32 - rot))
 .endm
@@ -121,12 +121,53 @@ _base\@:
 .endm
 
 .macro CHACHA20_BLOCK
-	addi		sp, sp, -128
-	
-	addi		sp, sp, 128
+	SETUP		s0, s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11
+	mv		s11, a0
+
+	lw		s0, 0(s11)
+	lw		s1, 4(s11)
+	lw		s2, 8(s11)
+	lw		s3, 12(s11)
+	lw		s4, 16(s11)
+	lw		s5, 20(s11)
+	lw		s6, 24(s11)
+	lw		s7, 28(s11)
+	lw		s8, 32(s11)
+	lw		s9, 36(s11)
+	lw		s10, 40(s11)
+	lw		t0, 44(s11)
+	lw		t1, 48(s11)
+	lw		t2, 52(s11)
+	lw		t3, 56(s11)
+	lw		t4, 60(s11)
+
+	CHACHA_ROUNDS
+
+	.macro ADD_BACK reg ind
+		lw		t5, \ind(s11)
+		add		t5, \reg, t5
+		sw		t5, \ind(s11)
+	.endm
+
+	ADD_BACK	s0, 0
+	ADD_BACK	s1, 4
+	ADD_BACK	s2, 8
+	ADD_BACK	s3, 12
+	ADD_BACK	s4, 16
+	ADD_BACK	s5, 20
+	ADD_BACK	s6, 24
+	ADD_BACK	s7, 28
+	ADD_BACK	s8, 32
+	ADD_BACK	s9, 36
+	ADD_BACK	s10, 40
+	ADD_BACK	t0, 44
+	ADD_BACK	t1, 48
+	ADD_BACK	t2, 52
+	ADD_BACK	t3, 56
+	ADD_BACK	t4, 60
+
+	TEAR_DOWN
 .endm
-	li		a0, 'x'
-	jal		write_byte
 
 	# Setup stack
 	LOAD_ADDRESS	sp, data
@@ -135,20 +176,15 @@ _base\@:
 	li		t0, 0x100000
 	add		sp, sp, t0
 	
-	li		a0, 0x1234
-	li		a1, 0
-	jal		print_hex
-	li		a0, '\n'
-	jal		write_byte
-
 	mv		a0, sp
-	jal		print_hash
+	li		t0, 1
+	sw		t0, 0(a0)
 
+	CHACHA20_BLOCK
+	jal		print_hash
 	li		a0, '\n'
 	jal		write_byte
 
-	li		a0, 'y'
-	jal		write_byte
 
 1:	wfi
 	j		1b
@@ -157,20 +193,18 @@ print_hash:
 	.macro PRINT_INDEX ind
 		lw		a0,		\ind(s0)
 		jal		print_hex
-		#li		a0, '\n'
-		#jal		write_byte
 	.endm
 	SETUP		s0
 	mv		s0, a0
 	li		a1, 1
 	PRINT_INDEX	0
-	PRINT_INDEX     4
-	PRINT_INDEX     8
-	PRINT_INDEX     12
-        PRINT_INDEX     16
-        PRINT_INDEX     20
-        PRINT_INDEX     24
-        PRINT_INDEX     28
+	PRINT_INDEX	4
+	PRINT_INDEX	8
+	PRINT_INDEX	12
+	PRINT_INDEX	16
+	PRINT_INDEX	20
+	PRINT_INDEX	24
+	PRINT_INDEX	28
 	mv		a0, s0
 	RETURN
 	
