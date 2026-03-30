@@ -28,6 +28,23 @@
 .equ	UART_LSR,		5
 .equ	UART_WR_MASK,		0x20
 
+.equ	VIRTIO_DISK_BASE,	0x10001000
+.equ	VIRTIO_NET_BASE,	0x10002000
+.equ	VIO_NET_ID,		1		# Device ID for Network is 1
+.equ	VIO_MAGIC,		0x000
+.equ	VIO_DEVICE_ID,		0x008
+.equ	VIO_QUEUE_PFN,		0x040
+.equ	VIO_STATUS,		0x070
+.equ	VIRT_MAGIC,		0x74726976
+
+.equ	VIRT_DISK_BUFFER,	0
+.equ	VIRT_DESCRIPTOR_TABLE,	512
+.equ	VIRT_DISK_STATUS,	8704		# reserve space for 'used ring'
+.equ	VIRT_DISK_HEADER,	8706
+.equ	LOAD_LOC,		8722
+
+
+
 .altmacro
 .macro LOAD_ADDRESS reg, label
 _base\@:
@@ -35,6 +52,16 @@ _base\@:
 	.equ _offset\@, (\label - _base\@)
 	auipc	\reg, %hi(_offset\@)
 	addi	\reg, \reg, %lo(_offset\@)
+.endm
+
+.macro LOAD_DATA reg tmp
+	LOAD_ADDRESS \reg, data
+	li \tmp, 4095
+	add \reg, \reg, \tmp
+	li \tmp, -4096
+	and \reg, \reg, \tmp
+	li \tmp, 3584
+	add \reg, \reg, \tmp
 .endm
 
 .set _macro_depth, 0
@@ -136,14 +163,14 @@ _base\@:
 .macro PERMUTE
 	DOUBLE_ROUND
 	DOUBLE_ROUND
-        DOUBLE_ROUND
-        DOUBLE_ROUND
-        DOUBLE_ROUND
-        DOUBLE_ROUND
-        DOUBLE_ROUND
-        DOUBLE_ROUND
-        DOUBLE_ROUND
-        DOUBLE_ROUND
+	DOUBLE_ROUND
+	DOUBLE_ROUND
+	DOUBLE_ROUND
+	DOUBLE_ROUND
+	DOUBLE_ROUND
+	DOUBLE_ROUND
+	DOUBLE_ROUND
+	DOUBLE_ROUND
 .endm
 
 .macro ADD_BACK reg ind
@@ -192,7 +219,65 @@ _base\@:
 
 .endm
 
-	# Setup stack
+.macro INIT_DISK
+	li		t0, VIRTIO_DISK_BASE
+	lw		t1, VIO_MAGIC(t0)		# Should be 0x74726976 ("virt")
+	li		t2, VIRT_MAGIC
+	bne		t1, t2, error_not_virtio
+
+	lw		t1, VIO_DEVICE_ID(t0)		# Should be 2 for Block Device
+	li		t2, 2
+	bne		t1, t2, error_not_disk
+
+	# Reset the device
+	sw		zero, VIO_STATUS(t0)
+
+	# Set ACKNOWLEDGE bit (1)
+	li		t1, 1
+	sw		t1, VIO_STATUS(t0)
+
+	# Set DRIVER bit (2)
+	lw		t1, VIO_STATUS(t0)
+	ori		t1, t1, 2
+	sw		t1, VIO_STATUS(t0)
+
+	# Set FEATURES_OK bit (8)
+	lw		t1, VIO_STATUS(t0)
+	ori		t1, t1, 8
+	sw		t1, VIO_STATUS(t0)
+
+	# Check if FEATURES_OK was accepted
+	lw		t1, VIO_STATUS(t0)
+	andi		t2, t1, 8
+	beqz		t2, error_features_not_supported
+
+
+
+	# Set DRIVER_OK bit (4) - Device is now "Live"
+	lw		t1, VIO_STATUS(t0)
+	ori		t1, t1, 4
+	sw		t1, VIO_STATUS(t0)
+
+	# zero the buffer
+	mv		t1, gp
+	mv		t2, t1
+	li		t3, LOAD_LOC
+	add		t3, t3, t2
+
+1:
+	sb		zero, 0(t2)
+	addi		t2, t2, 1
+	blt		t2, t3, 1b
+
+	addi	t1, t1, VIRT_DESCRIPTOR_TABLE
+	sw	t1, VIO_QUEUE_PFN(t0)
+.endm
+
+# Main entry point
+_start:
+	LOAD_DATA	gp, t0
+	INIT_DISK
+
 	LOAD_ADDRESS	sp, data
 	addi		sp, sp, 15
 	andi		sp, sp, -16
