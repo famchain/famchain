@@ -29,7 +29,7 @@
 .equ	UART_WR_MASK,		0x20
 
 .equ	VIRTIO_DISK_BASE,	0x10001000
-.equ	VIRTIO_NET_BASE,	0x10002000
+.equ	VIRT_QUEUE0,		0x050
 .equ	VIO_NET_ID,		1		# Device ID for Network is 1
 .equ	VIO_MAGIC,		0x000
 .equ	VIO_DEVICE_ID,		0x008
@@ -273,16 +273,90 @@ _base\@:
 	sw	t1, VIO_QUEUE_PFN(t0)
 .endm
 
+# a0 = sector
+# a1 = counter
+.macro READ_BLOCK
+	mv		t0, gp
+	addi		t1, t0, VIRT_DESCRIPTOR_TABLE	# t1 = Disk table
+	li		t2, VIRT_DISK_HEADER		# t2 = Disk header
+	add		t2, t2, t0
+	li		t3, VIRT_DISK_STATUS
+	add		t3, t3, t0		# t3 = Disk status
+
+	sw		a1, 8(t2)
+
+	sw		t2, 0(t1)		# Addr
+	sw		zero, 4(t1)
+	li		t4, 16
+	sw		t4, 8(t1)		# Len
+	li		t4, 1		# NEXT flag
+	sh		t4, 12(t1)		# Flags
+	sh		t4, 14(t1)
+
+
+
+	# 2. Setup Descriptor 1 (Data Buffer)
+	sw		t0, 16(t1)		# Addr
+	sw		zero, 20(t1)
+
+	li		t4, 512
+	sw		t4, 24(t1)		# Len
+	li		t4, 3		# NEXT | WRITE flags
+	sh		t4, 28(t1)		# Flags
+	li		t4, 2
+	sh		t4, 30(t1)		# Next index = 2
+
+
+	sw		t3, 32(t1)		# Addr (Table + 32)
+	sw		zero, 36(t1)
+	li		t4, 1
+	sw		t4, 40(t1)		# Len
+	li		t4, 2		# WRITE flag
+	sh		t4, 44(t1)		# Flags
+	sh		zero, 46(t1)		# Next = 0 (End)
+
+
+	# 4. Notify the Available Ring
+	# Available Ring starts at offset 256 (after 16 descriptors)
+	addi		t4, t1, 256
+	sh		zero, 4(t4)		# Set ring[0] = 0 (Start at Desc 0)
+	sh		a0, 2(t4)		# Set idx
+
+	li		t5, 0xFF
+	sb		t5, 0(t3)
+
+	# 5. Kick the hardware
+	li		t5, VIRTIO_DISK_BASE		# VIRTIO_DISK_BASE
+	sw		zero, VIRT_QUEUE0(t5)		# Notify Queue 0
+
+	# 6. Wait for disk_status to change from 0xFF
+	li		t5, 0xFF
+1:	lbu		t4, 0(t3)
+	beq		t4, t5, 1b
+.endm
+
+
 # Main entry point
 _start:
 	LOAD_DATA	gp, t0
 	INIT_DISK
+
+	li		a0, 0
+	li		a1, 1
+	READ_BLOCK	
+
 
 	LOAD_ADDRESS	sp, data
 	addi		sp, sp, 15
 	andi		sp, sp, -16
 	li		t0, 0x100000
 	add		sp, sp, t0
+
+	lbu		a0, 0(gp)
+	jal		print_hex
+	li		a0, '\n'
+	jal		write_byte
+
 
 	mv		a0, sp
 	addi		sp, sp, -64
