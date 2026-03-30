@@ -369,8 +369,13 @@ _start:
 	li		t0, 0x100000
 	add		sp, sp, t0
 
-	lbu		a0, 0(gp)
-	jal		print_hex
+	mv		s0, gp
+	addi		s1, s0, 512
+1:
+	lbu		a0, 0(s0)
+	jal		write_byte
+	addi		s0, s0, 1
+	bne		s0, s1, 1b
 	li		a0, '\n'
 	jal		write_byte
 
