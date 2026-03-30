@@ -296,6 +296,7 @@ _base\@:
 	li		t3, VIRT_DISK_STATUS
 	add		t3, t3, t0			# t3 = Disk status
 
+	sw		zero, 0(t2)			# type = VIRTIO_BLK_T_IN (read)
 	sw		a0, 8(t2)
 
 	sw		t2, 0(t1)			# Addr
