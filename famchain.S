@@ -46,6 +46,17 @@
 .equ	VIRT_DISK_HEADER,	8706
 .equ	LOAD_LOC,		8722
 .equ	BIN_SIZE,		1296
+# Hash of bin = 0615555B 21032136 53CB174E A7D9AD58 32214BDD 47BC5AF3 CB4F2064 60741073 
+.equ	BIN_HASH0,		0x0615555B
+.equ	BIN_HASH1,		0x21032136
+.equ	BIN_HASH2,		0x53CB174E
+.equ	BIN_HASH3,		0xA7D9AD58
+.equ	BIN_HASH4,		0x32214BDD
+.equ	BIN_HASH5,		0x47BC5AF3
+.equ	BIN_HASH6,		0xCB4F2064
+.equ	BIN_HASH7,		0x60741073
+
+
 
 
 .altmacro
@@ -262,37 +273,89 @@ _start:
 
 	INIT_DISK
 
-        li              s2, LOAD_LOC
-        add             s2, s2, gp
+	li		s2, LOAD_LOC
+	add		s2, s2, gp
 	li		s3, 0 # counter
 	li		s5, BIN_SIZE
 
 start_block:
-        mv              a0, s3		# counter
+	mv		a0, s3		# counter
 	addi		s3, s3, 1
-        mv              a1, s3		# idx = counter + 1
-        READ_BLOCK
+	mv		a1, s3		# idx = counter + 1
+	READ_BLOCK
 
-        mv              s0, gp		# data always lands at gp+0
-        addi            s1, s0, 512
-1:      
-        lbu             a0, 0(s0)
+	mv		s0, gp		# data always lands at gp+0
+	addi		s1, s0, 512
+1:	
+	lbu		a0, 0(s0)
 	sb		a0, 0(s2)
 	addi		s5, s5, -1
 	beqz		s5, 2f
 	addi		s2, s2, 1
-        addi            s0, s0, 1    
-        bne             s0, s1, 1b   
+	addi		s0, s0, 1	
+	bne		s0, s1, 1b	
 	j		start_block
 2:
 
-        li              s0, LOAD_LOC
-        add             s0, s0, gp
-        jr              s0
+	li		s0, LOAD_LOC
+	add		s0, s0, gp
+
+
+	# Check hash
+	addi		sp, sp, -32
+	mv		a0, s0
+	li		a1, BIN_SIZE
+	mv		a2, sp
+	jal		blake2s
+
+	lw		t0, 0(sp)
+	li		t1, BIN_HASH0
+	bne		t0, t1, hash_mismatch
+        lw              t0, 4(sp)
+        li              t1, BIN_HASH1
+        bne             t0, t1, hash_mismatch
+        lw              t0, 8(sp)
+        li              t1, BIN_HASH2
+        bne             t0, t1, hash_mismatch
+        lw              t0, 12(sp)
+        li              t1, BIN_HASH3
+        bne             t0, t1, hash_mismatch
+        lw              t0, 16(sp)
+        li              t1, BIN_HASH4
+        bne             t0, t1, hash_mismatch
+        lw              t0, 20(sp)
+        li              t1, BIN_HASH5
+        bne             t0, t1, hash_mismatch
+        lw              t0, 24(sp)
+        li              t1, BIN_HASH6
+        bne             t0, t1, hash_mismatch
+        lw              t0, 28(sp)
+        li              t1, BIN_HASH7
+        bne             t0, t1, hash_mismatch
+
+	li		s0, 8		# 8 words to print
+	mv		s1, sp
+1:	lw		a0, 0(s1)
+	li		a1, 1		# suppress "0x" prefix
+	jal		print_hex
+	li		a0, ' '
+	jal		write_byte
+	addi		s1, s1, 4
+	addi		s0, s0, -1
+	bnez		s0, 1b
+
+	addi		sp, sp, 32
+
+	li		a0, '\n'
+	jal		write_byte
+
+
+	li		s0, LOAD_LOC
+	add		s0, s0, gp
+	jr		s0
 
 
 /*
-
 	# Hash "abc" and print the 8 output words.
 	# Expected: 508c5e8c 327c14e2 e1a72ba3 4eeb452f
 	#           37458b20 9ed63a29 4d999b4c 86675982
@@ -663,13 +726,19 @@ _b2s_copy_done:
 	addi	sp, sp, 96
 	RETURN
 
+hash_mismatch:
+	li		a0, 'm'
+	jal		write_byte
+1:	wfi
+	j		1b
+
 error_not_virtio:
 error_not_disk:
 error_features_not_supported:
-        li              a0, 'q'
-        jal             write_byte
-1:      wfi
-        j               1b
+	li		a0, 'z'
+	jal		write_byte
+1:	wfi
+	j		1b
 
 # ─── Blake2s Constants ───────────────────────────────────────────────────────
 
