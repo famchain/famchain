@@ -166,27 +166,26 @@ _base\@:
 
 .endm
 
-
-
 	# Setup stack
 	LOAD_ADDRESS	sp, data
 	addi		sp, sp, 15
 	andi		sp, sp, -16
 	li		t0, 0x100000
 	add		sp, sp, t0
-	
+
 	mv		a0, sp
 	addi		sp, sp, -64
 	mv		a2, sp
 	li		t0, 1
 	sw		t0, 0(a0)
-	li		a1, 64
+	li		t0, 1
+	sw		t0, 64(a0)
+	li		a1, 65
 	jal		chacha20_hash
 	mv		a0, a2
 	jal		print_hash
 	li		a0, '\n'
 	jal		write_byte
-
 
 1:	wfi
 	j		1b
@@ -249,7 +248,7 @@ chacha20_hash:
 	CHACHA20_BLOCK
 4:
  	lw		t0, 0(a0)
-	xor		t0, t0, s11	# Mix total length
+	xor		t0, t0, s11		# Mix total length
 	sw		t0, 0(a0)
 	CHACHA20_BLOCK
 	COPY_64		a2, a0
@@ -277,8 +276,6 @@ print_hash:
 	mv		a0, s0
 	RETURN
 	
-
-
 write_byte:
 	li		t1, UART_BASE
 	lbu		t2, UART_LSR(t1)
