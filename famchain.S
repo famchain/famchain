@@ -40,7 +40,6 @@
 .equ	VIO_STATUS,		0x070
 .equ	VIRT_MAGIC,		0x74726976
 
-.equ	VIRT_DISK_BUFFER,	0
 .equ	VIRT_DESCRIPTOR_TABLE,	512
 .equ	VIRT_DISK_STATUS,	8704		# reserve space for 'used ring'
 .equ	VIRT_DISK_HEADER,	8706
@@ -350,9 +349,6 @@ start_block:
 	li		s0, LOAD_LOC
 	add		s0, s0, gp
 	jr		s0
-
-1:	wfi
-	j		1b
 
 
 write_byte:
@@ -738,8 +734,5 @@ b2s_g_idx:
 	.byte	1,	6, 11, 12		# diagonal 1
 	.byte	2,	7,	8, 13		# diagonal 2
 	.byte	3,	4,	9, 14		# diagonal 3
-
-test_msg:
-	.ascii	"abc"
 
 data:
