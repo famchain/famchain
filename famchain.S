@@ -56,9 +56,6 @@
 .equ	BIN_HASH6,		0xCB4F2064
 .equ	BIN_HASH7,		0x60741073
 
-
-
-
 .altmacro
 .macro LOAD_ADDRESS reg, label
 _base\@:
@@ -178,9 +175,9 @@ _base\@:
 	bltu		t2, t3, 1b
 
 	# Queue setup
-	sw		zero, 0x030(t0)		# QueueSel = 0
+	sw		zero, 0x030(t0)			# QueueSel = 0
 	li		t1, 16
-	sw		t1, 0x038(t0)		# QueueNum = 16
+	sw		t1, 0x038(t0)			# QueueNum = 16
 	li		t1, 4096
 	sw		t1, VIO_QUEUE_ALIGN(t0)		# QueueAlign = 4096
 
@@ -202,51 +199,51 @@ _base\@:
 	li		t2, VIRT_DISK_HEADER		# t2 = Disk header
 	add		t2, t2, t0
 	li		t3, VIRT_DISK_STATUS
-	add		t3, t3, t0		# t3 = Disk status
+	add		t3, t3, t0			# t3 = Disk status
 
-	sw		zero, 0(t2)		# type = VIRTIO_BLK_T_IN (read)
+	sw		zero, 0(t2)			# type = VIRTIO_BLK_T_IN (read)
 	sw		a0, 8(t2)
 
-	sw		t2, 0(t1)		# Addr
+	sw		t2, 0(t1)			# Addr
 	sw		zero, 4(t1)
 	li		t4, 16
-	sw		t4, 8(t1)		# Len
-	li		t4, 1		# NEXT flag
-	sh		t4, 12(t1)		# Flags
+	sw		t4, 8(t1)			# Len
+	li		t4, 1				# NEXT flag
+	sh		t4, 12(t1)			# Flags
 	sh		t4, 14(t1)
 
 
 
 	# 2. Setup Descriptor 1 (Data Buffer)
-	sw		t0, 16(t1)		# Addr
+	sw		t0, 16(t1)			# Addr
 	sw		zero, 20(t1)
 
 	li		t4, 512
-	sw		t4, 24(t1)		# Len
-	li		t4, 3		# NEXT | WRITE flags
-	sh		t4, 28(t1)		# Flags
+	sw		t4, 24(t1)			# Len
+	li		t4, 3				# NEXT | WRITE flags
+	sh		t4, 28(t1)			# Flags
 	li		t4, 2
-	sh		t4, 30(t1)		# Next index = 2
+	sh		t4, 30(t1)			# Next index = 2
 
 
-	sw		t3, 32(t1)		# Addr (Table + 32)
+	sw		t3, 32(t1)			# Addr (Table + 32)
 	sw		zero, 36(t1)
 	li		t4, 1
-	sw		t4, 40(t1)		# Len
-	li		t4, 2		# WRITE flag
-	sh		t4, 44(t1)		# Flags
-	sh		zero, 46(t1)		# Next = 0 (End)
+	sw		t4, 40(t1)			# Len
+	li		t4, 2				# WRITE flag
+	sh		t4, 44(t1)			# Flags
+	sh		zero, 46(t1)			# Next = 0 (End)
 
 
 	# 4. Notify the Available Ring
 	# Available Ring starts at offset 256 (after 16 descriptors)
 	addi		t4, t1, 256
-	sh		zero, 4(t4)		# Set ring[0] = 0
+	sh		zero, 4(t4)			# Set ring[0] = 0
 
 	li		t5, 0xFF
-	sb		t5, 0(t3)		# Set status sentinel
+	sb		t5, 0(t3)			# Set status sentinel
 
-	sh		a1, 2(t4)		# Set idx
+	sh		a1, 2(t4)			# Set idx
 
 	# 5. Kick the hardware
 	fence		w, w		# Ensure all visible
@@ -279,12 +276,12 @@ _start:
 	li		s5, BIN_SIZE
 
 start_block:
-	mv		a0, s3		# counter
+	mv		a0, s3				# counter
 	addi		s3, s3, 1
-	mv		a1, s3		# idx = counter + 1
+	mv		a1, s3				# idx = counter + 1
 	READ_BLOCK
 
-	mv		s0, gp		# data always lands at gp+0
+	mv		s0, gp				# data always lands at gp+0
 	addi		s1, s0, 512
 1:	
 	lbu		a0, 0(s0)
@@ -311,32 +308,32 @@ start_block:
 	lw		t0, 0(sp)
 	li		t1, BIN_HASH0
 	bne		t0, t1, hash_mismatch
-        lw              t0, 4(sp)
-        li              t1, BIN_HASH1
-        bne             t0, t1, hash_mismatch
-        lw              t0, 8(sp)
-        li              t1, BIN_HASH2
-        bne             t0, t1, hash_mismatch
-        lw              t0, 12(sp)
-        li              t1, BIN_HASH3
-        bne             t0, t1, hash_mismatch
-        lw              t0, 16(sp)
-        li              t1, BIN_HASH4
-        bne             t0, t1, hash_mismatch
-        lw              t0, 20(sp)
-        li              t1, BIN_HASH5
-        bne             t0, t1, hash_mismatch
-        lw              t0, 24(sp)
-        li              t1, BIN_HASH6
-        bne             t0, t1, hash_mismatch
-        lw              t0, 28(sp)
-        li              t1, BIN_HASH7
-        bne             t0, t1, hash_mismatch
+	lw		t0, 4(sp)
+	li		t1, BIN_HASH1
+	bne		t0, t1, hash_mismatch
+	lw		t0, 8(sp)
+	li		t1, BIN_HASH2
+	bne		t0, t1, hash_mismatch
+	lw		t0, 12(sp)
+	li		t1, BIN_HASH3
+	bne		t0, t1, hash_mismatch
+	lw		t0, 16(sp)
+	li		t1, BIN_HASH4
+	bne		t0, t1, hash_mismatch
+	lw		t0, 20(sp)
+	li		t1, BIN_HASH5
+	bne		t0, t1, hash_mismatch
+	lw		t0, 24(sp)
+	li		t1, BIN_HASH6
+	bne		t0, t1, hash_mismatch
+	lw		t0, 28(sp)
+	li		t1, BIN_HASH7
+	bne		t0, t1, hash_mismatch
 
-	li		s0, 8		# 8 words to print
+	li		s0, 8				# 8 words to print
 	mv		s1, sp
 1:	lw		a0, 0(s1)
-	li		a1, 1		# suppress "0x" prefix
+	li		a1, 1				# suppress "0x" prefix
 	jal		print_hex
 	li		a0, ' '
 	jal		write_byte
@@ -369,7 +366,7 @@ write_byte:
 print_hex:
 	SETUP		s0, s1, s2, t0, t1, t2, a0
 
-	mv		s0, a0		# Save original value
+	mv		s0, a0				# Save original value
 
 	# Print "0x" prefix
 	bnez		a1, skip_0x
@@ -379,20 +376,20 @@ print_hex:
 	jal		write_byte
 skip_0x:
 
-1:	li		s1, 28		# Start at highest nibble
+1:	li		s1, 28				# Start at highest nibble
 2:
-	srl		t2, s0, s1		# Isolate nibble
+	srl		t2, s0, s1			# Isolate nibble
 	andi		t2, t2, 0xF
 
 	# Convert nibble to ASCII
 	li		a0, 10
-	blt		t2, a0, 5f		# If 0-9
-	addi		t2, t2, 7		# Adjust for A-F
-5:	addi		a0, t2, 48		# ASCII '0'
+	blt		t2, a0, 5f			# If 0-9
+	addi		t2, t2, 7			# Adjust for A-F
+5:	addi		a0, t2, 48			# ASCII '0'
 	jal		write_byte
 
 next_nibble:
-	addi		s1, s1, -4		# Move to next 4 bits
+	addi		s1, s1, -4			# Move to next 4 bits
 	bgez		s1, 2b
 
 4:	RETURN
