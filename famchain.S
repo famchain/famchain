@@ -90,7 +90,7 @@ _base\@:
 	QR_STEP \c, \d, \b, t5, 7		# Step 4: b is rotated
 .endm
 
-.macro CHACHA_ROUND
+.macro DOUBLE_ROUND
 	# --- Column Rounds ---
 	#           a   b   c   d
 	CHACHA_QR	s0, s4, s8, t1	# Column 0: x[0], x[4], x[8], x[12]
@@ -107,17 +107,17 @@ _base\@:
 .endm
 
 # x[0-10] = s0-s10, x[11-15] = t0-t4
-.macro CHACHA_ROUNDS
-	CHACHA_ROUND
-	CHACHA_ROUND
-	CHACHA_ROUND
-	CHACHA_ROUND
-	CHACHA_ROUND
-	CHACHA_ROUND
-	CHACHA_ROUND
-	CHACHA_ROUND
-	CHACHA_ROUND
-	CHACHA_ROUND
+.macro PERMUTE
+	DOUBLE_ROUND
+	DOUBLE_ROUND
+        DOUBLE_ROUND
+        DOUBLE_ROUND
+        DOUBLE_ROUND
+        DOUBLE_ROUND
+        DOUBLE_ROUND
+        DOUBLE_ROUND
+        DOUBLE_ROUND
+        DOUBLE_ROUND
 .endm
 
 .macro ADD_BACK reg ind
@@ -127,7 +127,7 @@ _base\@:
 .endm
 
 
-.macro CHACHA20_BLOCK
+.macro COMPRESS
 	lw		s0, 0(a0)
 	lw		s1, 4(a0)
 	lw		s2, 8(a0)
@@ -145,7 +145,7 @@ _base\@:
 	lw		t3, 56(a0)
 	lw		t4, 60(a0)
 
-	CHACHA_ROUNDS
+	PERMUTE
 
 	ADD_BACK	s0, 0
 	ADD_BACK	s1, 4
@@ -181,7 +181,7 @@ _base\@:
 	li		t0, 1
 	sw		t0, 64(a0)
 	li		a1, 65
-	jal		chacha20_hash
+	jal		hash
 	mv		a0, a2
 	jal		print_hash
 	li		a0, '\n'
@@ -190,7 +190,7 @@ _base\@:
 1:	wfi
 	j		1b
 
-chacha20_hash:
+hash:
 	.macro ZERO_BLOCK ptr
 		.set i, 0
 		.rept 16
@@ -230,7 +230,7 @@ chacha20_hash:
 1:	li		t0, 64
 	bltu		a1, t0, 2f	
 	XOR_BLOCK	a0, a3
-	CHACHA20_BLOCK
+	COMPRESS
 	addi		a1, a1, -64
 	addi		a3, a3, 64
 	j		1b
@@ -246,12 +246,12 @@ chacha20_hash:
 	addi		t3, t3, 1
 	addi		a1, a1, -1
 	bnez		a1, 3b 
-	CHACHA20_BLOCK
+	COMPRESS
 4:
  	lw		t0, 0(a0)
 	xor		t0, t0, s11		# Mix total length
 	sw		t0, 0(a0)
-	CHACHA20_BLOCK
+	COMPRESS
 	COPY_64		a2, a0
 
 	addi		sp, sp, 64
