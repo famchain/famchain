@@ -354,35 +354,6 @@ start_block:
 	add		s0, s0, gp
 	jr		s0
 
-
-/*
-	# Hash "abc" and print the 8 output words.
-	# Expected: 508c5e8c 327c14e2 e1a72ba3 4eeb452f
-	#           37458b20 9ed63a29 4d999b4c 86675982
-	addi		sp, sp, -32		# 32-byte output buffer on stack
-	LOAD_ADDRESS	a0, test_msg
-	li		a1, 3			# len("abc")
-	mv		a2, sp
-	jal		blake2s
-
-	li		s0, 8			# 8 words to print
-	mv		s1, sp
-1:	lw		a0, 0(s1)
-	li		a1, 1			# suppress "0x" prefix
-	jal		print_hex
-	li		a0, ' '
-	jal		write_byte
-	addi		s1, s1, 4
-	addi		s0, s0, -1
-	bnez		s0, 1b
-
-	addi		sp, sp, 32
-
-	li		a0, '\n'
-	jal		write_byte
-*/
-
-
 1:	wfi
 	j		1b
 
