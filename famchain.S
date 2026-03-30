@@ -228,13 +228,14 @@ chacha20_hash:
 	ZERO_BLOCK	a0
 
 1:	li		t0, 64
-	blt		a1, t0, 2f	
+	bltu		a1, t0, 2f	
 	XOR_BLOCK	a0, a3
 	CHACHA20_BLOCK
 	addi		a1, a1, -64
 	addi		a3, a3, 64
+	j		1b
 2:
-	beqz		a1, 4f			# skip if exactly 64 bytes
+	beqz		a1, 4f			# skip if len % 64 == 0
 	mv		t3, a0
 3:
 	lbu		t0, 0(t3)
