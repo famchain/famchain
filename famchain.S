@@ -33,6 +33,9 @@
 .equ	VIO_NET_ID,		1		# Device ID for Network is 1
 .equ	VIO_MAGIC,		0x000
 .equ	VIO_DEVICE_ID,		0x008
+.equ	VIO_DEVICE_FEATURES,	0x010
+.equ	VIO_DRIVER_FEATURES,	0x020
+.equ	VIO_QUEUE_ALIGN,	0x03C
 .equ	VIO_QUEUE_PFN,		0x040
 .equ	VIO_STATUS,		0x070
 .equ	VIRT_MAGIC,		0x74726976
@@ -241,6 +244,10 @@ _base\@:
 	ori		t1, t1, 2
 	sw		t1, VIO_STATUS(t0)
 
+	# Feature negotiation: read device features, accept none
+	lw		t1, VIO_DEVICE_FEATURES(t0)
+	sw		zero, VIO_DRIVER_FEATURES(t0)
+
 	# Set FEATURES_OK bit (8)
 	lw		t1, VIO_STATUS(t0)
 	ori		t1, t1, 8
@@ -251,13 +258,6 @@ _base\@:
 	andi		t2, t1, 8
 	beqz		t2, error_features_not_supported
 
-
-
-	# Set DRIVER_OK bit (4) - Device is now "Live"
-	lw		t1, VIO_STATUS(t0)
-	ori		t1, t1, 4
-	sw		t1, VIO_STATUS(t0)
-
 	# zero the buffer
 	mv		t1, gp
 	mv		t2, t1
@@ -267,15 +267,23 @@ _base\@:
 1:
 	sb		zero, 0(t2)
 	addi		t2, t2, 1
-	blt		t2, t3, 1b
+	bltu		t2, t3, 1b
 
-	sw	zero, 0x030(t0)			# QueueSel = 0
-	li	t1, 16
-	sw	t1, 0x038(t0)			# QueueNum = 16
+	# Queue setup
+	sw		zero, 0x030(t0)			# QueueSel = 0
+	li		t1, 16
+	sw		t1, 0x038(t0)			# QueueNum = 16
+	li		t1, 4096
+	sw		t1, VIO_QUEUE_ALIGN(t0)		# QueueAlign = 4096
 
-	mv	t1, gp
-	addi	t1, t1, VIRT_DESCRIPTOR_TABLE
-	sw	t1, VIO_QUEUE_PFN(t0)
+	mv		t1, gp
+	addi		t1, t1, VIRT_DESCRIPTOR_TABLE
+	sw		t1, VIO_QUEUE_PFN(t0)
+
+	# Set DRIVER_OK bit (4) - Device is now "Live"
+	lw		t1, VIO_STATUS(t0)
+	ori		t1, t1, 4
+	sw		t1, VIO_STATUS(t0)
 .endm
 
 # a0 = sector
@@ -325,13 +333,15 @@ _base\@:
 	# Available Ring starts at offset 256 (after 16 descriptors)
 	addi		t4, t1, 256
 	sh		zero, 4(t4)		# Set ring[0] = 0 (Start at Desc 0)
-	sh		a1, 2(t4)		# Set idx
 
 	li		t5, 0xFF
-	sb		t5, 0(t3)
+	sb		t5, 0(t3)		# Set status sentinel before advancing idx
+
+	sh		a1, 2(t4)		# Set idx (after sentinel, before kick)
 
 	# 5. Kick the hardware
-	li		t5, VIRTIO_DISK_BASE		# VIRTIO_DISK_BASE
+	fence		w, w			# Ensure all writes visible before notify
+	li		t5, VIRTIO_DISK_BASE
 	sw		zero, VIRT_QUEUE0(t5)		# Notify Queue 0
 
 	# 6. Wait for disk_status to change from 0xFF
@@ -377,6 +387,14 @@ _start:
 	li		a0, '\n'
 	jal		write_byte
 
+1:	wfi
+	j		1b
+
+error_not_virtio:
+error_not_disk:
+error_features_not_supported:
+	li		a0, 'q'
+	jal		write_byte
 1:	wfi
 	j		1b
 
