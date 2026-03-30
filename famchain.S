@@ -294,53 +294,53 @@ _base\@:
 	li		t2, VIRT_DISK_HEADER		# t2 = Disk header
 	add		t2, t2, t0
 	li		t3, VIRT_DISK_STATUS
-	add		t3, t3, t0		# t3 = Disk status
+	add		t3, t3, t0			# t3 = Disk status
 
 	sw		a0, 8(t2)
 
-	sw		t2, 0(t1)		# Addr
+	sw		t2, 0(t1)			# Addr
 	sw		zero, 4(t1)
 	li		t4, 16
-	sw		t4, 8(t1)		# Len
-	li		t4, 1		# NEXT flag
-	sh		t4, 12(t1)		# Flags
+	sw		t4, 8(t1)			# Len
+	li		t4, 1				# NEXT flag
+	sh		t4, 12(t1)			# Flags
 	sh		t4, 14(t1)
 
 
 
 	# 2. Setup Descriptor 1 (Data Buffer)
-	sw		t0, 16(t1)		# Addr
+	sw		t0, 16(t1)			# Addr
 	sw		zero, 20(t1)
 
 	li		t4, 512
-	sw		t4, 24(t1)		# Len
-	li		t4, 3		# NEXT | WRITE flags
-	sh		t4, 28(t1)		# Flags
+	sw		t4, 24(t1)			# Len
+	li		t4, 3				# NEXT | WRITE flags
+	sh		t4, 28(t1)			# Flags
 	li		t4, 2
-	sh		t4, 30(t1)		# Next index = 2
+	sh		t4, 30(t1)			# Next index = 2
 
 
-	sw		t3, 32(t1)		# Addr (Table + 32)
+	sw		t3, 32(t1)			# Addr (Table + 32)
 	sw		zero, 36(t1)
 	li		t4, 1
-	sw		t4, 40(t1)		# Len
-	li		t4, 2		# WRITE flag
-	sh		t4, 44(t1)		# Flags
-	sh		zero, 46(t1)		# Next = 0 (End)
+	sw		t4, 40(t1)			# Len
+	li		t4, 2				# WRITE flag
+	sh		t4, 44(t1)			# Flags
+	sh		zero, 46(t1)			# Next = 0 (End)
 
 
 	# 4. Notify the Available Ring
 	# Available Ring starts at offset 256 (after 16 descriptors)
 	addi		t4, t1, 256
-	sh		zero, 4(t4)		# Set ring[0] = 0 (Start at Desc 0)
+	sh		zero, 4(t4)			# Set ring[0] = 0
 
 	li		t5, 0xFF
-	sb		t5, 0(t3)		# Set status sentinel before advancing idx
+	sb		t5, 0(t3)			# Set status sentinel
 
-	sh		a1, 2(t4)		# Set idx (after sentinel, before kick)
+	sh		a1, 2(t4)			# Set idx
 
 	# 5. Kick the hardware
-	fence		w, w			# Ensure all writes visible before notify
+	fence		w, w				# Ensure all visible
 	li		t5, VIRTIO_DISK_BASE
 	sw		zero, VIRT_QUEUE0(t5)		# Notify Queue 0
 
@@ -348,6 +348,7 @@ _base\@:
 	li		t5, 0xFF
 1:	lbu		t4, 0(t3)
 	beq		t4, t5, 1b
+	fence		r, r
 .endm
 
 
@@ -496,7 +497,7 @@ write_byte:
 print_hex:
 	SETUP		s0, s1, s2, t0, t1, t2, a0
 
-	mv		s0, a0		# Save original value
+	mv		s0, a0			# Save original value
 
 	# Print "0x" prefix
 	bnez		a1, skip_0x
@@ -506,7 +507,7 @@ print_hex:
 	jal		write_byte
 skip_0x:
 
-1:	li		s1, 28		# Start at highest nibble
+1:	li		s1, 28			# Start at highest nibble
 2:	
 	srl		t2, s0, s1		# Isolate nibble
 	andi		t2, t2, 0xF
