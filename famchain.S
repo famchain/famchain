@@ -269,6 +269,11 @@ _base\@:
 	addi		t2, t2, 1
 	blt		t2, t3, 1b
 
+	sw	zero, 0x030(t0)			# QueueSel = 0
+	li	t1, 16
+	sw	t1, 0x038(t0)			# QueueNum = 16
+
+	mv	t1, gp
 	addi	t1, t1, VIRT_DESCRIPTOR_TABLE
 	sw	t1, VIO_QUEUE_PFN(t0)
 .endm
@@ -283,7 +288,7 @@ _base\@:
 	li		t3, VIRT_DISK_STATUS
 	add		t3, t3, t0		# t3 = Disk status
 
-	sw		a1, 8(t2)
+	sw		a0, 8(t2)
 
 	sw		t2, 0(t1)		# Addr
 	sw		zero, 4(t1)
@@ -320,7 +325,7 @@ _base\@:
 	# Available Ring starts at offset 256 (after 16 descriptors)
 	addi		t4, t1, 256
 	sh		zero, 4(t4)		# Set ring[0] = 0 (Start at Desc 0)
-	sh		a0, 2(t4)		# Set idx
+	sh		a1, 2(t4)		# Set idx
 
 	li		t5, 0xFF
 	sb		t5, 0(t3)
