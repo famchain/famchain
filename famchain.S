@@ -45,6 +45,7 @@
 .equ	VIRT_DISK_STATUS,	8704		# reserve space for 'used ring'
 .equ	VIRT_DISK_HEADER,	8706
 .equ	LOAD_LOC,		8722
+.equ	BIN_SIZE,		1296
 
 
 .altmacro
@@ -261,21 +262,36 @@ _start:
 
 	INIT_DISK
 
-        li              a0, 0
-        li              a1, 1
+        li              s2, LOAD_LOC
+        add             s2, s2, gp
+	li		s3, 0 # counter
+	li		s5, BIN_SIZE
+
+start_block:
+        mv              a0, s3		# counter
+	addi		s3, s3, 1
+        mv              a1, s3		# idx = counter + 1
         READ_BLOCK
 
-        mv              s0, gp
+        mv              s0, gp		# data always lands at gp+0
         addi            s1, s0, 512
 1:      
         lbu             a0, 0(s0)
-        jal             write_byte
+	sb		a0, 0(s2)
+	addi		s5, s5, -1
+	beqz		s5, 2f
+	addi		s2, s2, 1
         addi            s0, s0, 1    
         bne             s0, s1, 1b   
-        li              a0, '\n'
-        jal             write_byte
+	j		start_block
+2:
+
+        li              s0, LOAD_LOC
+        add             s0, s0, gp
+        jr              s0
 
 
+/*
 
 	# Hash "abc" and print the 8 output words.
 	# Expected: 508c5e8c 327c14e2 e1a72ba3 4eeb452f
@@ -301,6 +317,7 @@ _start:
 
 	li		a0, '\n'
 	jal		write_byte
+*/
 
 
 1:	wfi
