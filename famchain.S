@@ -40,12 +40,13 @@
 .equ	VIO_STATUS,		0x070
 .equ	VIRT_MAGIC,		0x74726976
 
-.equ	VIRT_DESCRIPTOR_TABLE,	4096
-.equ	VIRT_DISK_STATUS,	8704		# reserve space for 'used ring'
-.equ	VIRT_DISK_HEADER,	8706
-.equ	LOAD_LOC,		8722
-.equ	RX_QUEUE_DATA_OFFSET,	16384
-.equ 	TX_QUEUE_DATA_OFFSET,	32768
+.equ	RX_QUEUE_DATA_OFFSET,	0		# net RX queue base (page-aligned)
+.equ	TX_QUEUE_DATA_OFFSET,	8192		# net TX queue base (page-aligned)
+.equ	DISK_DATA_BUFFER,	16384		# disk read/write buffer (512 bytes)
+.equ	VIRT_DESCRIPTOR_TABLE,	20480		# disk descriptor table (page-aligned: 5×4096)
+.equ	VIRT_DISK_STATUS,	25088		# after disk used ring (20480+4096+512)
+.equ	VIRT_DISK_HEADER,	25090
+.equ	LOAD_LOC,		25106		# binary load location (unlimited headroom)
 
 # Size and Hash of Program 
 .equ	BIN_SIZE,		1296
@@ -167,11 +168,11 @@ _base\@:
 	andi		t2, t1, 8
 	beqz		t2, error_features_not_supported
 
-	# zero the buffer
-	mv		t1, gp
-	mv		t2, t1
+	# zero the disk region (gp+DISK_DATA_BUFFER..gp+LOAD_LOC)
+	li		t2, DISK_DATA_BUFFER
+	add		t2, gp, t2
 	li		t3, LOAD_LOC
-	add		t3, t3, t2
+	add		t3, gp, t3
 
 1:
 	sb		zero, 0(t2)
@@ -224,7 +225,9 @@ _base\@:
 	
 	
 	
-	sw		t0, 16(t1)		# Addr
+	li		t5, DISK_DATA_BUFFER
+	add		t5, gp, t5
+	sw		t5, 16(t1)		# Addr (gp + DISK_DATA_BUFFER)
 	sw		zero, 20(t1)
 
 	li		t4, 512
@@ -266,10 +269,9 @@ _base\@:
 .endm
 
 .macro INIT_NET
-        # zero RX queue page (gp+16384..gp+20480) and TX queue page (gp+32768..gp+36864)
-        li   t2, RX_QUEUE_DATA_OFFSET
-        add  t2, gp, t2
-        li   t3, TX_QUEUE_DATA_OFFSET + 4096
+        # zero net region (gp+0..gp+DISK_DATA_BUFFER)
+        mv   t2, gp
+        li   t3, DISK_DATA_BUFFER
         add  t3, gp, t3
 1:
         sw   zero, 0(t2)
@@ -385,7 +387,8 @@ start_block:
 	mv		a1, s3		# idx = counter + 1
 	READ_BLOCK
 
-	mv		s0, gp		# data always lands at gp+0
+	li		t0, DISK_DATA_BUFFER
+	add		s0, gp, t0	# data lands at gp+DISK_DATA_BUFFER
 	addi		s1, s0, 512
 1:
 	lbu		a0, 0(s0)
