@@ -28,6 +28,10 @@
 .equ	UART_LSR,		5
 .equ	UART_WR_MASK,		0x20
 
+.equ	UART_BASE,		0x10000000
+.equ	UART_LSR,		5
+.equ	UART_WR_MASK,		0x20
+
 .equ	VIRTIO_DISK_BASE,	0x10001000
 .equ	VIRTIO_NET_BASE,	0x10002000
 .equ	VIRT_QUEUE0,		0x050
@@ -775,151 +779,151 @@ _b2s_copy_done:
 
 # hexdump: a0=ptr, a1=len — prints "XX XX XX ..." 16 bytes per line
 hexdump:
-        SETUP   s2, s3, s4, s5
+	SETUP	s2, s3, s4, s5
 
-        mv      s2, a0          # s2 = ptr
-        mv      s3, a1          # s3 = remaining bytes
-        li      s4, 0           # s4 = column counter
+	mv	s2, a0		# s2 = ptr
+	mv	s3, a1		# s3 = remaining bytes
+	li	s4, 0		# s4 = column counter
 
 hexdump_loop:
-        beqz    s3, hexdump_done
-        lbu     s5, 0(s2)       # s5 = current byte
+	beqz	s3, hexdump_done
+	lbu	s5, 0(s2)	# s5 = current byte
 
-        srli    a0, s5, 4       # high nibble
-        jal     print_nibble
-        andi    a0, s5, 0xF     # low nibble
-        jal     print_nibble
-        li      a0, ' '
-        jal     write_byte
+	srli	a0, s5, 4	# high nibble
+	jal	print_nibble
+	andi	a0, s5, 0xF	# low nibble
+	jal	print_nibble
+	li	a0, ' '
+	jal	write_byte
 
-        addi    s2, s2, 1
-        addi    s3, s3, -1
-        addi    s4, s4, 1
-        andi    t0, s4, 0xF     # newline every 16 bytes
-        bnez    t0, hexdump_loop
-        li      a0, '\n'
-        jal     write_byte
-        j       hexdump_loop
+	addi	s2, s2, 1
+	addi	s3, s3, -1
+	addi	s4, s4, 1
+	andi	t0, s4, 0xF	# newline every 16 bytes
+	bnez	t0, hexdump_loop
+	li	a0, '\n'
+	jal	write_byte
+	j	hexdump_loop
 
 hexdump_done:
-        li      a0, '\n'
-        jal     write_byte
-        RETURN
+	li	a0, '\n'
+	jal	write_byte
+	RETURN
 
 # print_nibble: a0=nibble (0-15) — prints one hex character, tail-calls write_byte
 print_nibble:
-        li      t0, 10
-        blt     a0, t0, 1f
-        addi    a0, a0, 7       # 'A'-'9'-1
-1:      addi    a0, a0, '0'
-        j       write_byte      # tail call
+	li	t0, 10
+	blt	a0, t0, 1f
+	addi	a0, a0, 7	# 'A'-'9'-1
+1:	addi	a0, a0, '0'
+	j	write_byte	# tail call
 
 # Send ARP reply. Reads sender info from RX buffer, writes reply to TX buffer.
 # Clobbers: a0, a1, t0, t2. Preserves: t3, t4, s1.
 send_arp_reply:
-        SETUP   s0
+	SETUP	s0
 
-        li      s0, VIRTIO_NET_BASE
+	li	s0, VIRTIO_NET_BASE
 
-        # a0 = RX buffer (gp + RX_QUEUE_DATA_OFFSET + 512 = gp + 512)
-        addi    a0, gp, 512
+	# a0 = RX buffer (gp + RX_QUEUE_DATA_OFFSET + 512 = gp + 512)
+	addi	a0, gp, 512
 
-        # a1 = TX buffer (gp + TX_QUEUE_DATA_OFFSET + 512)
-        li      a1, TX_QUEUE_DATA_OFFSET + 512
-        add     a1, gp, a1
+	# a1 = TX buffer (gp + TX_QUEUE_DATA_OFFSET + 512)
+	li	a1, TX_QUEUE_DATA_OFFSET + 512
+	add	a1, gp, a1
 
-        # virtio_net_hdr: 12 bytes, all zero
-        sw      zero, 0(a1)
-        sw      zero, 4(a1)
-        sw      zero, 8(a1)
+	# virtio_net_hdr: 12 bytes, all zero
+	sw	zero, 0(a1)
+	sw	zero, 4(a1)
+	sw	zero, 8(a1)
 
-        # Ethernet dst MAC = ARP sender MAC from RX (same bytes reused for ARP target MAC below)
-        lbu     t0, 34(a0); sb t0, 12(a1)
-        lbu     t0, 35(a0); sb t0, 13(a1)
-        lbu     t0, 36(a0); sb t0, 14(a1)
-        lbu     t0, 37(a0); sb t0, 15(a1)
-        lbu     t0, 38(a0); sb t0, 16(a1)
-        lbu     t0, 39(a0); sb t0, 17(a1)
+	# Ethernet dst MAC = ARP sender MAC from RX (same bytes reused for ARP target MAC below)
+	lbu	t0, 34(a0); sb t0, 12(a1)
+	lbu	t0, 35(a0); sb t0, 13(a1)
+	lbu	t0, 36(a0); sb t0, 14(a1)
+	lbu	t0, 37(a0); sb t0, 15(a1)
+	lbu	t0, 38(a0); sb t0, 16(a1)
+	lbu	t0, 39(a0); sb t0, 17(a1)
 
-        # Ethernet src MAC = guest MAC
-        li      t0, GUEST_MAC_0; sb t0, 18(a1)
-        li      t0, GUEST_MAC_1; sb t0, 19(a1)
-        li      t0, GUEST_MAC_2; sb t0, 20(a1)
-        li      t0, GUEST_MAC_3; sb t0, 21(a1)
-        li      t0, GUEST_MAC_4; sb t0, 22(a1)
-        li      t0, GUEST_MAC_5; sb t0, 23(a1)
+	# Ethernet src MAC = guest MAC
+	li	t0, GUEST_MAC_0; sb t0, 18(a1)
+	li	t0, GUEST_MAC_1; sb t0, 19(a1)
+	li	t0, GUEST_MAC_2; sb t0, 20(a1)
+	li	t0, GUEST_MAC_3; sb t0, 21(a1)
+	li	t0, GUEST_MAC_4; sb t0, 22(a1)
+	li	t0, GUEST_MAC_5; sb t0, 23(a1)
 
-        # EtherType = 08:06 (ARP)
-        li      t0, 0x08; sb t0, 24(a1)
-        li      t0, 0x06; sb t0, 25(a1)
+	# EtherType = 08:06 (ARP)
+	li	t0, 0x08; sb t0, 24(a1)
+	li	t0, 0x06; sb t0, 25(a1)
 
-        # ARP: hw type=00:01, proto type=08:00, hw size=06, proto size=04
-        sb      zero,     26(a1)
-        li      t0, 0x01; sb t0, 27(a1)
-        li      t0, 0x08; sb t0, 28(a1)
-        sb      zero,     29(a1)
-        li      t0, 0x06; sb t0, 30(a1)
-        li      t0, 0x04; sb t0, 31(a1)
+	# ARP: hw type=00:01, proto type=08:00, hw size=06, proto size=04
+	sb	zero,	26(a1)
+	li	t0, 0x01; sb t0, 27(a1)
+	li	t0, 0x08; sb t0, 28(a1)
+	sb	zero,	29(a1)
+	li	t0, 0x06; sb t0, 30(a1)
+	li	t0, 0x04; sb t0, 31(a1)
 
-        # ARP opcode = 00:02 (reply)
-        sb      zero,     32(a1)
-        li      t0, 0x02; sb t0, 33(a1)
+	# ARP opcode = 00:02 (reply)
+	sb	zero,	32(a1)
+	li	t0, 0x02; sb t0, 33(a1)
 
-        # ARP sender MAC = guest MAC
-        li      t0, GUEST_MAC_0; sb t0, 34(a1)
-        li      t0, GUEST_MAC_1; sb t0, 35(a1)
-        li      t0, GUEST_MAC_2; sb t0, 36(a1)
-        li      t0, GUEST_MAC_3; sb t0, 37(a1)
-        li      t0, GUEST_MAC_4; sb t0, 38(a1)
-        li      t0, GUEST_MAC_5; sb t0, 39(a1)
+	# ARP sender MAC = guest MAC
+	li	t0, GUEST_MAC_0; sb t0, 34(a1)
+	li	t0, GUEST_MAC_1; sb t0, 35(a1)
+	li	t0, GUEST_MAC_2; sb t0, 36(a1)
+	li	t0, GUEST_MAC_3; sb t0, 37(a1)
+	li	t0, GUEST_MAC_4; sb t0, 38(a1)
+	li	t0, GUEST_MAC_5; sb t0, 39(a1)
 
-        # ARP sender IP = guest IP
-        li      t0, GUEST_IP_0; sb t0, 40(a1)
-        li      t0, GUEST_IP_1; sb t0, 41(a1)
-        li      t0, GUEST_IP_2; sb t0, 42(a1)
-        li      t0, GUEST_IP_3; sb t0, 43(a1)
+	# ARP sender IP = guest IP
+	li	t0, GUEST_IP_0; sb t0, 40(a1)
+	li	t0, GUEST_IP_1; sb t0, 41(a1)
+	li	t0, GUEST_IP_2; sb t0, 42(a1)
+	li	t0, GUEST_IP_3; sb t0, 43(a1)
 
-        # ARP target MAC = ARP sender MAC from RX (same source as Ethernet dst above)
-        lbu     t0, 34(a0); sb t0, 44(a1)
-        lbu     t0, 35(a0); sb t0, 45(a1)
-        lbu     t0, 36(a0); sb t0, 46(a1)
-        lbu     t0, 37(a0); sb t0, 47(a1)
-        lbu     t0, 38(a0); sb t0, 48(a1)
-        lbu     t0, 39(a0); sb t0, 49(a1)
+	# ARP target MAC = ARP sender MAC from RX (same source as Ethernet dst above)
+	lbu	t0, 34(a0); sb t0, 44(a1)
+	lbu	t0, 35(a0); sb t0, 45(a1)
+	lbu	t0, 36(a0); sb t0, 46(a1)
+	lbu	t0, 37(a0); sb t0, 47(a1)
+	lbu	t0, 38(a0); sb t0, 48(a1)
+	lbu	t0, 39(a0); sb t0, 49(a1)
 
-        # ARP target IP = ARP sender IP from RX
-        lbu     t0, 40(a0); sb t0, 50(a1)
-        lbu     t0, 41(a0); sb t0, 51(a1)
-        lbu     t0, 42(a0); sb t0, 52(a1)
-        lbu     t0, 43(a0); sb t0, 53(a1)
+	# ARP target IP = ARP sender IP from RX
+	lbu	t0, 40(a0); sb t0, 50(a1)
+	lbu	t0, 41(a0); sb t0, 51(a1)
+	lbu	t0, 42(a0); sb t0, 52(a1)
+	lbu	t0, 43(a0); sb t0, 53(a1)
 
-        # t2 = TX queue base
-        li      t2, TX_QUEUE_DATA_OFFSET
-        add     t2, gp, t2
+	# t2 = TX queue base
+	li	t2, TX_QUEUE_DATA_OFFSET
+	add	t2, gp, t2
 
-        sw      a1,   0(t2)             # desc[0].addr low = TX buffer
-        sw      zero,  4(t2)            # desc[0].addr high = 0
-        li      t0, 54
-        sw      t0,    8(t2)            # desc[0].len = 54
-        sh      zero, 12(t2)            # desc[0].flags = 0 (device reads)
-        sh      zero, 14(t2)            # desc[0].next = 0
+	sw	a1,	0(t2)		# desc[0].addr low = TX buffer
+	sw	zero,	4(t2)		# desc[0].addr high = 0
+	li	t0, 54
+	sw	t0,	8(t2)		# desc[0].len = 54
+	sh	zero, 12(t2)		# desc[0].flags = 0 (device reads)
+	sh	zero, 14(t2)		# desc[0].next = 0
 
-        sh      zero, 16(t2)            # avail.flags = 0
-        lhu     t0,   18(t2)            # avail.idx++
-        addi    t0, t0, 1
-        sh      t0,   18(t2)
-        sh      zero, 20(t2)            # avail.ring[0] = descriptor 0
+	sh	zero, 16(t2)		# avail.flags = 0
+	lhu	t0,	18(t2)		# avail.idx++
+	addi	t0, t0, 1
+	sh	t0,	18(t2)
+	sh	zero, 20(t2)		# avail.ring[0] = descriptor 0
 
-        fence   w, w
-        li      t0, 1
-        sw      t0, VIRT_QUEUE0(s0)     # kick queue 1 (TX)
+	fence	w, w
+	li	t0, 1
+	sw	t0, VIRT_QUEUE0(s0)	# kick queue 1 (TX)
 
-        li      a0, 'T'
-        jal     write_byte
-        li      a0, '\n'
-        jal     write_byte
+	li	a0, 'T'
+	jal	write_byte
+	li	a0, '\n'
+	jal	write_byte
 
-        RETURN
+	RETURN
 
 
 
