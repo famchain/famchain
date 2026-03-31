@@ -170,9 +170,6 @@ _start:
 	jal		write_byte
 
 
-
-
-
 1:	wfi
 	j		1b
 
