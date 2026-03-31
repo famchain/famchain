@@ -44,6 +44,8 @@
 .equ	VIRT_DISK_STATUS,	8704		# reserve space for 'used ring'
 .equ	VIRT_DISK_HEADER,	8706
 .equ	LOAD_LOC,		8722
+.equ	RX_QUEUE_DATA_OFFSET,	16384
+.equ 	TX_QUEUE_DATA_OFFSET,	32768
 
 # Size and Hash of Program 
 .equ	BIN_SIZE,		1296
@@ -263,7 +265,92 @@ _base\@:
 	fence		r, r
 .endm
 
+.macro INIT_NET
+       li s0, 0x10002000       # virtio-net MMIO base (virtio-mmio-bus.1)
+        sw zero, 0x70(s0)       # Reset device
 
+        li t0, 1 
+        sw t0, 0x70(s0)         # ACK
+
+        # ACK + DRIVER
+        li t0, 3
+        sw t0, 0x70(s0)
+
+        # 4. Feature negotiation (simple: accept what the device offers)
+        lw t1, 0x010(s0)        # Read host features (offset 0x10)
+        sw t1, 0x020(s0)        # Write them back as guest features (offset 0x20)
+
+        # Set FEATURES_OK bit (8)
+        lw t1, 0x070(s0)
+        ori t1, t1, 8
+        sw t1, 0x070(s0)
+
+        # 5. Set guest page size (required for legacy interface)
+        li t0, 4096
+        sw t0, 0x028(s0)        # Page size register
+
+        # 6. RX Queue (queue 0 per virtio-net spec)
+        li t0, 0
+        sw t0, 0x030(s0)        # select queue 0 (RX)
+        li t0, 1
+        sw t0, 0x038(s0)        # QueueNum = 1
+        li t0, 4096
+        sw t0, 0x03C(s0)        # QueueAlign = 4096
+
+        # RX PFN (queue 0)
+        li t0, RX_QUEUE_DATA_OFFSET
+        add t2, gp, t0
+        srli t2, t2, 12
+        sw t2, 0x040(s0)        # QueuePFN
+
+        # 7. TX Queue (queue 1 per virtio-net spec)
+        li t0, 1
+        sw t0, 0x030(s0)        # select queue 1 (TX)
+        li t0, 1
+        sw t0, 0x038(s0)        # QueueNum = 1
+        li t0, 4096
+        sw t0, 0x03C(s0)        # QueueAlign = 4096
+
+        # TX PFN (queue 1)
+        li t0, TX_QUEUE_DATA_OFFSET
+        add t2, gp, t0
+        srli t2, t2, 12
+        sw t2, 0x040(s0)        # QueuePFN
+
+        # Set DRIVER_OK bit (4)
+        lw t1, 0x070(s0)
+        ori t1, t1, 4
+        sw t1, 0x070(s0)
+
+        # === RX BUFFER POST ===
+        # RX queue base
+        li t0, RX_QUEUE_DATA_OFFSET
+        add t3, gp, t0          # t3 = RX queue memory base
+
+        # Descriptor 0 at offset 0 (16 bytes per descriptor)
+        addi t4, t3, 512                # buffer address (well past desc+avail rings)
+        sw t4, 0(t3)            # desc[0].addr low
+        sw zero, 4(t3)          # desc[0].addr high
+        li t4, 1536             # buffer length
+        sw t4, 8(t3)            # desc[0].len
+        li t4, 2                # VIRTQ_DESC_F_WRITE
+        sh t4, 12(t3)           # desc[0].flags
+        sh zero, 14(t3)         # desc[0].next
+
+        # Available ring starts at offset 16 (1 descriptor × 16 bytes)
+        sh zero, 16(t3)         # avail.flags = 0
+        li t4, 1
+        sh t4, 18(t3)           # avail.idx = 1 (one descriptor posted)
+        sh zero, 20(t3)         # avail.ring[0] = descriptor index 0
+
+        # Fence before kick to ensure descriptor/avail ring writes are visible
+        fence w, w
+
+        # Kick the RX queue (queue 0)
+        li t0, 0
+        sw t0, 0x050(s0)
+
+.endm
 
 _start:
 	LOAD_ADDRESS	gp, data
@@ -275,10 +362,11 @@ _start:
 	add		sp, gp, t0
 
 	INIT_DISK
+	INIT_NET
 
 	li		s2, LOAD_LOC
 	add		s2, s2, gp
-	li		s3, 0 # counter
+	li		s3, 0		# counter
 	li		s5, BIN_SIZE
 
 start_block:
