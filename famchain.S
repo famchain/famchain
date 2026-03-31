@@ -463,6 +463,16 @@ disk_io:
 
 	RETURN
 
+# write_guest_mac: write 6-byte guest MAC to address in a0. Clobbers t0.
+write_guest_mac:
+	li	t0, GUEST_MAC_0; sb t0, 0(a0)
+	li	t0, GUEST_MAC_1; sb t0, 1(a0)
+	li	t0, GUEST_MAC_2; sb t0, 2(a0)
+	li	t0, GUEST_MAC_3; sb t0, 3(a0)
+	li	t0, GUEST_MAC_4; sb t0, 4(a0)
+	li	t0, GUEST_MAC_5; sb t0, 5(a0)
+	ret
+
 # check_hash: compare 32-byte hash at a0 against expected BIN_HASH values
 # a0 = pointer to 32-byte hash
 # Returns: a0 = 0 (match), a0 = 1 (mismatch)
@@ -814,12 +824,10 @@ send_arp_reply:
 	lbu	t0, 39(a0); sb t0, 17(a1)
 
 	# Ethernet src MAC = guest MAC
-	li	t0, GUEST_MAC_0; sb t0, 18(a1)
-	li	t0, GUEST_MAC_1; sb t0, 19(a1)
-	li	t0, GUEST_MAC_2; sb t0, 20(a1)
-	li	t0, GUEST_MAC_3; sb t0, 21(a1)
-	li	t0, GUEST_MAC_4; sb t0, 22(a1)
-	li	t0, GUEST_MAC_5; sb t0, 23(a1)
+	mv	t2, a0
+	addi	a0, a1, 18
+	jal	write_guest_mac
+	mv	a0, t2
 
 	# EtherType = 08:06 (ARP)
 	li	t0, 0x08; sb t0, 24(a1)
@@ -838,12 +846,10 @@ send_arp_reply:
 	li	t0, 0x02; sb t0, 33(a1)
 
 	# ARP sender MAC = guest MAC
-	li	t0, GUEST_MAC_0; sb t0, 34(a1)
-	li	t0, GUEST_MAC_1; sb t0, 35(a1)
-	li	t0, GUEST_MAC_2; sb t0, 36(a1)
-	li	t0, GUEST_MAC_3; sb t0, 37(a1)
-	li	t0, GUEST_MAC_4; sb t0, 38(a1)
-	li	t0, GUEST_MAC_5; sb t0, 39(a1)
+	mv	t2, a0
+	addi	a0, a1, 34
+	jal	write_guest_mac
+	mv	a0, t2
 
 	# ARP sender IP = guest IP
 	li	t0, GUEST_IP_0; sb t0, 40(a1)
@@ -886,11 +892,6 @@ send_arp_reply:
 	li	t0, 1
 	sw	t0, VIRT_QUEUE0(s0)	# kick queue 1 (TX)
 
-	li	a0, 'T'
-	jal	write_byte
-	li	a0, '\n'
-	jal	write_byte
-
 	RETURN
 
 
@@ -923,12 +924,8 @@ send_req_range:
 	li	t0, 0x02; sb t0, 17(s0)
 
 	# Ethernet src: guest MAC
-	li	t0, GUEST_MAC_0; sb t0, 18(s0)
-	li	t0, GUEST_MAC_1; sb t0, 19(s0)
-	li	t0, GUEST_MAC_2; sb t0, 20(s0)
-	li	t0, GUEST_MAC_3; sb t0, 21(s0)
-	li	t0, GUEST_MAC_4; sb t0, 22(s0)
-	li	t0, GUEST_MAC_5; sb t0, 23(s0)
+	addi	a0, s0, 18
+	jal	write_guest_mac
 
 	# EtherType: 0x0800 (IPv4)
 	li	t0, 0x08; sb t0, 24(s0)
@@ -1233,11 +1230,6 @@ not_arp:
 	bne	s3, t0, not_rsp_chunk
 
 	# all chunks received — verify hash
-	li	a0, 'D'
-	jal	write_byte
-	li	a0, '\n'
-	jal	write_byte
-
 	li	a0, LOAD_LOC
 	add	a0, a0, gp		# input ptr
 	li	a1, BIN_SIZE		# input length
@@ -1253,11 +1245,6 @@ not_arp:
 	# hash verified — write binary to disk sector by sector
 	# avail_idx for writes: NUM_SECTORS+1 .. 2*NUM_SECTORS
 	# (boot reads used avail_idx 1..NUM_SECTORS)
-	li	a0, 'V'
-	jal	write_byte
-	li	a0, '\n'
-	jal	write_byte
-
 	li	s0, 0			# s0 = sector
 	li	s1, BIN_SIZE		# s1 = bytes remaining
 	li	s2, LOAD_LOC
@@ -1300,11 +1287,6 @@ write_sector_loop:
 	addi	s0, s0, 1
 	sub	s1, s1, s3
 	bnez	s1, write_sector_loop
-
-	li	a0, 'W'
-	jal	write_byte
-	li	a0, '\n'
-	jal	write_byte
 
 	# read back from disk into LOAD_LOC
 	# avail_idx for readback: 2*NUM_SECTORS+1 .. 3*NUM_SECTORS
@@ -1360,19 +1342,10 @@ readback_sector_loop:
 
 readback_hash_err:
 	li	a0, 'R'
-	jal	write_byte
-	li	a0, '\n'
-	jal	write_byte
-1:	wfi
-	j	1b
-
+	j	fatal
 download_hash_err:
 	li	a0, 'H'
-	jal	write_byte
-	li	a0, '\n'
-	jal	write_byte
-1:	wfi
-	j	1b
+	j	fatal
 
 not_rsp_chunk:
 	# advance last_used_idx
@@ -1391,19 +1364,19 @@ not_rsp_chunk:
 
 all_hosts_failed:
 	li	a0, 'F'
+	j	fatal
+error_not_virtio:
+error_not_disk:
+error_features_not_supported:
+	li	a0, 'z'
+
+# fatal: print char in a0, newline, then halt
+fatal:
 	jal	write_byte
 	li	a0, '\n'
 	jal	write_byte
 1:	wfi
 	j	1b
-
-error_not_virtio:
-error_not_disk:
-error_features_not_supported:
-	li		a0, 'z'
-	jal		write_byte
-1:	wfi
-	j		1b
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Secondary hart parking and IPI handler
@@ -1412,15 +1385,6 @@ error_features_not_supported:
 # Secondary harts enter here. Parks in WFI until the full node sends an IPI
 # with a jump target in hart_mailbox[hartid].
 secondary_park:
-	# debug: print "Sn" where n = hartid
-	csrr	a0, mhartid
-	addi	a0, a0, '0'		# ASCII hartid
-	li	t1, UART_BASE
-1:	lbu	t2, UART_LSR(t1)
-	andi	t2, t2, UART_WR_MASK
-	beqz	t2, 1b
-	sb	a0, 0(t1)
-
 	# set up trap vector → ipi_handler (direct mode)
 	LOAD_ADDRESS	t0, ipi_handler
 	csrw		mtvec, t0
