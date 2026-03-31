@@ -1212,10 +1212,12 @@ all_hosts_failed:
 error_not_virtio:
 error_not_disk:
 error_features_not_supported:
-	li	a0, 'z'
+	li	a0, 'Z'
 
-# fatal: print char in a0, then halt
+# fatal: print char in a0 + '!', then halt
 fatal:
+	jal	write_byte
+	li	a0, '!'
 	jal	write_byte
 1:	wfi
 	j	1b
