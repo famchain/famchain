@@ -239,134 +239,6 @@ _base\@:
 	sw		t1, VIO_STATUS(t0)
 .endm
 
-
-# a0 = sector
-# a1 = avail_idx counter (must increase monotonically across all disk ops)
-.macro READ_BLOCK
-	mv		t0, gp
-	li		t5, VIRT_DESCRIPTOR_TABLE
-	add		t1, t0, t5			# t1 = descriptor table
-	li		t2, VIRT_DISK_HEADER
-	add		t2, t2, t0			# t2 = request header
-	li		t3, VIRT_DISK_STATUS
-	add		t3, t3, t0			# t3 = status byte
-
-	sw		zero, 0(t2)			# type = VIRTIO_BLK_T_IN (read)
-	sw		a0, 8(t2)			# sector
-
-	# desc[0]: request header
-	sw		t2, 0(t1)			# addr
-	sw		zero, 4(t1)
-	li		t4, 16
-	sw		t4, 8(t1)			# len = 16
-	li		t4, 1				# NEXT flag
-	sh		t4, 12(t1)			# flags
-	sh		t4, 14(t1)			# next = 1
-
-	# desc[1]: data buffer
-	li		t5, DISK_DATA_BUFFER
-	add		t5, gp, t5
-	sw		t5, 16(t1)			# addr = gp + DISK_DATA_BUFFER
-	sw		zero, 20(t1)
-	li		t4, 512
-	sw		t4, 24(t1)			# len = 512
-	li		t4, 3				# NEXT | WRITE flags
-	sh		t4, 28(t1)			# flags
-	li		t4, 2
-	sh		t4, 30(t1)			# next = 2
-
-	# desc[2]: status byte
-	sw		t3, 32(t1)			# addr = status
-	sw		zero, 36(t1)
-	li		t4, 1
-	sw		t4, 40(t1)			# len = 1
-	li		t4, 2				# WRITE flag
-	sh		t4, 44(t1)			# flags
-	sh		zero, 46(t1)			# next = 0 (end)
-
-	# Notify the Available Ring (starts at offset 256, after 16 descriptors)
-	addi		t4, t1, 256
-	sh		zero, 4(t4)			# ring[0] = 0
-	li		t5, 0xFF
-	sb		t5, 0(t3)			# status sentinel = 0xFF
-	sh		a1, 2(t4)			# avail.idx
-
-	# Kick the hardware
-	fence		w, w				# ensure all writes visible
-	li		t5, VIRTIO_DISK_BASE
-	sw		zero, VIRT_QUEUE0(t5)		# notify queue 0
-
-	# Wait for disk_status to change from 0xFF
-	li		t5, 0xFF
-1:	lbu		t4, 0(t3)
-	beq		t4, t5, 1b
-	fence		r, r
-.endm
-
-# a0 = sector
-# a1 = avail_idx counter (must increase monotonically across all disk ops)
-# data to write must be in DISK_DATA_BUFFER before calling
-.macro WRITE_BLOCK
-	mv		t0, gp
-	li		t5, VIRT_DESCRIPTOR_TABLE
-	add		t1, t0, t5			# t1 = descriptor table
-	li		t2, VIRT_DISK_HEADER
-	add		t2, t2, t0			# t2 = request header
-	li		t3, VIRT_DISK_STATUS
-	add		t3, t3, t0			# t3 = status byte
-
-	li		t4, 1
-	sw		t4, 0(t2)			# type = VIRTIO_BLK_T_OUT (write)
-	sw		a0, 8(t2)			# sector
-
-	# desc[0]: request header (device reads)
-	sw		t2, 0(t1)
-	sw		zero, 4(t1)
-	li		t4, 16
-	sw		t4, 8(t1)			# len = 16
-	li		t4, 1				# NEXT flag
-	sh		t4, 12(t1)
-	sh		t4, 14(t1)			# next = 1
-
-	# desc[1]: data buffer (device reads — no WRITE flag)
-	li		t5, DISK_DATA_BUFFER
-	add		t5, gp, t5
-	sw		t5, 16(t1)
-	sw		zero, 20(t1)
-	li		t4, 512
-	sw		t4, 24(t1)			# len = 512
-	li		t4, 1				# NEXT flag only (device reads this)
-	sh		t4, 28(t1)
-	li		t4, 2
-	sh		t4, 30(t1)			# next = 2
-
-	# desc[2]: status byte (device writes)
-	sw		t3, 32(t1)
-	sw		zero, 36(t1)
-	li		t4, 1
-	sw		t4, 40(t1)			# len = 1
-	li		t4, 2				# WRITE flag
-	sh		t4, 44(t1)
-	sh		zero, 46(t1)
-
-	# notify available ring
-	addi		t4, t1, 256
-	sh		zero, 4(t4)
-	li		t5, 0xFF
-	sb		t5, 0(t3)			# status sentinel = 0xFF
-	sh		a1, 2(t4)			# avail.idx
-
-	fence		w, w
-	li		t5, VIRTIO_DISK_BASE
-	sw		zero, VIRT_QUEUE0(t5)
-
-	# wait for completion
-	li		t5, 0xFF
-1:	lbu		t4, 0(t3)
-	beq		t4, t5, 1b
-	fence		r, r
-.endm
-
 .macro INIT_NET
 	# zero net region (gp+0..gp+DISK_DATA_BUFFER)
 	mv	t2, gp
@@ -480,7 +352,8 @@ start_block:
 	mv		a0, s3		# counter
 	addi		s3, s3, 1
 	mv		a1, s3		# idx = counter + 1
-	READ_BLOCK
+	li		a2, 0		# read
+	jal		disk_io
 
 	li		t0, DISK_DATA_BUFFER
 	add		s0, gp, t0	# data lands at gp+DISK_DATA_BUFFER
@@ -506,30 +379,10 @@ start_block:
 	mv		a2, sp
 	jal		blake2s
 
-	lw		t0, 0(sp)
-	li		t1, BIN_HASH0
-	bne		t0, t1, hash_mismatch
-	lw		t0, 4(sp)
-	li		t1, BIN_HASH1
-	bne		t0, t1, hash_mismatch
-	lw		t0, 8(sp)
-	li		t1, BIN_HASH2
-	bne		t0, t1, hash_mismatch
-	lw		t0, 12(sp)
-	li		t1, BIN_HASH3
-	bne		t0, t1, hash_mismatch
-	lw		t0, 16(sp)
-	li		t1, BIN_HASH4
-	bne		t0, t1, hash_mismatch
-	lw		t0, 20(sp)
-	li		t1, BIN_HASH5
-	bne		t0, t1, hash_mismatch
-	lw		t0, 24(sp)
-	li		t1, BIN_HASH6
-	bne		t0, t1, hash_mismatch
-	lw		t0, 28(sp)
-	li		t1, BIN_HASH7
-	bne		t0, t1, hash_mismatch
+	mv		a0, sp
+	jal		check_hash
+	addi		sp, sp, 32
+	bnez		a0, hash_mismatch
 
 	li		s0, LOAD_LOC
 	add		s0, s0, gp
@@ -538,6 +391,97 @@ start_block:
 1:	wfi
 	j		1b
 
+
+# disk_io: perform a single 512-byte disk read or write
+# a0 = sector number
+# a1 = avail_idx (must increase monotonically across all disk ops)
+# a2 = direction: 0 = read (device writes to buffer), 1 = write (device reads from buffer)
+disk_io:
+	SETUP	s0, s1
+	mv	s0, a0				# save sector
+	mv	s1, a1				# save avail_idx
+
+	li	t5, VIRT_DESCRIPTOR_TABLE
+	add	t1, gp, t5			# t1 = descriptor table
+	li	t2, VIRT_DISK_HEADER
+	add	t2, gp, t2			# t2 = request header
+	li	t3, VIRT_DISK_STATUS
+	add	t3, gp, t3			# t3 = status byte
+
+	sw	a2, 0(t2)			# type: 0=read, 1=write
+	sw	s0, 8(t2)			# sector
+
+	# desc[0]: request header
+	sw	t2, 0(t1)
+	sw	zero, 4(t1)
+	li	t4, 16
+	sw	t4, 8(t1)			# len = 16
+	li	t4, 1				# NEXT flag
+	sh	t4, 12(t1)
+	sh	t4, 14(t1)			# next = 1
+
+	# desc[1]: data buffer
+	# flags: read → NEXT|WRITE (3), write → NEXT (1)
+	li	t5, DISK_DATA_BUFFER
+	add	t5, gp, t5
+	sw	t5, 16(t1)
+	sw	zero, 20(t1)
+	li	t4, 512
+	sw	t4, 24(t1)			# len = 512
+	slli	t4, a2, 1			# write: 0→0, 1→2
+	li	t5, 3
+	sub	t4, t5, t4			# read: 3-0=3, write: 3-2=1
+	sh	t4, 28(t1)			# flags
+	li	t4, 2
+	sh	t4, 30(t1)			# next = 2
+
+	# desc[2]: status byte (always device-writable)
+	sw	t3, 32(t1)
+	sw	zero, 36(t1)
+	li	t4, 1
+	sw	t4, 40(t1)			# len = 1
+	li	t4, 2				# WRITE flag
+	sh	t4, 44(t1)
+	sh	zero, 46(t1)
+
+	# notify available ring
+	addi	t4, t1, 256
+	sh	zero, 4(t4)
+	li	t5, 0xFF
+	sb	t5, 0(t3)			# status sentinel = 0xFF
+	sh	s1, 2(t4)			# avail.idx
+
+	fence	w, w
+	li	t5, VIRTIO_DISK_BASE
+	sw	zero, VIRT_QUEUE0(t5)
+
+	# wait for completion
+	li	t5, 0xFF
+1:	lbu	t4, 0(t3)
+	beq	t4, t5, 1b
+	fence	r, r
+
+	RETURN
+
+# check_hash: compare 32-byte hash at a0 against expected BIN_HASH values
+# a0 = pointer to 32-byte hash
+# Returns: a0 = 0 (match), a0 = 1 (mismatch)
+check_hash:
+	SETUP	s0, s1
+	mv	s0, a0
+	LOAD_ADDRESS s1, expected_hash
+	li	a0, 0			# assume match
+	li	t2, 8			# 8 words
+1:	lw	t0, 0(s0)
+	lw	t1, 0(s1)
+	bne	t0, t1, 2f
+	addi	s0, s0, 4
+	addi	s1, s1, 4
+	addi	t2, t2, -1
+	bnez	t2, 1b
+	j	3f
+2:	li	a0, 1			# mismatch
+3:	RETURN
 
 write_byte:
 	li		t1, UART_BASE
@@ -1301,15 +1245,10 @@ not_arp:
 	mv	a2, sp			# output: 32-byte hash on stack
 	jal	blake2s
 
-	lw	t0,  0(sp); li t1, BIN_HASH0; bne t0, t1, download_hash_err
-	lw	t0,  4(sp); li t1, BIN_HASH1; bne t0, t1, download_hash_err
-	lw	t0,  8(sp); li t1, BIN_HASH2; bne t0, t1, download_hash_err
-	lw	t0, 12(sp); li t1, BIN_HASH3; bne t0, t1, download_hash_err
-	lw	t0, 16(sp); li t1, BIN_HASH4; bne t0, t1, download_hash_err
-	lw	t0, 20(sp); li t1, BIN_HASH5; bne t0, t1, download_hash_err
-	lw	t0, 24(sp); li t1, BIN_HASH6; bne t0, t1, download_hash_err
-	lw	t0, 28(sp); li t1, BIN_HASH7; bne t0, t1, download_hash_err
+	mv	a0, sp
+	jal	check_hash
 	addi	sp, sp, 32
+	bnez	a0, download_hash_err
 
 	# hash verified — write binary to disk sector by sector
 	# avail_idx for writes: NUM_SECTORS+1 .. 2*NUM_SECTORS
@@ -1355,7 +1294,8 @@ write_sector_loop:
 	mv	a0, s0			# sector
 	li	a1, NUM_SECTORS + 1
 	add	a1, a1, s0		# avail_idx = NUM_SECTORS+1+sector
-	WRITE_BLOCK
+	li	a2, 1			# write
+	jal	disk_io
 
 	addi	s0, s0, 1
 	sub	s1, s1, s3
@@ -1377,7 +1317,8 @@ readback_sector_loop:
 	mv	a0, s0
 	li	a1, 2 * NUM_SECTORS + 1
 	add	a1, a1, s0		# avail_idx = 2*NUM_SECTORS+1+sector
-	READ_BLOCK			# reads 512 bytes into DISK_DATA_BUFFER
+	li	a2, 0			# read
+	jal	disk_io			# reads 512 bytes into DISK_DATA_BUFFER
 	addi	s0, s0, 1
 
 	# copy min(512, s1) bytes from DISK_DATA_BUFFER to s2
@@ -1407,15 +1348,10 @@ readback_sector_loop:
 	mv	a2, sp
 	jal	blake2s
 
-	lw	t0,  0(sp); li t1, BIN_HASH0; bne t0, t1, readback_hash_err
-	lw	t0,  4(sp); li t1, BIN_HASH1; bne t0, t1, readback_hash_err
-	lw	t0,  8(sp); li t1, BIN_HASH2; bne t0, t1, readback_hash_err
-	lw	t0, 12(sp); li t1, BIN_HASH3; bne t0, t1, readback_hash_err
-	lw	t0, 16(sp); li t1, BIN_HASH4; bne t0, t1, readback_hash_err
-	lw	t0, 20(sp); li t1, BIN_HASH5; bne t0, t1, readback_hash_err
-	lw	t0, 24(sp); li t1, BIN_HASH6; bne t0, t1, readback_hash_err
-	lw	t0, 28(sp); li t1, BIN_HASH7; bne t0, t1, readback_hash_err
+	mv	a0, sp
+	jal	check_hash
 	addi	sp, sp, 32
+	bnez	a0, readback_hash_err
 
 	# execute
 	li	t0, LOAD_LOC
@@ -1423,7 +1359,6 @@ readback_sector_loop:
 	jr	t0
 
 readback_hash_err:
-	addi	sp, sp, 32
 	li	a0, 'R'
 	jal	write_byte
 	li	a0, '\n'
@@ -1432,7 +1367,6 @@ readback_hash_err:
 	j	1b
 
 download_hash_err:
-	addi	sp, sp, 32
 	li	a0, 'H'
 	jal	write_byte
 	li	a0, '\n'
@@ -1571,6 +1505,12 @@ b2s_g_idx:
 	.byte	1,	6,	11,	12	# diagonal 1
 	.byte	2,	7,	8,	13	# diagonal 2
 	.byte	3,	4,	9,	14	# diagonal 3
+
+# Expected hash of the binary (blake2s, 32 bytes / 8 words)
+	.balign 4
+expected_hash:
+	.word	BIN_HASH0, BIN_HASH1, BIN_HASH2, BIN_HASH3
+	.word	BIN_HASH4, BIN_HASH5, BIN_HASH6, BIN_HASH7
 
 # Hart mailbox: one word per hart. Full node writes a jump target here,
 # then sends IPI to wake the hart. Zero = stay parked.
