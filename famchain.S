@@ -49,8 +49,10 @@
 .equ	LOAD_LOC,		25106		# binary load location (unlimited headroom)
 
 # Size and Hash of Program 
+# Program hash is: 0x0615555B 0x0615555B 0x0615555B 0x0615555B 0x32214BDD 0x32214BDD 0xCB4F2064 0x60741073
+# Change BIN_HASH0 to exercise the 'hash_mismatch' logic
 .equ	BIN_SIZE,		1296
-.equ	BIN_HASH0,		0x0615555C
+.equ	BIN_HASH0,		0x0615555B
 .equ	BIN_HASH1,		0x21032136
 .equ	BIN_HASH2,		0x53CB174E
 .equ	BIN_HASH3,		0xA7D9AD58
