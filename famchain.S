@@ -69,6 +69,11 @@
 .equ	FAMC_CMD_REQ_RANGE,	0x02
 .equ	FAMC_CMD_RSP_CHUNK,	0x82
 
+.equ	CLINT_BASE,		0x2000000	# Core Local Interruptor
+.equ	CLINT_MSIP,		0x0		# software interrupt per hart (4 bytes each)
+.equ	MAX_HARTS,		8
+.equ	HART_STACK_SZ,		4096		# per-hart stack size for secondary harts
+
 .equ	CLOCK_HZ,		1000000000	# QEMU virt ~1 GHz
 .equ	TIMEOUT_CYCLES,		3000000000	# 3 seconds
 .equ	MAX_HOSTS,		16
@@ -452,6 +457,10 @@ _base\@:
 .endm
 
 _start:
+	# All harts enter here. Only hart 0 boots; others park.
+	csrr	t0, mhartid
+	bnez	t0, secondary_park
+
 	LOAD_ADDRESS	gp, data
 	li		t0, 4095
 	add		gp, gp, t0
@@ -459,6 +468,14 @@ _start:
 	and		gp, gp, t0
 	li		t0, 0x100000
 	add		sp, gp, t0
+
+	# Zero the hart mailbox (MAX_HARTS words)
+	LOAD_ADDRESS	t1, hart_mailbox
+	li		t2, MAX_HARTS
+1:	sw		zero, 0(t1)
+	addi		t1, t1, 4
+	addi		t2, t2, -1
+	bnez		t2, 1b
 
 	INIT_DISK
 	INIT_NET
@@ -1634,11 +1651,72 @@ all_hosts_failed:
 error_not_virtio:
 error_not_disk:
 error_features_not_supported:
-	li		a0, 'z' 
+	li		a0, 'z'
 	jal		write_byte
 1:	wfi
 	j		1b
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Secondary hart parking and IPI handler
+# ──────────────────────────────────────────────────────────────────────────────
+
+# Secondary harts enter here. Parks in WFI until the full node sends an IPI
+# with a jump target in hart_mailbox[hartid].
+secondary_park:
+	# set up trap vector → ipi_handler (direct mode)
+	LOAD_ADDRESS	t0, ipi_handler
+	csrw		mtvec, t0
+
+	# enable machine software interrupt (MSIE = bit 3 of mie)
+	li		t0, 8			# MIE.MSIE
+	csrs		mie, t0
+
+	# enable global machine interrupts (MIE = bit 3 of mstatus)
+	li		t0, 8			# MSTATUS.MIE
+	csrs		mstatus, t0
+
+1:	wfi
+	j		1b			# loop back to wfi after spurious wakes
+
+# IPI handler: called when a software interrupt arrives on a secondary hart.
+# Clears the interrupt, checks hart_mailbox[hartid] for a jump target.
+# If non-zero, jumps to it. Otherwise returns to WFI.
+	.balign 4
+ipi_handler:
+	# clear software interrupt: write 0 to CLINT_MSIP + hartid*4
+	csrr	t0, mhartid
+	slli	t1, t0, 2			# t1 = hartid * 4
+	li	t2, CLINT_BASE
+	add	t2, t2, t1
+	sw	zero, CLINT_MSIP(t2)		# clear MSIP for this hart
+
+	# check mailbox[hartid]
+	LOAD_ADDRESS	t2, hart_mailbox
+	add	t2, t2, t1			# t2 = &mailbox[hartid]
+	lw	t3, 0(t2)			# t3 = jump target
+	beqz	t3, ipi_return			# no target → back to wfi
+
+	# set up stack for this hart: gp + 0x100000 + (hartid+1) * HART_STACK_SZ
+	LOAD_ADDRESS	gp, data
+	li	t4, 4095
+	add	gp, gp, t4
+	li	t4, -4096
+	and	gp, gp, t4
+
+	addi	t0, t0, 1			# hartid + 1 (hart 0 uses base stack)
+	slli	t4, t0, 12			# offset = (hartid+1) * 4096
+	li	t5, 0x100000
+	add	sp, gp, t5
+	add	sp, sp, t4			# sp = gp + 0x100000 + offset
+
+	# clear mailbox entry
+	sw	zero, 0(t2)
+
+	# jump to target — full node takes over this hart
+	jr	t3
+
+ipi_return:
+	mret
 
 
 # IV = SHA-256 fractional parts of sqrt of first 8 primes
@@ -1674,5 +1752,11 @@ b2s_g_idx:
 default_host:
 	.byte	SERVER_IP_0, SERVER_IP_1, SERVER_IP_2, SERVER_IP_3
 	.byte	(SERVER_PORT >> 8), (SERVER_PORT & 0xFF)
+
+# Hart mailbox: one word per hart. Full node writes a jump target here,
+# then sends IPI to wake the hart. Zero = stay parked.
+	.balign 4
+hart_mailbox:
+	.fill	MAX_HARTS, 4, 0
 
 data:
