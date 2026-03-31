@@ -60,11 +60,6 @@
 .equ	FAMC_CMD_REQ_RANGE,	0x02
 .equ	FAMC_CMD_RSP_CHUNK,	0x82
 
-.equ	CLINT_BASE,		0x2000000	# Core Local Interruptor
-.equ	CLINT_MSIP,		0x0		# software interrupt per hart (4 bytes each)
-.equ	MAX_HARTS,		8
-.equ	HART_STACK_SZ,		4096		# per-hart stack size for secondary harts
-
 .equ	CLOCK_HZ,		1000000000	# QEMU virt ~1 GHz
 .equ	TIMEOUT_CYCLES,		3000000000	# 3 seconds
 .equ	MAX_HOSTS,		16
@@ -77,7 +72,6 @@
 .equ	CHUNK_SIZE,		1400
 .equ	NUM_CHUNKS,		(BIN_SIZE + CHUNK_SIZE - 1) / CHUNK_SIZE
 .equ	LAST_CHUNK,		(NUM_CHUNKS - 1)
-.equ	NUM_SECTORS,		(BIN_SIZE + 511) / 512
 
 .equ	RX_QUEUE_DATA_OFFSET,	0		# net RX queue base (page-aligned)
 .equ	TX_QUEUE_DATA_OFFSET,	8192		# net TX queue base (page-aligned)
@@ -206,17 +200,6 @@ _base\@:
 	andi		t2, t1, 8
 	beqz		t2, error_features_not_supported
 
-	# zero the disk region (gp+DISK_DATA_BUFFER..gp+LOAD_LOC)
-	li		t2, DISK_DATA_BUFFER
-	add		t2, gp, t2
-	li		t3, LOAD_LOC
-	add		t3, gp, t3
-
-1:
-	sb		zero, 0(t2)
-	addi		t2, t2, 1
-	bltu		t2, t3, 1b
-
 	li		t1, 4096
 	sw		t1, VIO_GUEST_PAGE_SIZE(t0)	# GuestPageSize = 4096
 
@@ -240,15 +223,6 @@ _base\@:
 .endm
 
 .macro INIT_NET
-	# zero net region (gp+0..gp+DISK_DATA_BUFFER)
-	mv	t2, gp
-	li	t3, DISK_DATA_BUFFER
-	add	t3, gp, t3
-1:
-	sw	zero, 0(t2)
-	addi t2, t2, 4
-	bltu t2, t3, 1b
-
 	li	s0, VIRTIO_NET_BASE
 	sw	zero, VIO_STATUS(s0)		# Reset device
 
@@ -320,9 +294,8 @@ _base\@:
 .endm
 
 _start:
-	# All harts enter here. Only hart 0 boots; others park.
 	csrr	t0, mhartid
-	bnez	t0, secondary_park
+1:	bnez	t0, 1b			# secondary harts: spin (full node sets up IPI)
 
 	LOAD_ADDRESS	gp, data
 	li		t0, 4095
@@ -332,13 +305,13 @@ _start:
 	li		t0, 0x100000
 	add		sp, gp, t0
 
-	# Zero the hart mailbox (MAX_HARTS words)
-	LOAD_ADDRESS	t1, hart_mailbox
-	li		t2, MAX_HARTS
-1:	sw		zero, 0(t1)
-	addi		t1, t1, 4
-	addi		t2, t2, -1
-	bnez		t2, 1b
+	# zero gp+0 through gp+LOAD_LOC (covers net queues + disk structures)
+	mv		t2, gp
+	li		t3, LOAD_LOC
+	add		t3, gp, t3
+1:	sw		zero, 0(t2)
+	addi		t2, t2, 4
+	bltu		t2, t3, 1b
 
 	INIT_DISK
 	INIT_NET
@@ -352,8 +325,7 @@ start_block:
 	mv		a0, s3		# counter
 	addi		s3, s3, 1
 	mv		a1, s3		# idx = counter + 1
-	li		a2, 0		# read
-	jal		disk_io
+	jal		disk_read
 
 	li		t0, DISK_DATA_BUFFER
 	add		s0, gp, t0	# data lands at gp+DISK_DATA_BUFFER
@@ -392,55 +364,45 @@ start_block:
 	j		1b
 
 
-# disk_io: perform a single 512-byte disk read or write
-# a0 = sector number
-# a1 = avail_idx (must increase monotonically across all disk ops)
-# a2 = direction: 0 = read (device writes to buffer), 1 = write (device reads from buffer)
-disk_io:
-	SETUP	s0, s1
-	mv	s0, a0				# save sector
-	mv	s1, a1				# save avail_idx
-
+# disk_read: read a 512-byte sector into DISK_DATA_BUFFER
+# a0 = sector, a1 = avail_idx. Leaf function, clobbers t0-t5.
+disk_read:
 	li	t5, VIRT_DESCRIPTOR_TABLE
-	add	t1, gp, t5			# t1 = descriptor table
-	li	t2, VIRT_DISK_HEADER
-	add	t2, gp, t2			# t2 = request header
+	add	t1, gp, t5
 	li	t3, VIRT_DISK_STATUS
-	add	t3, gp, t3			# t3 = status byte
+	add	t3, gp, t3
+	addi	t2, t3, 2			# header = status + 2
 
-	sw	a2, 0(t2)			# type: 0=read, 1=write
-	sw	s0, 8(t2)			# sector
+	sw	zero, 0(t2)			# type = read
+	sw	a0, 8(t2)			# sector
 
 	# desc[0]: request header
 	sw	t2, 0(t1)
 	sw	zero, 4(t1)
 	li	t4, 16
-	sw	t4, 8(t1)			# len = 16
-	li	t4, 1				# NEXT flag
+	sw	t4, 8(t1)
+	li	t4, 1
 	sh	t4, 12(t1)
-	sh	t4, 14(t1)			# next = 1
+	sh	t4, 14(t1)
 
-	# desc[1]: data buffer
-	# flags: read → NEXT|WRITE (3), write → NEXT (1)
+	# desc[1]: data buffer (device writes: NEXT|WRITE = 3)
 	li	t5, DISK_DATA_BUFFER
 	add	t5, gp, t5
 	sw	t5, 16(t1)
 	sw	zero, 20(t1)
 	li	t4, 512
-	sw	t4, 24(t1)			# len = 512
-	slli	t4, a2, 1			# write: 0→0, 1→2
-	li	t5, 3
-	sub	t4, t5, t4			# read: 3-0=3, write: 3-2=1
-	sh	t4, 28(t1)			# flags
+	sw	t4, 24(t1)
+	li	t4, 3
+	sh	t4, 28(t1)
 	li	t4, 2
-	sh	t4, 30(t1)			# next = 2
+	sh	t4, 30(t1)
 
-	# desc[2]: status byte (always device-writable)
+	# desc[2]: status byte
 	sw	t3, 32(t1)
 	sw	zero, 36(t1)
 	li	t4, 1
-	sw	t4, 40(t1)			# len = 1
-	li	t4, 2				# WRITE flag
+	sw	t4, 40(t1)
+	li	t4, 2
 	sh	t4, 44(t1)
 	sh	zero, 46(t1)
 
@@ -448,50 +410,67 @@ disk_io:
 	addi	t4, t1, 256
 	sh	zero, 4(t4)
 	li	t5, 0xFF
-	sb	t5, 0(t3)			# status sentinel = 0xFF
-	sh	s1, 2(t4)			# avail.idx
+	sb	t5, 0(t3)
+	sh	a1, 2(t4)
 
 	fence	w, w
 	li	t5, VIRTIO_DISK_BASE
 	sw	zero, VIRT_QUEUE0(t5)
 
-	# wait for completion
 	li	t5, 0xFF
 1:	lbu	t4, 0(t3)
 	beq	t4, t5, 1b
 	fence	r, r
-
-	RETURN
+	ret
 
 # write_guest_mac: write 6-byte guest MAC to address in a0. Clobbers t0.
 write_guest_mac:
 	li	t0, GUEST_MAC_0; sb t0, 0(a0)
 	li	t0, GUEST_MAC_1; sb t0, 1(a0)
-	li	t0, GUEST_MAC_2; sb t0, 2(a0)
+	sb	zero, 2(a0)			# GUEST_MAC_2 = 0
 	li	t0, GUEST_MAC_3; sb t0, 3(a0)
 	li	t0, GUEST_MAC_4; sb t0, 4(a0)
 	li	t0, GUEST_MAC_5; sb t0, 5(a0)
 	ret
 
 # check_hash: compare 32-byte hash at a0 against expected BIN_HASH values
-# a0 = pointer to 32-byte hash
-# Returns: a0 = 0 (match), a0 = 1 (mismatch)
+# a0 = pointer to 32-byte hash. Returns: a0 = 0 (match), 1 (mismatch).
+# Leaf function, clobbers t0-t2, modifies a0.
 check_hash:
-	SETUP	s0, s1
-	mv	s0, a0
-	LOAD_ADDRESS s1, expected_hash
-	li	a0, 0			# assume match
-	li	t2, 8			# 8 words
-1:	lw	t0, 0(s0)
-	lw	t1, 0(s1)
-	bne	t0, t1, 2f
-	addi	s0, s0, 4
-	addi	s1, s1, 4
+	LOAD_ADDRESS t1, expected_hash
+	li	t2, 8
+1:	lw	t0, 0(a0)
+	lw	t3, 0(t1)
+	bne	t0, t3, 2f
+	addi	a0, a0, 4
+	addi	t1, t1, 4
 	addi	t2, t2, -1
 	bnez	t2, 1b
-	j	3f
-2:	li	a0, 1			# mismatch
-3:	RETURN
+	li	a0, 0
+	ret
+2:	li	a0, 1
+	ret
+
+# tx_kick: post TX descriptor and kick virtio-net TX queue
+# a0 = buffer address, a1 = packet length. Leaf, clobbers t0-t2.
+tx_kick:
+	li	t2, TX_QUEUE_DATA_OFFSET
+	add	t2, gp, t2
+	sw	a0, 0(t2)
+	sw	zero, 4(t2)
+	sw	a1, 8(t2)
+	sh	zero, 12(t2)
+	sh	zero, 14(t2)
+	sh	zero, 16(t2)
+	lhu	t0, 18(t2)
+	addi	t0, t0, 1
+	sh	t0, 18(t2)
+	sh	zero, 20(t2)
+	fence	w, w
+	li	t0, VIRTIO_NET_BASE
+	li	t1, 1
+	sw	t1, VIRT_QUEUE0(t0)
+	ret
 
 write_byte:
 	li		t1, UART_BASE
@@ -871,26 +850,9 @@ send_arp_reply:
 	lbu	t0, 42(a0); sb t0, 52(a1)
 	lbu	t0, 43(a0); sb t0, 53(a1)
 
-	# t2 = TX queue base
-	li	t2, TX_QUEUE_DATA_OFFSET
-	add	t2, gp, t2
-
-	sw	a1,	0(t2)		# desc[0].addr low = TX buffer
-	sw	zero,	4(t2)		# desc[0].addr high = 0
-	li	t0, 54
-	sw	t0,	8(t2)		# desc[0].len = 54
-	sh	zero, 12(t2)		# desc[0].flags = 0 (device reads)
-	sh	zero, 14(t2)		# desc[0].next = 0
-
-	sh	zero, 16(t2)		# avail.flags = 0
-	lhu	t0,	18(t2)		# avail.idx++
-	addi	t0, t0, 1
-	sh	t0,	18(t2)
-	sh	zero, 20(t2)		# avail.ring[0] = descriptor 0
-
-	fence	w, w
-	li	t0, 1
-	sw	t0, VIRT_QUEUE0(s0)	# kick queue 1 (TX)
+	mv	a0, a1
+	li	a1, 54
+	jal	tx_kick
 
 	RETURN
 
@@ -989,34 +951,13 @@ send_req_range:
 	srli	t0, s2, 8;    sb t0, 61(s0)	# end hi
 	andi	t0, s2, 0xFF; sb t0, 62(s0)	# end lo
 
-	# Post descriptor to TX queue
-	li	t2, TX_QUEUE_DATA_OFFSET
-	add	t2, gp, t2
-
-	sw	s0,   0(t2)
-	sw	zero, 4(t2)
-	li	t0, 63
-	sw	t0,   8(t2)
-	sh	zero, 12(t2)
-	sh	zero, 14(t2)
-
-	sh	zero, 16(t2)
-	lhu	t0,   18(t2)
-	addi	t0, t0, 1
-	sh	t0,   18(t2)
-	sh	zero, 20(t2)
-
-	fence	w, w
-	li	t0, VIRTIO_NET_BASE
-	li	t1, 1
-	sw	t1, VIRT_QUEUE0(t0)
+	mv	a0, s0
+	li	a1, 63
+	jal	tx_kick
 
 	RETURN
 
 hash_mismatch:
-	li		a0, 'm'
-	jal		write_byte
-
 	# ── allocate stack: 256B bitmap + 128B host buffer ──
 	addi	sp, sp, -256
 	mv	s2, sp				# s2 = bitmap base
@@ -1066,10 +1007,8 @@ parse_sep:
 	# space, newline, or other = host separator
 	li	t1, 4
 	bne	t3, t1, parse_reset		# not in port mode → skip
-	srli	t1, s6, 8; sb t1, 4(t2)	# port hi
-	andi	t1, s6, 0xFF; sb t1, 5(t2)	# port lo
+	jal	t6, store_port			# t6 = return addr (leaf trick)
 	addi	t2, t2, HOST_ENTRY_SZ		# advance write ptr
-	addi	s5, s5, 1			# host count++
 parse_reset:
 	li	s6, 0
 	li	t3, 0
@@ -1078,27 +1017,28 @@ parse_reset:
 parse_dot:
 	li	t1, 3
 	bgeu	t3, t1, parse_loop		# ignore extra dots
+	j	store_octet
+parse_colon:
+	li	t1, 3
+	bne	t3, t1, parse_loop		# must be after 3rd dot
+store_octet:
 	add	t4, t2, t3
-	sb	s6, 0(t4)			# store octet
+	sb	s6, 0(t4)
 	addi	t3, t3, 1
 	li	s6, 0
 	j	parse_loop
 
-parse_colon:
-	li	t1, 3
-	bne	t3, t1, parse_loop		# must be after 3rd dot
-	add	t4, t2, t3
-	sb	s6, 0(t4)			# store 4th octet
-	addi	t3, t3, 1			# t3 = 4 (port mode)
-	li	s6, 0
-	j	parse_loop
+# store port (big endian) and increment host count. Called via jal t6.
+store_port:
+	srli	t1, s6, 8; sb t1, 4(t2)
+	andi	t1, s6, 0xFF; sb t1, 5(t2)
+	addi	s5, s5, 1
+	jalr	zero, 0(t6)
 
 parse_eot:
 	li	t1, 4
 	bne	t3, t1, parse_done		# not in port mode → skip
-	srli	t1, s6, 8; sb t1, 4(t2)	# store final port
-	andi	t1, s6, 0xFF; sb t1, 5(t2)
-	addi	s5, s5, 1
+	jal	t6, store_port
 
 parse_done:
 	beqz	s5, all_hosts_failed		# no hosts parsed → halt
@@ -1242,107 +1182,11 @@ not_arp:
 	addi	sp, sp, 32
 	bnez	a0, download_hash_err
 
-	# hash verified — write binary to disk sector by sector
-	# avail_idx for writes: NUM_SECTORS+1 .. 2*NUM_SECTORS
-	# (boot reads used avail_idx 1..NUM_SECTORS)
-	li	s0, 0			# s0 = sector
-	li	s1, BIN_SIZE		# s1 = bytes remaining
-	li	s2, LOAD_LOC
-	add	s2, s2, gp		# s2 = src ptr
-
-write_sector_loop:
-	# bytes this sector = min(512, s1)
-	li	s3, 512
-	bltu	s1, s3, 1f
-	j	2f
-1:	mv	s3, s1
-2:
-	# copy s3 bytes from s2 to DISK_DATA_BUFFER
-	li	t0, DISK_DATA_BUFFER
-	add	t1, gp, t0		# t1 = dst
-	mv	t2, s3
-3:	beqz	t2, 4f
-	lbu	t3, 0(s2)
-	sb	t3, 0(t1)
-	addi	s2, s2, 1
-	addi	t1, t1, 1
-	addi	t2, t2, -1
-	j	3b
-4:
-	# zero-pad remainder of sector
-	li	t2, 512
-	sub	t2, t2, s3
-5:	beqz	t2, 6f
-	sb	zero, 0(t1)
-	addi	t1, t1, 1
-	addi	t2, t2, -1
-	j	5b
-6:
-	mv	a0, s0			# sector
-	li	a1, NUM_SECTORS + 1
-	add	a1, a1, s0		# avail_idx = NUM_SECTORS+1+sector
-	li	a2, 1			# write
-	jal	disk_io
-
-	addi	s0, s0, 1
-	sub	s1, s1, s3
-	bnez	s1, write_sector_loop
-
-	# read back from disk into LOAD_LOC
-	# avail_idx for readback: 2*NUM_SECTORS+1 .. 3*NUM_SECTORS
-	li	s0, 0			# s0 = sector
-	li	s1, BIN_SIZE		# s1 = bytes remaining
-	li	s2, LOAD_LOC
-	add	s2, s2, gp		# s2 = dst ptr
-
-readback_sector_loop:
-	mv	a0, s0
-	li	a1, 2 * NUM_SECTORS + 1
-	add	a1, a1, s0		# avail_idx = 2*NUM_SECTORS+1+sector
-	li	a2, 0			# read
-	jal	disk_io			# reads 512 bytes into DISK_DATA_BUFFER
-	addi	s0, s0, 1
-
-	# copy min(512, s1) bytes from DISK_DATA_BUFFER to s2
-	li	t0, DISK_DATA_BUFFER
-	add	t1, gp, t0		# t1 = src
-	li	t2, 512
-	bltu	s1, t2, 1f
-	j	2f
-1:	mv	t2, s1
-2:	mv	t3, t2
-3:	beqz	t3, 4f
-	lbu	t4, 0(t1)
-	sb	t4, 0(s2)
-	addi	t1, t1, 1
-	addi	s2, s2, 1
-	addi	t3, t3, -1
-	j	3b
-4:
-	sub	s1, s1, t2
-	bnez	s1, readback_sector_loop
-
-	# verify readback hash
-	li	a0, LOAD_LOC
-	add	a0, a0, gp
-	li	a1, BIN_SIZE
-	addi	sp, sp, -32
-	mv	a2, sp
-	jal	blake2s
-
-	mv	a0, sp
-	jal	check_hash
-	addi	sp, sp, 32
-	bnez	a0, readback_hash_err
-
-	# execute
+	# hash verified — execute
 	li	t0, LOAD_LOC
 	add	t0, t0, gp
 	jr	t0
 
-readback_hash_err:
-	li	a0, 'R'
-	j	fatal
 download_hash_err:
 	li	a0, 'H'
 	j	fatal
@@ -1370,76 +1214,11 @@ error_not_disk:
 error_features_not_supported:
 	li	a0, 'z'
 
-# fatal: print char in a0, newline, then halt
+# fatal: print char in a0, then halt
 fatal:
-	jal	write_byte
-	li	a0, '\n'
 	jal	write_byte
 1:	wfi
 	j	1b
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Secondary hart parking and IPI handler
-# ──────────────────────────────────────────────────────────────────────────────
-
-# Secondary harts enter here. Parks in WFI until the full node sends an IPI
-# with a jump target in hart_mailbox[hartid].
-secondary_park:
-	# set up trap vector → ipi_handler (direct mode)
-	LOAD_ADDRESS	t0, ipi_handler
-	csrw		mtvec, t0
-
-	# enable machine software interrupt (MSIE = bit 3 of mie)
-	li		t0, 8			# MIE.MSIE
-	csrs		mie, t0
-
-	# enable global machine interrupts (MIE = bit 3 of mstatus)
-	li		t0, 8			# MSTATUS.MIE
-	csrs		mstatus, t0
-
-1:	wfi
-	j		1b			# loop back to wfi after spurious wakes
-
-# IPI handler: called when a software interrupt arrives on a secondary hart.
-# Clears the interrupt, checks hart_mailbox[hartid] for a jump target.
-# If non-zero, jumps to it. Otherwise returns to WFI.
-	.balign 4
-ipi_handler:
-	# clear software interrupt: write 0 to CLINT_MSIP + hartid*4
-	csrr	t0, mhartid
-	slli	t1, t0, 2			# t1 = hartid * 4
-	li	t2, CLINT_BASE
-	add	t2, t2, t1
-	sw	zero, CLINT_MSIP(t2)		# clear MSIP for this hart
-
-	# check mailbox[hartid]
-	LOAD_ADDRESS	t2, hart_mailbox
-	add	t2, t2, t1			# t2 = &mailbox[hartid]
-	lw	t3, 0(t2)			# t3 = jump target
-	beqz	t3, ipi_return			# no target → back to wfi
-
-	# set up stack for this hart: gp + 0x100000 + (hartid+1) * HART_STACK_SZ
-	LOAD_ADDRESS	gp, data
-	li	t4, 4095
-	add	gp, gp, t4
-	li	t4, -4096
-	and	gp, gp, t4
-
-	addi	t0, t0, 1			# hartid + 1 (hart 0 uses base stack)
-	slli	t4, t0, 12			# offset = (hartid+1) * 4096
-	li	t5, 0x100000
-	add	sp, gp, t5
-	add	sp, sp, t4			# sp = gp + 0x100000 + offset
-
-	# clear mailbox entry
-	sw	zero, 0(t2)
-
-	# jump to target — full node takes over this hart
-	jr	t3
-
-ipi_return:
-	mret
-
 
 # IV = SHA-256 fractional parts of sqrt of first 8 primes
 b2s_iv:
@@ -1475,11 +1254,5 @@ b2s_g_idx:
 expected_hash:
 	.word	BIN_HASH0, BIN_HASH1, BIN_HASH2, BIN_HASH3
 	.word	BIN_HASH4, BIN_HASH5, BIN_HASH6, BIN_HASH7
-
-# Hart mailbox: one word per hart. Full node writes a jump target here,
-# then sends IPI to wake the hart. Zero = stay parked.
-	.balign 4
-hart_mailbox:
-	.fill	MAX_HARTS, 4, 0
 
 data:
