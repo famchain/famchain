@@ -192,17 +192,17 @@ print_hex:
 
 1:	li		s1, 28		# Start at highest nibble
 2:
-	srl		t2, s0, s1		# Isolate nibble
+	srl		t2, s0, s1	# Isolate nibble
 	andi		t2, t2, 0xF
 
 	# Convert nibble to ASCII
 	li		a0, 10
-	blt		t2, a0, 4f		# If 0-9
-	addi		t2, t2, 7		# Adjust for A-F
-4:	addi		a0, t2, 48		# ASCII '0'
+	blt		t2, a0, 4f	# If 0-9
+	addi		t2, t2, 7	# Adjust for A-F
+4:	addi		a0, t2, 48	# ASCII '0'
 	jal		write_byte
 
-	addi		s1, s1, -4		# Move to next 4 bits
+	addi		s1, s1, -4	# Move to next 4 bits
 	bgez		s1, 2b
 
 	RETURN
@@ -253,12 +253,12 @@ b2s_g:
 b2s_compress:
 	SETUP	s0, s1, s2, s3, s4, s5, s6
 
-	mv	s0, a0		# s0 = h_ptr
-	mv	s1, a1		# s1 = m_ptr
+	mv	s0, a0			# s0 = h_ptr
+	mv	s1, a1			# s1 = m_ptr
 
 	# Allocate v[0..15] on stack (64 bytes)
 	addi	sp, sp, -64
-	mv	s2, sp		# s2 = v_base
+	mv	s2, sp			# s2 = v_base
 
 	# v[0..7] = h[0..7]
 	.set	_i, 0
@@ -418,13 +418,13 @@ _b2s_round_done:
 blake2s:
 	SETUP	s0, s1, s2, s3, s4, s5, s6
 
-	mv	s0, a0		# s0 = input_ptr
-	mv	s1, a1		# s1 = remaining bytes
-	mv	s2, a2		# s2 = output_ptr
+	mv	s0, a0			# s0 = input_ptr
+	mv	s1, a1			# s1 = remaining bytes
+	mv	s2, a2			# s2 = output_ptr
 
 	# Allocate h[0..7] (32 bytes) + last-block buffer (64 bytes)
 	addi	sp, sp, -96
-	mv	s3, sp		# s3 = h_ptr  (offsets  0..31)
+	mv	s3, sp			# s3 = h_ptr  (offsets  0..31)
 	addi	s4, sp, 32		# s4 = buf_ptr (offsets 32..95)
 
 	# h[0..7] = IV[0..7]
@@ -496,7 +496,7 @@ _b2s_copy_done:
 	mv	a1, s4
 	mv	a2, s5
 	mv	a3, s6
-	li	a4, -1		# f0 = 0xFFFFFFFF (last block)
+	li	a4, -1			# f0 = 0xFFFFFFFF (last block)
 	jal	b2s_compress
 
 	# Copy h[0..7] → output
@@ -517,16 +517,16 @@ b2s_iv:
 
 # Sigma permutation table (10 rounds × 16 indices)
 b2s_sigma:
-	.byte	0,	1,	2,	3,	4,	5,	6,	7,	8,	9, 10, 11, 12, 13, 14, 15
-	.byte	14, 10, 4,	8,	9, 15, 13,	6,	1, 12,	0,	2, 11,	7,	5,	3
-	.byte	11,	8, 12,	0,	5,	2, 15, 13, 10, 14,	3,	6,	7,	1,	9,	4
-	.byte	7,	9,	3,	1, 13, 12, 11, 14,	2,	6,	5, 10,	4,	0, 15,	8
-	.byte	9,	0,	5,	7,	2,	4, 10, 15, 14,	1, 11, 12,	6,	8,	3, 13
-	.byte	2, 12,	6, 10,	0, 11,	8,	3,	4, 13,	7,	5, 15, 14,	1,	9
-	.byte	12,	5,	1, 15, 14, 13,	4, 10,	0,	7,	6,	3,	9,	2,	8, 11
-	.byte	13, 11, 7, 14, 12,	1,	3,	9,	5,	0, 15,	4,	8,	6,	2, 10
-	.byte	6, 15, 14,	9, 11,	3,	0,	8, 12,	2, 13,	7,	1,	4, 10,	5
-	.byte	10,	2,	8,	4,	7,	6,	1,	5, 15, 11,	9, 14,	3, 12, 13,	0
+	.byte	0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15
+	.byte	14, 10, 4, 8, 9, 15, 13, 6, 1, 12, 0, 2, 11, 7, 5, 3
+	.byte	11, 8, 12, 0, 5, 2, 15, 13, 10, 14, 3, 6, 7, 1, 9, 4
+	.byte	7, 9, 3, 1, 13, 12, 11, 14, 2, 6, 5, 10, 4, 0, 15, 8
+	.byte	9, 0, 5, 7, 2, 4, 10, 15, 14, 1, 11, 12, 6, 8, 3, 13
+	.byte	2, 12, 6, 10, 0, 11, 8, 3, 4, 13, 7, 5, 15, 14, 1, 9
+	.byte	12, 5, 1, 15, 14, 13, 4, 10, 0, 7, 6, 3, 9, 2, 8, 11
+	.byte	13, 11, 7, 14, 12, 1, 3, 9, 5, 0, 15, 4, 8, 6, 2, 10
+	.byte	6, 15, 14, 9, 11, 3, 0, 8, 12, 2, 13, 7, 1, 4, 10, 5
+	.byte	10, 2, 8, 4, 7, 6, 1, 5, 15, 11, 9, 14, 3, 12, 13, 0
 
 # v[] indices (a, b, c, d) for each of the 8 G calls per round
 b2s_g_idx:
