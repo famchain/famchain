@@ -10,13 +10,13 @@ riscv64-unknown-elf-objcopy \
 	./tmp/famchain.o \
 	./tmp/famchain.bin || exit 1
 
-qemu-system-riscv32 \
-	-machine virt \
-	-nographic \
-	-bios none \
-	-smp 1 \
-	-device loader,file=./tmp/famchain.bin,addr=0x80000000 \
-	-netdev user,id=net0,hostfwd=tcp::2222-:22 \
-        -drive file=./tmp/disk.img,if=none,format=raw,id=dr0 \
-        -device virtio-blk-device,drive=dr0,bus=virtio-mmio-bus.0 \
-        -device virtio-net-device,netdev=net0,bus=virtio-mmio-bus.1 || exit 1;
+(echo "146.235.218.150:3737 146.235.218.151:3737"; printf '\004') | qemu-system-riscv32 \
+      -machine virt \
+      -nographic \
+      -bios none \
+      -smp 1 \
+      -device loader,file=./tmp/famchain.bin,addr=0x80000000 \
+      -netdev user,id=net0,hostfwd=tcp::2222-:22 \
+      -drive file=./tmp/disk.img,if=none,format=raw,id=dr0 \
+      -device virtio-blk-device,drive=dr0,bus=virtio-mmio-bus.0 \
+      -device virtio-net-device,netdev=net0,bus=virtio-mmio-bus.1

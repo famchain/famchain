@@ -1245,51 +1245,81 @@ hash_mismatch:
 	li	t0, 64; mv t1, s2
 1:	sw	zero, 0(t1); addi t1, t1, 4; addi t0, t0, -1; bnez t0, 1b
 
-	# ── read host list from UART (1-second timeout) ──
-	# format: [count][ip0 ip1 ip2 ip3 port_hi port_lo] × count
+	# ── read host list from UART (ASCII: "ip:port ip:port...\004") ──
+	# parser state: s6=accumulator, t3=field(0-3=IP,4=port), t2=write ptr
 	li	t5, UART_BASE
-	rdcycle	t0
-	li	t1, CLOCK_HZ
-	add	t1, t0, t1			# deadline = now + 1 second
-
-uart_wait_count:
-	lbu	t0, UART_LSR(t5)
-	andi	t0, t0, 0x01			# data ready?
-	bnez	t0, uart_read_count
-	rdcycle	t0
-	bltu	t0, t1, uart_wait_count
-	j	use_default_host		# timeout
-
-uart_read_count:
-	lbu	t0, 0(t5)			# count byte
-	beqz	t0, use_default_host
-	li	t1, MAX_HOSTS
-	bltu	t0, t1, 1f
-	mv	t0, t1				# cap at MAX_HOSTS
-1:	mv	s5, t0				# s5 = host count
 	mv	t2, s4				# t2 = write ptr into host buffer
-	mv	t3, s5
+	li	s5, 0				# s5 = host count
+	li	s6, 0				# s6 = number accumulator
+	li	t3, 0				# t3 = field index
 
-uart_read_hosts:
-	beqz	t3, setup_net
-	li	t4, HOST_ENTRY_SZ
-uart_read_entry:
-	beqz	t4, uart_next_entry
-1:	lbu	t0, UART_LSR(t5)		# wait for byte (no timeout: data expected)
+parse_loop:
+1:	lbu	t0, UART_LSR(t5)		# wait for UART byte
 	andi	t0, t0, 0x01
 	beqz	t0, 1b
-	lbu	t0, 0(t5)
-	sb	t0, 0(t2)
-	addi	t2, t2, 1
-	addi	t4, t4, -1
-	j	uart_read_entry
-uart_next_entry:
-	addi	t3, t3, -1
-	j	uart_read_hosts
+	lbu	t0, 0(t5)			# t0 = character
 
-use_default_host:
-	LOAD_ADDRESS	s4, default_host
-	li		s5, 1
+	li	t1, 4				# EOT
+	beq	t0, t1, parse_eot
+
+	# digit? ('0'=48 .. '9'=57)
+	li	t1, 48
+	bltu	t0, t1, parse_sep
+	li	t1, 58
+	bgeu	t0, t1, parse_sep
+
+	# accumulator = accumulator * 10 + (char - '0')
+	addi	t0, t0, -48			# digit value
+	slli	t1, s6, 3			# 8 * acc
+	slli	t4, s6, 1			# 2 * acc
+	add	s6, t1, t4			# 10 * acc
+	add	s6, s6, t0			# + digit
+	j	parse_loop
+
+parse_sep:
+	li	t1, '.'
+	beq	t0, t1, parse_dot
+	li	t1, ':'
+	beq	t0, t1, parse_colon
+	# space, newline, or other = host separator
+	li	t1, 4
+	bne	t3, t1, parse_reset		# not in port mode → skip
+	srli	t1, s6, 8; sb t1, 4(t2)	# port hi
+	andi	t1, s6, 0xFF; sb t1, 5(t2)	# port lo
+	addi	t2, t2, HOST_ENTRY_SZ		# advance write ptr
+	addi	s5, s5, 1			# host count++
+parse_reset:
+	li	s6, 0
+	li	t3, 0
+	j	parse_loop
+
+parse_dot:
+	li	t1, 3
+	bgeu	t3, t1, parse_loop		# ignore extra dots
+	add	t4, t2, t3
+	sb	s6, 0(t4)			# store octet
+	addi	t3, t3, 1
+	li	s6, 0
+	j	parse_loop
+
+parse_colon:
+	li	t1, 3
+	bne	t3, t1, parse_loop		# must be after 3rd dot
+	add	t4, t2, t3
+	sb	s6, 0(t4)			# store 4th octet
+	addi	t3, t3, 1			# t3 = 4 (port mode)
+	li	s6, 0
+	j	parse_loop
+
+parse_eot:
+	li	t1, 4
+	bne	t3, t1, parse_done		# not in port mode → skip
+	srli	t1, s6, 8; sb t1, 4(t2)	# store final port
+	andi	t1, s6, 0xFF; sb t1, 5(t2)
+	addi	s5, s5, 1
+
+parse_done:
+	beqz	s5, all_hosts_failed		# no hosts parsed → halt
 
 setup_net:
 	li	s0, VIRTIO_NET_BASE
