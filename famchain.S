@@ -676,6 +676,15 @@ hash_mismatch:
 1:      wfi
         j               1b
 
+error_not_virtio:
+error_not_disk:
+error_features_not_supported:
+        li              a0, 'z' 
+        jal             write_byte
+1:      wfi
+        j               1b
+
+
 
 # IV = SHA-256 fractional parts of sqrt of first 8 primes
 b2s_iv:
