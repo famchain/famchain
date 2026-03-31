@@ -52,7 +52,7 @@
 # Program hash is: 0x0615555B 0x0615555B 0x0615555B 0x0615555B 0x32214BDD 0x32214BDD 0xCB4F2064 0x60741073
 # Change BIN_HASH0 to exercise the 'hash_mismatch' logic
 .equ	BIN_SIZE,		1296
-.equ	BIN_HASH0,		0x0615555B
+.equ	BIN_HASH0,		0x0615555A
 .equ	BIN_HASH1,		0x21032136
 .equ	BIN_HASH2,		0x53CB174E
 .equ	BIN_HASH3,		0xA7D9AD58
@@ -60,8 +60,6 @@
 .equ	BIN_HASH5,		0x47BC5AF3
 .equ	BIN_HASH6,		0xCB4F2064
 .equ	BIN_HASH7,		0x60741073
-
-
 
 .altmacro
 .macro LOAD_ADDRESS reg, label
@@ -782,12 +780,7 @@ _b2s_copy_done:
 
 # hexdump: a0=ptr, a1=len — prints "XX XX XX ..." 16 bytes per line
 hexdump:
-        addi    sp, sp, -32             
-        sw      ra,  0(sp)
-        sw      s2,  4(sp)
-        sw      s3,  8(sp)
-        sw      s4, 12(sp)
-        sw      s5, 16(sp)
+        SETUP   s2, s3, s4, s5
 
         mv      s2, a0          # s2 = ptr
         mv      s3, a1          # s3 = remaining bytes
@@ -802,7 +795,7 @@ hexdump_loop:
         andi    a0, s5, 0xF     # low nibble
         jal     print_nibble
         li      a0, ' '
-        jal     write_byte      
+        jal     write_byte
 
         addi    s2, s2, 1
         addi    s3, s3, -1
@@ -816,13 +809,7 @@ hexdump_loop:
 hexdump_done:
         li      a0, '\n'
         jal     write_byte
-        lw      ra,  0(sp)
-        lw      s2,  4(sp)
-        lw      s3,  8(sp)
-        lw      s4, 12(sp)
-        lw      s5, 16(sp)
-        addi    sp, sp, 32
-        ret
+        RETURN
 
 # print_nibble: a0=nibble (0-15) — prints one hex character, tail-calls write_byte
 print_nibble:
@@ -835,8 +822,7 @@ print_nibble:
 # Send ARP reply. Reads sender info from RX buffer, writes reply to TX buffer.
 # Clobbers: a0, a1, t0, t1, t2. Preserves: t3, t4, s0, s1.
 send_arp_reply:
-        addi    sp, sp, -4
-        sw      ra, 0(sp)
+        SETUP
 
         # a0 = RX buffer (gp + RX_QUEUE_DATA_OFFSET + 512 = gp + 512)
         addi    a0, gp, 512
@@ -939,9 +925,7 @@ sb      zero,     29(a1)
         li      a0, '\n'
         jal     write_byte
 
-        lw      ra, 0(sp)
-        addi    sp, sp, 4
-        ret
+        RETURN
 
 
 
