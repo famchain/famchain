@@ -29,16 +29,31 @@
 .equ	UART_WR_MASK,		0x20
 
 .equ	VIRTIO_DISK_BASE,	0x10001000
+.equ	VIRTIO_NET_BASE,	0x10002000
 .equ	VIRT_QUEUE0,		0x050
 .equ	VIO_NET_ID,		1		# Device ID for Network is 1
 .equ	VIO_MAGIC,		0x000
 .equ	VIO_DEVICE_ID,		0x008
 .equ	VIO_DEVICE_FEATURES,	0x010
 .equ	VIO_DRIVER_FEATURES,	0x020
+.equ	VIO_GUEST_PAGE_SIZE,	0x028
+.equ	VIO_QUEUE_SEL,		0x030
+.equ	VIO_QUEUE_NUM,		0x038
 .equ	VIO_QUEUE_ALIGN,	0x03C
 .equ	VIO_QUEUE_PFN,		0x040
 .equ	VIO_STATUS,		0x070
 .equ	VIRT_MAGIC,		0x74726976
+
+.equ	GUEST_MAC_0,		0x52
+.equ	GUEST_MAC_1,		0x54
+.equ	GUEST_MAC_2,		0x00
+.equ	GUEST_MAC_3,		0x12
+.equ	GUEST_MAC_4,		0x34
+.equ	GUEST_MAC_5,		0x56
+.equ	GUEST_IP_0,		10
+.equ	GUEST_IP_1,		0
+.equ	GUEST_IP_2,		2
+.equ	GUEST_IP_3,		15
 
 .equ	RX_QUEUE_DATA_OFFSET,	0		# net RX queue base (page-aligned)
 .equ	TX_QUEUE_DATA_OFFSET,	8192		# net TX queue base (page-aligned)
@@ -179,13 +194,13 @@ _base\@:
 	addi		t2, t2, 1
 	bltu		t2, t3, 1b
 
-	li		t1, 4096		
-		sw		t1, 0x028(t0)	# GuestPageSize = 4096 
+	li		t1, 4096
+	sw		t1, VIO_GUEST_PAGE_SIZE(t0)	# GuestPageSize = 4096
 
 	# Queue setup
-	sw		zero, 0x030(t0)		# QueueSel = 0
+	sw		zero, VIO_QUEUE_SEL(t0)		# QueueSel = 0
 	li		t1, 16
-	sw		t1, 0x038(t0)		# QueueNum = 16
+	sw		t1, VIO_QUEUE_NUM(t0)		# QueueNum = 16
 	li		t1, 4096
 	sw		t1, VIO_QUEUE_ALIGN(t0)		# QueueAlign = 4096
 
@@ -279,90 +294,74 @@ _base\@:
 	addi t2, t2, 4
 	bltu t2, t3, 1b
 
-	li s0, 0x10002000	# virtio-net MMIO base (virtio-mmio-bus.1)
-	sw zero, 0x70(s0)	# Reset device
+	li	s0, VIRTIO_NET_BASE
+	sw	zero, VIO_STATUS(s0)		# Reset device
 
-	li t0, 1 
-	sw t0, 0x70(s0)		# ACK
+	li	t0, 1
+	sw	t0, VIO_STATUS(s0)		# ACK
 
-	# ACK + DRIVER
-	li t0, 3
-	sw t0, 0x70(s0)
+	li	t0, 3
+	sw	t0, VIO_STATUS(s0)		# ACK + DRIVER
 
-	# 4. Feature negotiation (simple: accept what the device offers)
-	lw t1, 0x010(s0)	# Read host features (offset 0x10)
-	sw t1, 0x020(s0)	# Write them back as guest features (offset 0x20)
+	# Feature negotiation: accept what the device offers
+	lw	t1, VIO_DEVICE_FEATURES(s0)
+	sw	t1, VIO_DRIVER_FEATURES(s0)
 
 	# Set FEATURES_OK bit (8)
-	lw t1, 0x070(s0)
-	ori t1, t1, 8
-	sw t1, 0x070(s0)
+	lw	t1, VIO_STATUS(s0)
+	ori	t1, t1, 8
+	sw	t1, VIO_STATUS(s0)
 
-	# 5. Set guest page size (required for legacy interface)
-	li t0, 4096
-	sw t0, 0x028(s0)	# Page size register
+	# Set guest page size (required for legacy interface)
+	li	t0, 4096
+	sw	t0, VIO_GUEST_PAGE_SIZE(s0)
 
-	# 6. RX Queue (queue 0 per virtio-net spec)
-	li t0, 0
-	sw t0, 0x030(s0)	# select queue 0 (RX)
-	li t0, 1
-	sw t0, 0x038(s0)	# QueueNum = 1
-	li t0, 4096
-	sw t0, 0x03C(s0)	# QueueAlign = 4096
+	# RX Queue (queue 0 per virtio-net spec)
+	sw	zero, VIO_QUEUE_SEL(s0)		# select queue 0 (RX)
+	li	t0, 1
+	sw	t0, VIO_QUEUE_NUM(s0)		# QueueNum = 1
+	li	t0, 4096
+	sw	t0, VIO_QUEUE_ALIGN(s0)		# QueueAlign = 4096
+	li	t0, RX_QUEUE_DATA_OFFSET
+	add	t2, gp, t0
+	srli	t2, t2, 12
+	sw	t2, VIO_QUEUE_PFN(s0)		# RX QueuePFN
 
-	# RX PFN (queue 0)
-	li t0, RX_QUEUE_DATA_OFFSET
-	add t2, gp, t0
-	srli t2, t2, 12
-	sw t2, 0x040(s0)	# QueuePFN
-
-	# 7. TX Queue (queue 1 per virtio-net spec)
-	li t0, 1
-	sw t0, 0x030(s0)	# select queue 1 (TX)
-	li t0, 1
-	sw t0, 0x038(s0)	# QueueNum = 1
-	li t0, 4096
-	sw t0, 0x03C(s0)	# QueueAlign = 4096
-
-	# TX PFN (queue 1)
-	li t0, TX_QUEUE_DATA_OFFSET
-	add t2, gp, t0
-	srli t2, t2, 12
-	sw t2, 0x040(s0)	# QueuePFN
+	# TX Queue (queue 1 per virtio-net spec)
+	li	t0, 1
+	sw	t0, VIO_QUEUE_SEL(s0)		# select queue 1 (TX)
+	sw	t0, VIO_QUEUE_NUM(s0)		# QueueNum = 1
+	li	t0, 4096
+	sw	t0, VIO_QUEUE_ALIGN(s0)		# QueueAlign = 4096
+	li	t0, TX_QUEUE_DATA_OFFSET
+	add	t2, gp, t0
+	srli	t2, t2, 12
+	sw	t2, VIO_QUEUE_PFN(s0)		# TX QueuePFN
 
 	# Set DRIVER_OK bit (4)
-	lw t1, 0x070(s0)
-	ori t1, t1, 4
-	sw t1, 0x070(s0)
+	lw	t1, VIO_STATUS(s0)
+	ori	t1, t1, 4
+	sw	t1, VIO_STATUS(s0)
 
 	# === RX BUFFER POST ===
-	# RX queue base
-	li t0, RX_QUEUE_DATA_OFFSET
-	add t3, gp, t0		# t3 = RX queue memory base
+	mv	t3, gp				# t3 = RX queue base (RX_QUEUE_DATA_OFFSET = 0)
+	addi	t4, t3, 512			# RX buffer at queue_base + 512
+	sw	t4, 0(t3)			# desc[0].addr low
+	sw	zero, 4(t3)			# desc[0].addr high
+	li	t4, 1536
+	sw	t4, 8(t3)			# desc[0].len
+	li	t4, 2				# VIRTQ_DESC_F_WRITE
+	sh	t4, 12(t3)			# desc[0].flags
+	sh	zero, 14(t3)			# desc[0].next
 
-	# Descriptor 0 at offset 0 (16 bytes per descriptor)
-	addi t4, t3, 512		# buffer address (well past desc+avail rings)
-	sw t4, 0(t3)		# desc[0].addr low
-	sw zero, 4(t3)		# desc[0].addr high
-	li t4, 1536		# buffer length
-	sw t4, 8(t3)		# desc[0].len
-	li t4, 2		# VIRTQ_DESC_F_WRITE
-	sh t4, 12(t3)		# desc[0].flags
-	sh zero, 14(t3)		# desc[0].next
+	# Available ring at queue_base + 16 (1 descriptor × 16 bytes)
+	sh	zero, 16(t3)			# avail.flags = 0
+	li	t4, 1
+	sh	t4, 18(t3)			# avail.idx = 1
+	sh	zero, 20(t3)			# avail.ring[0] = descriptor 0
 
-	# Available ring starts at offset 16 (1 descriptor × 16 bytes)
-	sh zero, 16(t3)		# avail.flags = 0
-	li t4, 1
-	sh t4, 18(t3)		# avail.idx = 1 (one descriptor posted)
-	sh zero, 20(t3)		# avail.ring[0] = descriptor index 0
-
-	# Fence before kick to ensure descriptor/avail ring writes are visible
-	fence w, w
-
-	# Kick the RX queue (queue 0)
-	li t0, 0
-	sw t0, 0x050(s0)
-
+	fence	w, w
+	sw	zero, VIRT_QUEUE0(s0)		# kick queue 0 (RX)
 .endm
 
 _start:
@@ -820,9 +819,11 @@ print_nibble:
         j       write_byte      # tail call
 
 # Send ARP reply. Reads sender info from RX buffer, writes reply to TX buffer.
-# Clobbers: a0, a1, t0, t1, t2. Preserves: t3, t4, s0, s1.
+# Clobbers: a0, a1, t0, t2. Preserves: t3, t4, s1.
 send_arp_reply:
-        SETUP
+        SETUP   s0
+
+        li      s0, VIRTIO_NET_BASE
 
         # a0 = RX buffer (gp + RX_QUEUE_DATA_OFFSET + 512 = gp + 512)
         addi    a0, gp, 512
@@ -836,7 +837,7 @@ send_arp_reply:
         sw      zero, 4(a1)
         sw      zero, 8(a1)
 
-        # Ethernet dest MAC = ARP sender MAC from RX (a0+34..39)
+        # Ethernet dst MAC = ARP sender MAC from RX (same bytes reused for ARP target MAC below)
         lbu     t0, 34(a0); sb t0, 12(a1)
         lbu     t0, 35(a0); sb t0, 13(a1)
         lbu     t0, 36(a0); sb t0, 14(a1)
@@ -844,13 +845,13 @@ send_arp_reply:
         lbu     t0, 38(a0); sb t0, 16(a1)
         lbu     t0, 39(a0); sb t0, 17(a1)
 
-        # Ethernet src MAC = guest MAC (52:54:00:12:34:56)
-        li      t0, 0x52; sb t0, 18(a1)
-        li      t0, 0x54; sb t0, 19(a1)
-        sb      zero,     20(a1)
-        li      t0, 0x12; sb t0, 21(a1)
-        li      t0, 0x34; sb t0, 22(a1)
-        li      t0, 0x56; sb t0, 23(a1)
+        # Ethernet src MAC = guest MAC
+        li      t0, GUEST_MAC_0; sb t0, 18(a1)
+        li      t0, GUEST_MAC_1; sb t0, 19(a1)
+        li      t0, GUEST_MAC_2; sb t0, 20(a1)
+        li      t0, GUEST_MAC_3; sb t0, 21(a1)
+        li      t0, GUEST_MAC_4; sb t0, 22(a1)
+        li      t0, GUEST_MAC_5; sb t0, 23(a1)
 
         # EtherType = 08:06 (ARP)
         li      t0, 0x08; sb t0, 24(a1)
@@ -860,8 +861,7 @@ send_arp_reply:
         sb      zero,     26(a1)
         li      t0, 0x01; sb t0, 27(a1)
         li      t0, 0x08; sb t0, 28(a1)
-
-sb      zero,     29(a1)
+        sb      zero,     29(a1)
         li      t0, 0x06; sb t0, 30(a1)
         li      t0, 0x04; sb t0, 31(a1)
 
@@ -869,21 +869,21 @@ sb      zero,     29(a1)
         sb      zero,     32(a1)
         li      t0, 0x02; sb t0, 33(a1)
 
-        # ARP sender MAC = guest MAC (52:54:00:12:34:56)
-        li      t0, 0x52; sb t0, 34(a1)
-        li      t0, 0x54; sb t0, 35(a1)
-        sb      zero,     36(a1)
-        li      t0, 0x12; sb t0, 37(a1)
-        li      t0, 0x34; sb t0, 38(a1)
-        li      t0, 0x56; sb t0, 39(a1)
+        # ARP sender MAC = guest MAC
+        li      t0, GUEST_MAC_0; sb t0, 34(a1)
+        li      t0, GUEST_MAC_1; sb t0, 35(a1)
+        li      t0, GUEST_MAC_2; sb t0, 36(a1)
+        li      t0, GUEST_MAC_3; sb t0, 37(a1)
+        li      t0, GUEST_MAC_4; sb t0, 38(a1)
+        li      t0, GUEST_MAC_5; sb t0, 39(a1)
 
-        # ARP sender IP = 10.0.2.15 (our guest IP)
-        li      t0, 0x0A; sb t0, 40(a1)
-        sb      zero,     41(a1)
-        li      t0, 0x02; sb t0, 42(a1)
-        li      t0, 0x0F; sb t0, 43(a1)
+        # ARP sender IP = guest IP
+        li      t0, GUEST_IP_0; sb t0, 40(a1)
+        li      t0, GUEST_IP_1; sb t0, 41(a1)
+        li      t0, GUEST_IP_2; sb t0, 42(a1)
+        li      t0, GUEST_IP_3; sb t0, 43(a1)
 
-        # ARP target MAC = ARP sender MAC from RX (a0+34..39)
+        # ARP target MAC = ARP sender MAC from RX (same source as Ethernet dst above)
         lbu     t0, 34(a0); sb t0, 44(a1)
         lbu     t0, 35(a0); sb t0, 45(a1)
         lbu     t0, 36(a0); sb t0, 46(a1)
@@ -891,34 +891,32 @@ sb      zero,     29(a1)
         lbu     t0, 38(a0); sb t0, 48(a1)
         lbu     t0, 39(a0); sb t0, 49(a1)
 
-        # ARP target IP = ARP sender IP from RX (a0+40..43)
+        # ARP target IP = ARP sender IP from RX
         lbu     t0, 40(a0); sb t0, 50(a1)
         lbu     t0, 41(a0); sb t0, 51(a1)
         lbu     t0, 42(a0); sb t0, 52(a1)
         lbu     t0, 43(a0); sb t0, 53(a1)
 
-        # t2 = TX queue base (gp + TX_QUEUE_DATA_OFFSET)
+        # t2 = TX queue base
         li      t2, TX_QUEUE_DATA_OFFSET
         add     t2, gp, t2
 
-        # TX descriptor at TX queue base
         sw      a1,   0(t2)             # desc[0].addr low = TX buffer
         sw      zero,  4(t2)            # desc[0].addr high = 0
         li      t0, 54
         sw      t0,    8(t2)            # desc[0].len = 54
-        sh      zero, 12(t2)            # desc[0].flags = 0 (device reads, not writes)
+        sh      zero, 12(t2)            # desc[0].flags = 0 (device reads)
         sh      zero, 14(t2)            # desc[0].next = 0
 
-        # TX available ring at TX queue base + 16
         sh      zero, 16(t2)            # avail.flags = 0
-        lhu     t0,   18(t2)            # read current avail.idx
+        lhu     t0,   18(t2)            # avail.idx++
         addi    t0, t0, 1
-        sh      t0,   18(t2)            # avail.idx++
+        sh      t0,   18(t2)
         sh      zero, 20(t2)            # avail.ring[0] = descriptor 0
 
         fence   w, w
         li      t0, 1
-        sw      t0, 0x050(s0)           # kick queue 1 (TX)
+        sw      t0, VIRT_QUEUE0(s0)     # kick queue 1 (TX)
 
         li      a0, 'T'
         jal     write_byte
@@ -934,7 +932,7 @@ hash_mismatch:
 	jal		write_byte
 
 	# Re-establish net state (t3/s0/t4 are stale after disk+blake2s)
-	li	s0, 0x10002000			# virtio-net MMIO base
+	li	s0, VIRTIO_NET_BASE
 	li	t0, RX_QUEUE_DATA_OFFSET
 	add	t3, gp, t0			# t3 = RX queue base
 	li	t0, 4096
@@ -996,7 +994,7 @@ not_arp:
 	addi t5, t5, 1
 	sh t5, 18(t3)		# avail.idx++
 	fence w, w
-	sw zero, 0x050(s0)		# kick queue 0
+	sw zero, VIRT_QUEUE0(s0)	# kick queue 0 (RX)
 
 	j poll_loop
 
