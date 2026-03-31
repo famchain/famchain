@@ -67,7 +67,7 @@
 # Program hash is: 0x0615555B 0x0615555B 0x0615555B 0x0615555B 0x32214BDD 0x32214BDD 0xCB4F2064 0x60741073
 # Change BIN_HASH0 to exercise the 'hash_mismatch' logic
 .equ	BIN_SIZE,		1296
-.equ	BIN_HASH0,		0x0615555A
+.equ	BIN_HASH0,		0x0615555B
 .equ	BIN_HASH1,		0x21032136
 .equ	BIN_HASH2,		0x53CB174E
 .equ	BIN_HASH3,		0xA7D9AD58
@@ -222,60 +222,56 @@ _base\@:
 .macro READ_BLOCK
 	mv		t0, gp
 	li		t5, VIRT_DESCRIPTOR_TABLE
-	add		t1, t0, t5 # t1 = Disk table
-	li		t2, VIRT_DISK_HEADER		# t2 = Disk header
-	add		t2, t2, t0
+	add		t1, t0, t5			# t1 = descriptor table
+	li		t2, VIRT_DISK_HEADER
+	add		t2, t2, t0			# t2 = request header
 	li		t3, VIRT_DISK_STATUS
-	add		t3, t3, t0		# t3 = Disk status
+	add		t3, t3, t0			# t3 = status byte
 
-	sw		zero, 0(t2)		# type = VIRTIO_BLK_T_IN (read)
-	sw		a0, 8(t2)
-	
-	sw		t2, 0(t1)		# Addr
+	sw		zero, 0(t2)			# type = VIRTIO_BLK_T_IN (read)
+	sw		a0, 8(t2)			# sector
+
+	# desc[0]: request header
+	sw		t2, 0(t1)			# addr
 	sw		zero, 4(t1)
-	li		t4, 16	
-	sw		t4, 8(t1)		# Len
-	li		t4, 1		# NEXT flag
-	sh		t4, 12(t1)		# Flags
-	sh		t4, 14(t1)
-	
-	
-	
+	li		t4, 16
+	sw		t4, 8(t1)			# len = 16
+	li		t4, 1				# NEXT flag
+	sh		t4, 12(t1)			# flags
+	sh		t4, 14(t1)			# next = 1
+
+	# desc[1]: data buffer
 	li		t5, DISK_DATA_BUFFER
 	add		t5, gp, t5
-	sw		t5, 16(t1)		# Addr (gp + DISK_DATA_BUFFER)
+	sw		t5, 16(t1)			# addr = gp + DISK_DATA_BUFFER
 	sw		zero, 20(t1)
-
 	li		t4, 512
-	sw		t4, 24(t1)		# Len
-	li		t4, 3		# NEXT | WRITE flags
-	sh		t4, 28(t1)		# Flags
+	sw		t4, 24(t1)			# len = 512
+	li		t4, 3				# NEXT | WRITE flags
+	sh		t4, 28(t1)			# flags
 	li		t4, 2
-	sh		t4, 30(t1)		# Next index = 2
+	sh		t4, 30(t1)			# next = 2
 
-
-	sw		t3, 32(t1)		# Addr (Table + 32)
+	# desc[2]: status byte
+	sw		t3, 32(t1)			# addr = status
 	sw		zero, 36(t1)
 	li		t4, 1
-	sw		t4, 40(t1)		# Len
-	li		t4, 2		# WRITE flag
-	sh		t4, 44(t1)		# Flags
-	sh		zero, 46(t1)		# Next = 0 (End)
+	sw		t4, 40(t1)			# len = 1
+	li		t4, 2				# WRITE flag
+	sh		t4, 44(t1)			# flags
+	sh		zero, 46(t1)			# next = 0 (end)
 
-	# Notify the Available Ring
-	# Available Ring starts at offset 256 (after 16 descriptors)
+	# Notify the Available Ring (starts at offset 256, after 16 descriptors)
 	addi		t4, t1, 256
-	sh		zero, 4(t4)		# Set ring[0] = 0
-
+	sh		zero, 4(t4)			# ring[0] = 0
 	li		t5, 0xFF
-	sb		t5, 0(t3)		# Set status sentinel
-
-	sh		a1, 2(t4)		# Set idx
+	sb		t5, 0(t3)			# status sentinel = 0xFF
+	sh		a1, 2(t4)			# avail.idx
 
 	# Kick the hardware
-	fence		w, w		# Ensure all visible
+	fence		w, w				# ensure all writes visible
 	li		t5, VIRTIO_DISK_BASE
-	sw		zero, VIRT_QUEUE0(t5)		# Notify Queue 0
+	sw		zero, VIRT_QUEUE0(t5)		# notify queue 0
 
 	# Wait for disk_status to change from 0xFF
 	li		t5, 0xFF
@@ -987,12 +983,12 @@ not_arp:
 	# Advance last_used_idx
 	addi s1, s1, 1
 	slli s1, s1, 16
-	srli s1, s1, 16		# keep it 16-bit (zero-extend)
+	srli s1, s1, 16			# keep it 16-bit (zero-extend)
 
 	# Re-post descriptor: increment avail.idx so device can use the buffer again
-	lhu t5, 18(t3)		# avail.idx
+	lhu t5, 18(t3)			# avail.idx
 	addi t5, t5, 1
-	sh t5, 18(t3)		# avail.idx++
+	sh t5, 18(t3)			# avail.idx++
 	fence w, w
 	sw zero, VIRT_QUEUE0(s0)	# kick queue 0 (RX)
 
