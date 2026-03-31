@@ -59,6 +59,22 @@
 .equ	GUEST_IP_2,		2
 .equ	GUEST_IP_3,		15
 
+.equ	SERVER_IP_0,		146
+.equ	SERVER_IP_1,		235
+.equ	SERVER_IP_2,		218
+.equ	SERVER_IP_3,		150
+.equ	SERVER_PORT,		3737
+.equ	CLIENT_PORT,		1234
+
+.equ	FAMC_CMD_REQ_RANGE,	0x02
+.equ	FAMC_CMD_RSP_CHUNK,	0x82
+
+.equ    BIN_SIZE,               3536
+.equ	CHUNK_SIZE,		1400
+.equ	NUM_CHUNKS,		(BIN_SIZE + CHUNK_SIZE - 1) / CHUNK_SIZE
+.equ	LAST_CHUNK,		(NUM_CHUNKS - 1)
+.equ	NUM_SECTORS,		(BIN_SIZE + 511) / 512
+
 .equ	RX_QUEUE_DATA_OFFSET,	0		# net RX queue base (page-aligned)
 .equ	TX_QUEUE_DATA_OFFSET,	8192		# net TX queue base (page-aligned)
 .equ	DISK_DATA_BUFFER,	16384		# disk read/write buffer (512 bytes)
@@ -70,15 +86,14 @@
 # Size and Hash of Program 
 # Program hash is: 0x0615555B 0x0615555B 0x0615555B 0x0615555B 0x32214BDD 0x32214BDD 0xCB4F2064 0x60741073
 # Change BIN_HASH0 to exercise the 'hash_mismatch' logic
-.equ	BIN_SIZE,		1296
-.equ	BIN_HASH0,		0x0615555A
-.equ	BIN_HASH1,		0x21032136
-.equ	BIN_HASH2,		0x53CB174E
-.equ	BIN_HASH3,		0xA7D9AD58
-.equ	BIN_HASH4,		0x32214BDD
-.equ	BIN_HASH5,		0x47BC5AF3
-.equ	BIN_HASH6,		0xCB4F2064
-.equ	BIN_HASH7,		0x60741073
+.equ	BIN_HASH0,		0x526E28CE
+.equ	BIN_HASH1,		0xF441C814
+.equ	BIN_HASH2,		0xFE6C08D3
+.equ	BIN_HASH3,		0xDF1D8F90
+.equ	BIN_HASH4,		0x94945498
+.equ	BIN_HASH5,		0x509703A2
+.equ	BIN_HASH6,		0xD1F3848C
+.equ	BIN_HASH7,		0xF95BCB6A
 
 .altmacro
 .macro LOAD_ADDRESS reg, label
@@ -222,7 +237,7 @@ _base\@:
 
 
 # a0 = sector
-# a1 = counter
+# a1 = avail_idx counter (must increase monotonically across all disk ops)
 .macro READ_BLOCK
 	mv		t0, gp
 	li		t5, VIRT_DESCRIPTOR_TABLE
@@ -278,6 +293,70 @@ _base\@:
 	sw		zero, VIRT_QUEUE0(t5)		# notify queue 0
 
 	# Wait for disk_status to change from 0xFF
+	li		t5, 0xFF
+1:	lbu		t4, 0(t3)
+	beq		t4, t5, 1b
+	fence		r, r
+.endm
+
+# a0 = sector
+# a1 = avail_idx counter (must increase monotonically across all disk ops)
+# data to write must be in DISK_DATA_BUFFER before calling
+.macro WRITE_BLOCK
+	mv		t0, gp
+	li		t5, VIRT_DESCRIPTOR_TABLE
+	add		t1, t0, t5			# t1 = descriptor table
+	li		t2, VIRT_DISK_HEADER
+	add		t2, t2, t0			# t2 = request header
+	li		t3, VIRT_DISK_STATUS
+	add		t3, t3, t0			# t3 = status byte
+
+	li		t4, 1
+	sw		t4, 0(t2)			# type = VIRTIO_BLK_T_OUT (write)
+	sw		a0, 8(t2)			# sector
+
+	# desc[0]: request header (device reads)
+	sw		t2, 0(t1)
+	sw		zero, 4(t1)
+	li		t4, 16
+	sw		t4, 8(t1)			# len = 16
+	li		t4, 1				# NEXT flag
+	sh		t4, 12(t1)
+	sh		t4, 14(t1)			# next = 1
+
+	# desc[1]: data buffer (device reads — no WRITE flag)
+	li		t5, DISK_DATA_BUFFER
+	add		t5, gp, t5
+	sw		t5, 16(t1)
+	sw		zero, 20(t1)
+	li		t4, 512
+	sw		t4, 24(t1)			# len = 512
+	li		t4, 1				# NEXT flag only (device reads this)
+	sh		t4, 28(t1)
+	li		t4, 2
+	sh		t4, 30(t1)			# next = 2
+
+	# desc[2]: status byte (device writes)
+	sw		t3, 32(t1)
+	sw		zero, 36(t1)
+	li		t4, 1
+	sw		t4, 40(t1)			# len = 1
+	li		t4, 2				# WRITE flag
+	sh		t4, 44(t1)
+	sh		zero, 46(t1)
+
+	# notify available ring
+	addi		t4, t1, 256
+	sh		zero, 4(t4)
+	li		t5, 0xFF
+	sb		t5, 0(t3)			# status sentinel = 0xFF
+	sh		a1, 2(t4)			# avail.idx
+
+	fence		w, w
+	li		t5, VIRTIO_DISK_BASE
+	sw		zero, VIRT_QUEUE0(t5)
+
+	# wait for completion
 	li		t5, 0xFF
 1:	lbu		t4, 0(t3)
 	beq		t4, t5, 1b
@@ -1023,11 +1102,117 @@ send_udp:
 
 	RETURN
 
+# send_req_range: send FAMC REQ_RANGE packet
+# a0 = start chunk (u16), a1 = end chunk (u16)
+# Payload: [FAMC][0x02][start_hi][start_lo][end_hi][end_lo]  (9 bytes)
+# IP total len = 37 (20+8+9), checksum = 0x0137, UDP len = 17
+send_req_range:
+	SETUP	s0, s1, s2
+
+	mv	s1, a0			# save start
+	mv	s2, a1			# save end
+
+	li	s0, TX_QUEUE_DATA_OFFSET + 512
+	add	s0, gp, s0
+
+	# virtio_net_hdr: 12 bytes zero
+	sw	zero,  0(s0)
+	sw	zero,  4(s0)
+	sw	zero,  8(s0)
+
+	# Ethernet dst: 52:55:0A:00:02:02 (QEMU NAT gateway)
+	li	t0, 0x52; sb t0, 12(s0)
+	li	t0, 0x55; sb t0, 13(s0)
+	li	t0, 0x0A; sb t0, 14(s0)
+	sb	zero,      15(s0)
+	li	t0, 0x02; sb t0, 16(s0)
+	li	t0, 0x02; sb t0, 17(s0)
+
+	# Ethernet src: guest MAC
+	li	t0, GUEST_MAC_0; sb t0, 18(s0)
+	li	t0, GUEST_MAC_1; sb t0, 19(s0)
+	li	t0, GUEST_MAC_2; sb t0, 20(s0)
+	li	t0, GUEST_MAC_3; sb t0, 21(s0)
+	li	t0, GUEST_MAC_4; sb t0, 22(s0)
+	li	t0, GUEST_MAC_5; sb t0, 23(s0)
+
+	# EtherType: 0x0800 (IPv4)
+	li	t0, 0x08; sb t0, 24(s0)
+	sb	zero,      25(s0)
+
+	# IPv4 header
+	li	t0, 0x45; sb t0, 26(s0)	# version=4, IHL=5
+	sb	zero,      27(s0)		# DSCP/ECN
+	sb	zero,      28(s0)		# total length hi
+	li	t0, 0x25; sb t0, 29(s0)	# total length lo = 37 (20+8+9)
+	sb	zero,      30(s0)		# identification hi
+	li	t0, 0x01; sb t0, 31(s0)	# identification lo
+	sb	zero,      32(s0)		# flags/frag hi
+	sb	zero,      33(s0)		# flags/frag lo
+	li	t0, 64;   sb t0, 34(s0)	# TTL
+	li	t0, 17;   sb t0, 35(s0)	# protocol = UDP
+	li	t0, 0x01; sb t0, 36(s0)	# checksum hi (0x0137)
+	li	t0, 0x37; sb t0, 37(s0)	# checksum lo
+	li	t0, GUEST_IP_0; sb t0, 38(s0)
+	li	t0, GUEST_IP_1; sb t0, 39(s0)
+	li	t0, GUEST_IP_2; sb t0, 40(s0)
+	li	t0, GUEST_IP_3; sb t0, 41(s0)
+	li	t0, SERVER_IP_0; sb t0, 42(s0)
+	li	t0, SERVER_IP_1; sb t0, 43(s0)
+	li	t0, SERVER_IP_2; sb t0, 44(s0)
+	li	t0, SERVER_IP_3; sb t0, 45(s0)
+
+	# UDP header
+	li	t0, (CLIENT_PORT >> 8);   sb t0, 46(s0)	# src port hi
+	li	t0, (CLIENT_PORT & 0xFF); sb t0, 47(s0)	# src port lo
+	li	t0, (SERVER_PORT >> 8);   sb t0, 48(s0)	# dst port hi
+	li	t0, (SERVER_PORT & 0xFF); sb t0, 49(s0)	# dst port lo
+	sb	zero,      50(s0)		# UDP length hi
+	li	t0, 0x11; sb t0, 51(s0)	# UDP length lo = 17 (8+9)
+	sh	zero,      52(s0)		# checksum = 0
+
+	# Payload: "FAMC" + CMD_REQ_RANGE + start (BE u16) + end (BE u16)
+	li	t0, 'F'; sb t0, 54(s0)
+	li	t0, 'A'; sb t0, 55(s0)
+	li	t0, 'M'; sb t0, 56(s0)
+	li	t0, 'C'; sb t0, 57(s0)
+	li	t0, FAMC_CMD_REQ_RANGE; sb t0, 58(s0)
+	srli	t0, s1, 8;  sb t0, 59(s0)	# start hi
+	andi	t0, s1, 0xFF; sb t0, 60(s0)	# start lo
+	srli	t0, s2, 8;  sb t0, 61(s0)	# end hi
+	andi	t0, s2, 0xFF; sb t0, 62(s0)	# end lo
+
+	# Post descriptor to TX queue
+	li	t2, TX_QUEUE_DATA_OFFSET
+	add	t2, gp, t2
+
+	sw	s0,   0(t2)		# desc[0].addr lo
+	sw	zero, 4(t2)		# desc[0].addr hi
+	li	t0, 63
+	sw	t0,   8(t2)		# desc[0].len = 63
+	sh	zero, 12(t2)		# desc[0].flags = 0
+	sh	zero, 14(t2)		# desc[0].next = 0
+
+	sh	zero, 16(t2)		# avail.flags = 0
+	lhu	t0,   18(t2)
+	addi	t0, t0, 1
+	sh	t0,   18(t2)		# avail.idx++
+	sh	zero, 20(t2)		# avail.ring[0] = 0
+
+	fence	w, w
+	li	t0, VIRTIO_NET_BASE
+	li	t1, 1
+	sw	t1, VIRT_QUEUE0(t0)	# kick queue 1 (TX)
+
+	RETURN
+
 hash_mismatch:
 	li		a0, 'm'
 	jal		write_byte
 
-	jal		send_udp
+	li	a0, 0
+	li	a1, LAST_CHUNK
+	jal	send_req_range
 
 	# Re-establish net state (t3/s0/t4 are stale after disk+blake2s)
 	li	s0, VIRTIO_NET_BASE
@@ -1037,64 +1222,276 @@ hash_mismatch:
 	add	t4, t3, t0			# t4 = used ring base (queue_base + QueueAlign)
 	li	s1, 0				# s1 = last_used_idx
 
+	# allocate bitmap on stack: 256 bytes handles up to 2048 chunks
+	addi	sp, sp, -256
+	mv	s2, sp				# s2 = bitmap base
+	li	t0, 64				# 256/4 words
+	mv	t1, s2
+1:	sw	zero, 0(t1)
+	addi	t1, t1, 4
+	addi	t0, t0, -1
+	bnez	t0, 1b
+	li	s3, 0				# s3 = chunks_received
+
 poll_loop:
-	fence r, r
+	fence	r, r
+	lhu	t5, 2(t4)
+	beq	t5, s1, poll_loop		# spin until packet arrives
 
-	# Poll used.idx (offset +2 in used ring) — incremented by device on each received packet
-	lhu t5, 2(t4)
-	beq t5, s1, poll_loop	# spin until used.idx != last_used_idx
-
-	# Packet received — print length from used.ring[0].len
-	# ring[last_used_idx % QueueNum] — with QueueNum=1 this is always ring[0] at offset +8
-	li a0, 'P'
-	jal write_byte
-	li a0, '='
-	jal write_byte
-	li a0, '0'
-	jal write_byte
-	li a0, 'x'
-	jal write_byte
-	lw a0, 8(t4)		# used.ring[0].len
-	jal print_hex
-	li a0, '\n'
-	jal write_byte
-
-	# Hex dump the packet (virtio_net_hdr + ethernet frame)
-	addi a0, t3, 512	# buffer address
-	lw a1, 8(t4)		# byte count
-	jal hexdump
-
-	# Check if ARP request: ethertype=08:06 at buf+24, opcode=00:01 at buf+32
-	lw	t0, 8(t4)		# packet length
+	# ARP? ethertype=08:06 at t3+536, opcode=00:01 at t3+544
+	lw	t0, 8(t4)			# packet length
 	li	t1, 54
-	blt t0, t1, not_arp
-	lbu t0, 536(t3)		# buf+24: ethertype high
-	li	t1, 0x08
-	bne t0, t1, not_arp
-	lbu t0, 537(t3)		# buf+25: ethertype low
-	li	t1, 0x06
-	bne t0, t1, not_arp
-	lbu t0, 544(t3)		# buf+32: opcode high
-	bnez t0, not_arp
-	lbu t0, 545(t3)		# buf+33: opcode low
-	li	t1, 0x01
-	bne t0, t1, not_arp
-	jal send_arp_reply
+	blt	t0, t1, not_arp
+	lbu	t0, 536(t3); li t1, 0x08; bne t0, t1, not_arp
+	lbu	t0, 537(t3); li t1, 0x06; bne t0, t1, not_arp
+	lbu	t0, 544(t3); bnez t0, not_arp
+	lbu	t0, 545(t3); li t1, 0x01; bne t0, t1, not_arp
+	jal	send_arp_reply
 not_arp:
 
-	# Advance last_used_idx
-	addi s1, s1, 1
-	slli s1, s1, 16
-	srli s1, s1, 16			# keep it 16-bit (zero-extend)
+	# FAMC RSP_CHUNK? IPv4 UDP with FAMC\x82 payload
+	lbu	t0, 536(t3); li t1, 0x08; bne t0, t1, not_rsp_chunk	# EtherType hi
+	lbu	t0, 537(t3);              bnez t0,   not_rsp_chunk	# EtherType lo = 0x00
+	lbu	t0, 547(t3); li t1, 17;   bne t0, t1, not_rsp_chunk	# IP proto = UDP
+	lbu	t0, 566(t3); li t1, 'F';  bne t0, t1, not_rsp_chunk	# magic[0]
+	lbu	t0, 567(t3); li t1, 'A';  bne t0, t1, not_rsp_chunk	# magic[1]
+	lbu	t0, 568(t3); li t1, 'M';  bne t0, t1, not_rsp_chunk	# magic[2]
+	lbu	t0, 569(t3); li t1, 'C';  bne t0, t1, not_rsp_chunk	# magic[3]
+	lbu	t0, 570(t3); li t1, FAMC_CMD_RSP_CHUNK; bne t0, t1, not_rsp_chunk
 
-	# Re-post descriptor: increment avail.idx so device can use the buffer again
-	lhu t5, 18(t3)			# avail.idx
-	addi t5, t5, 1
-	sh t5, 18(t3)			# avail.idx++
-	fence w, w
-	sw zero, VIRT_QUEUE0(s0)	# kick queue 0 (RX)
+	# extract seq (big-endian u16 at t3+571)
+	lbu	t0, 571(t3)
+	lbu	t1, 572(t3)
+	slli	t0, t0, 8
+	or	t0, t0, t1			# t0 = seq
 
-	j poll_loop
+	# bounds check
+	li	t1, NUM_CHUNKS
+	bgeu	t0, t1, not_rsp_chunk
+
+	# bitmap check: skip if already received
+	srli	a0, t0, 3			# a0 = byte index
+	add	a1, s2, a0			# a1 = bitmap byte ptr
+	lbu	a2, 0(a1)			# a2 = current bitmap byte
+	andi	a3, t0, 7			# a3 = bit index within byte
+	li	a4, 1
+	sll	a4, a4, a3			# a4 = bit mask
+	and	t5, a2, a4
+	bnez	t5, not_rsp_chunk		# already received
+
+	# compute dst = LOAD_LOC + seq * CHUNK_SIZE (1400 = 1024+256+128-8)
+	slli	a5, t0, 10			# a5 = seq * 1024
+	slli	a6, t0, 8
+	add	a5, a5, a6			# a5 = seq * 1280
+	slli	a6, t0, 7
+	add	a5, a5, a6			# a5 = seq * 1408
+	slli	a6, t0, 3
+	sub	a5, a5, a6			# a5 = seq * 1400
+	li	a6, LOAD_LOC
+	add	a6, a6, gp
+	add	a6, a6, a5			# a6 = dst
+
+	# data length = UDP_length - 8 (UDP hdr) - 7 (FAMC hdr: 4+1+2)
+	lbu	a7, 562(t3)
+	lbu	t1, 563(t3)
+	slli	a7, a7, 8
+	or	a7, a7, t1			# a7 = UDP length field
+	addi	a7, a7, -15			# a7 = data length
+
+	# copy data from t3+573 to dst
+	addi	t1, t3, 573			# t1 = src
+1:	beqz	a7, 2f
+	lbu	t2, 0(t1)
+	sb	t2, 0(a6)
+	addi	t1, t1, 1
+	addi	a6, a6, 1
+	addi	a7, a7, -1
+	j	1b
+2:
+	# mark received in bitmap
+	or	a2, a2, a4
+	sb	a2, 0(a1)
+
+	# debug: print chunk seq
+	li	a0, 'C'
+	jal	write_byte
+	mv	a0, t0
+	li	a1, 0
+	jal	print_hex
+	li	a0, '\n'
+	jal	write_byte
+
+	# increment count and check if done
+	addi	s3, s3, 1
+	li	t0, NUM_CHUNKS
+	bne	s3, t0, not_rsp_chunk
+
+	# all chunks received — verify hash
+	li	a0, 'D'
+	jal	write_byte
+	li	a0, '\n'
+	jal	write_byte
+
+	li	a0, LOAD_LOC
+	add	a0, a0, gp		# input ptr
+	li	a1, BIN_SIZE		# input length
+	addi	sp, sp, -32
+	mv	a2, sp			# output: 32-byte hash on stack
+	jal	blake2s
+
+	lw	t0,  0(sp); li t1, BIN_HASH0; bne t0, t1, download_hash_err
+	lw	t0,  4(sp); li t1, BIN_HASH1; bne t0, t1, download_hash_err
+	lw	t0,  8(sp); li t1, BIN_HASH2; bne t0, t1, download_hash_err
+	lw	t0, 12(sp); li t1, BIN_HASH3; bne t0, t1, download_hash_err
+	lw	t0, 16(sp); li t1, BIN_HASH4; bne t0, t1, download_hash_err
+	lw	t0, 20(sp); li t1, BIN_HASH5; bne t0, t1, download_hash_err
+	lw	t0, 24(sp); li t1, BIN_HASH6; bne t0, t1, download_hash_err
+	lw	t0, 28(sp); li t1, BIN_HASH7; bne t0, t1, download_hash_err
+	addi	sp, sp, 32
+
+	# hash verified — write binary to disk sector by sector
+	# avail_idx for writes: NUM_SECTORS+1 .. 2*NUM_SECTORS
+	# (boot reads used avail_idx 1..NUM_SECTORS)
+	li	a0, 'V'
+	jal	write_byte
+	li	a0, '\n'
+	jal	write_byte
+
+	li	s0, 0			# s0 = sector
+	li	s1, BIN_SIZE		# s1 = bytes remaining
+	li	s2, LOAD_LOC
+	add	s2, s2, gp		# s2 = src ptr
+
+write_sector_loop:
+	# bytes this sector = min(512, s1)
+	li	s3, 512
+	bltu	s1, s3, 1f
+	j	2f
+1:	mv	s3, s1
+2:
+	# copy s3 bytes from s2 to DISK_DATA_BUFFER
+	li	t0, DISK_DATA_BUFFER
+	add	t1, gp, t0		# t1 = dst
+	mv	t2, s3
+3:	beqz	t2, 4f
+	lbu	t3, 0(s2)
+	sb	t3, 0(t1)
+	addi	s2, s2, 1
+	addi	t1, t1, 1
+	addi	t2, t2, -1
+	j	3b
+4:
+	# zero-pad remainder of sector
+	li	t2, 512
+	sub	t2, t2, s3
+5:	beqz	t2, 6f
+	sb	zero, 0(t1)
+	addi	t1, t1, 1
+	addi	t2, t2, -1
+	j	5b
+6:
+	mv	a0, s0			# sector
+	li	a1, NUM_SECTORS + 1
+	add	a1, a1, s0		# avail_idx = NUM_SECTORS+1+sector
+	WRITE_BLOCK
+
+	addi	s0, s0, 1
+	sub	s1, s1, s3
+	bnez	s1, write_sector_loop
+
+	li	a0, 'W'
+	jal	write_byte
+	li	a0, '\n'
+	jal	write_byte
+
+	# read back from disk into LOAD_LOC
+	# avail_idx for readback: 2*NUM_SECTORS+1 .. 3*NUM_SECTORS
+	li	s0, 0			# s0 = sector
+	li	s1, BIN_SIZE		# s1 = bytes remaining
+	li	s2, LOAD_LOC
+	add	s2, s2, gp		# s2 = dst ptr
+
+readback_sector_loop:
+	mv	a0, s0
+	li	a1, 2 * NUM_SECTORS + 1
+	add	a1, a1, s0		# avail_idx = 2*NUM_SECTORS+1+sector
+	READ_BLOCK			# reads 512 bytes into DISK_DATA_BUFFER
+	addi	s0, s0, 1
+
+	# copy min(512, s1) bytes from DISK_DATA_BUFFER to s2
+	li	t0, DISK_DATA_BUFFER
+	add	t1, gp, t0		# t1 = src
+	li	t2, 512
+	bltu	s1, t2, 1f
+	j	2f
+1:	mv	t2, s1
+2:	mv	t3, t2
+3:	beqz	t3, 4f
+	lbu	t4, 0(t1)
+	sb	t4, 0(s2)
+	addi	t1, t1, 1
+	addi	s2, s2, 1
+	addi	t3, t3, -1
+	j	3b
+4:
+	sub	s1, s1, t2
+	bnez	s1, readback_sector_loop
+
+	# verify readback hash
+	li	a0, LOAD_LOC
+	add	a0, a0, gp
+	li	a1, BIN_SIZE
+	addi	sp, sp, -32
+	mv	a2, sp
+	jal	blake2s
+
+	lw	t0,  0(sp); li t1, BIN_HASH0; bne t0, t1, readback_hash_err
+	lw	t0,  4(sp); li t1, BIN_HASH1; bne t0, t1, readback_hash_err
+	lw	t0,  8(sp); li t1, BIN_HASH2; bne t0, t1, readback_hash_err
+	lw	t0, 12(sp); li t1, BIN_HASH3; bne t0, t1, readback_hash_err
+	lw	t0, 16(sp); li t1, BIN_HASH4; bne t0, t1, readback_hash_err
+	lw	t0, 20(sp); li t1, BIN_HASH5; bne t0, t1, readback_hash_err
+	lw	t0, 24(sp); li t1, BIN_HASH6; bne t0, t1, readback_hash_err
+	lw	t0, 28(sp); li t1, BIN_HASH7; bne t0, t1, readback_hash_err
+	addi	sp, sp, 32
+
+	# execute
+	li	t0, LOAD_LOC
+	add	t0, t0, gp
+	jr	t0
+
+readback_hash_err:
+	addi	sp, sp, 32
+	li	a0, 'R'
+	jal	write_byte
+	li	a0, '\n'
+	jal	write_byte
+1:	wfi
+	j	1b
+
+download_hash_err:
+	addi	sp, sp, 32
+	li	a0, 'H'
+	jal	write_byte
+	li	a0, '\n'
+	jal	write_byte
+1:	wfi
+	j	1b
+
+not_rsp_chunk:
+	# advance last_used_idx
+	addi	s1, s1, 1
+	slli	s1, s1, 16
+	srli	s1, s1, 16
+
+	# re-post RX descriptor
+	lhu	t5, 18(t3)
+	addi	t5, t5, 1
+	sh	t5, 18(t3)
+	fence	w, w
+	sw	zero, VIRT_QUEUE0(s0)
+
+	j	poll_loop
 
 1:	wfi
 	j		1b
