@@ -28,10 +28,6 @@
 .equ	UART_LSR,		5
 .equ	UART_WR_MASK,		0x20
 
-.equ	UART_BASE,		0x10000000
-.equ	UART_LSR,		5
-.equ	UART_WR_MASK,		0x20
-
 .equ	VIRTIO_DISK_BASE,	0x10001000
 .equ	VIRTIO_NET_BASE,	0x10002000
 .equ	VIRT_QUEUE0,		0x050
@@ -59,11 +55,6 @@
 .equ	GUEST_IP_2,		2
 .equ	GUEST_IP_3,		15
 
-.equ	SERVER_IP_0,		146
-.equ	SERVER_IP_1,		235
-.equ	SERVER_IP_2,		218
-.equ	SERVER_IP_3,		150
-.equ	SERVER_PORT,		3737
 .equ	CLIENT_PORT,		1234
 
 .equ	FAMC_CMD_REQ_RANGE,	0x02
@@ -548,36 +539,6 @@ start_block:
 	j		1b
 
 
-print_hex:
-	SETUP		s0, s1, s2, t0, t1, t2, a0
-
-	mv		s0, a0		# Save original value
-
-	# Print "0x" prefix
-	bnez		a1, 1f
-	li		a0, '0' 
-	jal		write_byte
-	li		a0, 'x'
-	jal		write_byte
-
-
-1:	li		s1, 28		# Start at highest nibble
-2:
-	srl		t2, s0, s1	# Isolate nibble
-	andi		t2, t2, 0xF
-
-	# Convert nibble to ASCII
-	li		a0, 10
-	blt		t2, a0, 3f	# If 0-9
-	addi		t2, t2, 7	# Adjust for A-F
-3:	addi		a0, t2, 48	# ASCII '0'
-	jal		write_byte
-
-	addi		s1, s1, -4	# Move to next 4 bits
-	bgez		s1, 2b
-
-	RETURN
-
 write_byte:
 	li		t1, UART_BASE
 	lbu		t2, UART_LSR(t1)
@@ -881,47 +842,6 @@ _b2s_copy_done:
 	addi	sp, sp, 96
 	RETURN
 
-# hexdump: a0=ptr, a1=len — prints "XX XX XX ..." 16 bytes per line
-hexdump:
-	SETUP	s2, s3, s4, s5
-
-	mv	s2, a0		# s2 = ptr
-	mv	s3, a1		# s3 = remaining bytes
-	li	s4, 0		# s4 = column counter
-
-hexdump_loop:
-	beqz	s3, hexdump_done
-	lbu	s5, 0(s2)	# s5 = current byte
-
-	srli	a0, s5, 4	# high nibble
-	jal	print_nibble
-	andi	a0, s5, 0xF	# low nibble
-	jal	print_nibble
-	li	a0, ' '
-	jal	write_byte
-
-	addi	s2, s2, 1
-	addi	s3, s3, -1
-	addi	s4, s4, 1
-	andi	t0, s4, 0xF	# newline every 16 bytes
-	bnez	t0, hexdump_loop
-	li	a0, '\n'
-	jal	write_byte
-	j	hexdump_loop
-
-hexdump_done:
-	li	a0, '\n'
-	jal	write_byte
-	RETURN
-
-# print_nibble: a0=nibble (0-15) — prints one hex character, tail-calls write_byte
-print_nibble:
-	li	t0, 10
-	blt	a0, t0, 1f
-	addi	a0, a0, 7	# 'A'-'9'-1
-1:	addi	a0, a0, '0'
-	j	write_byte	# tail call
-
 # Send ARP reply. Reads sender info from RX buffer, writes reply to TX buffer.
 # Clobbers: a0, a1, t0, t2. Preserves: t3, t4, s1.
 send_arp_reply:
@@ -1030,102 +950,6 @@ send_arp_reply:
 	RETURN
 
 
-
-# send_udp: send a single hard-coded UDP packet to 146.235.218.150:3737
-# Payload: "hello" (5 bytes). Clobbers caller-saved regs via SETUP.
-send_udp:
-	SETUP	s0
-
-	# TX buffer = gp + TX_QUEUE_DATA_OFFSET + 512
-	li	s0, TX_QUEUE_DATA_OFFSET + 512
-	add	s0, gp, s0
-
-	# virtio_net_hdr: 12 bytes, all zero
-	sw	zero,  0(s0)
-	sw	zero,  4(s0)
-	sw	zero,  8(s0)
-
-	# Ethernet dst MAC: 52:55:0A:00:02:02 (QEMU NAT gateway)
-	li	t0, 0x52; sb t0, 12(s0)
-	li	t0, 0x55; sb t0, 13(s0)
-	li	t0, 0x0A; sb t0, 14(s0)
-	sb	zero,      15(s0)
-	li	t0, 0x02; sb t0, 16(s0)
-	li	t0, 0x02; sb t0, 17(s0)
-
-	# Ethernet src MAC: guest MAC
-	li	t0, GUEST_MAC_0; sb t0, 18(s0)
-	li	t0, GUEST_MAC_1; sb t0, 19(s0)
-	li	t0, GUEST_MAC_2; sb t0, 20(s0)
-	li	t0, GUEST_MAC_3; sb t0, 21(s0)
-	li	t0, GUEST_MAC_4; sb t0, 22(s0)
-	li	t0, GUEST_MAC_5; sb t0, 23(s0)
-
-	# EtherType: 0x0800 (IPv4)
-	li	t0, 0x08; sb t0, 24(s0)
-	sb	zero,      25(s0)
-
-	# IPv4 header (20 bytes)
-	li	t0, 0x45; sb t0, 26(s0)	# version=4, IHL=5
-	sb	zero,      27(s0)		# DSCP/ECN
-	sb	zero,      28(s0)		# total length hi
-	li	t0, 0x21; sb t0, 29(s0)	# total length lo = 33 (20+8+5)
-	sb	zero,      30(s0)		# identification hi
-	li	t0, 0x01; sb t0, 31(s0)	# identification lo
-	sb	zero,      32(s0)		# flags/frag hi
-	sb	zero,      33(s0)		# flags/frag lo
-	li	t0, 64;   sb t0, 34(s0)	# TTL
-	li	t0, 17;   sb t0, 35(s0)	# protocol = UDP
-	li	t0, 0x01; sb t0, 36(s0)	# checksum hi  (0x013B for this header)
-	li	t0, 0x3B; sb t0, 37(s0)	# checksum lo
-	li	t0, GUEST_IP_0; sb t0, 38(s0)	# src IP: 10.0.2.15
-	li	t0, GUEST_IP_1; sb t0, 39(s0)
-	li	t0, GUEST_IP_2; sb t0, 40(s0)
-	li	t0, GUEST_IP_3; sb t0, 41(s0)
-	li	t0, 146; sb t0, 42(s0)		# dst IP: 146.235.218.150
-	li	t0, 235; sb t0, 43(s0)
-	li	t0, 218; sb t0, 44(s0)
-	li	t0, 150; sb t0, 45(s0)
-
-	# UDP header (8 bytes)
-	li	t0, 0x04; sb t0, 46(s0)	# src port hi (1234)
-	li	t0, 0xD2; sb t0, 47(s0)	# src port lo
-	li	t0, 0x0E; sb t0, 48(s0)	# dst port hi (3737)
-	li	t0, 0x99; sb t0, 49(s0)	# dst port lo
-	sb	zero,      50(s0)		# UDP length hi
-	li	t0, 0x0D; sb t0, 51(s0)	# UDP length lo = 13 (8+5)
-	sh	zero,      52(s0)		# checksum = 0 (disabled)
-
-	# Payload: "hello"
-	li	t0, 'h'; sb t0, 54(s0)
-	li	t0, 'e'; sb t0, 55(s0)
-	li	t0, 'l'; sb t0, 56(s0)
-	li	t0, 'l'; sb t0, 57(s0)
-	li	t0, 'o'; sb t0, 58(s0)
-
-	# Post descriptor to TX queue
-	li	t2, TX_QUEUE_DATA_OFFSET
-	add	t2, gp, t2
-
-	sw	s0,   0(t2)		# desc[0].addr lo = TX buffer
-	sw	zero, 4(t2)		# desc[0].addr hi
-	li	t0, 59
-	sw	t0,   8(t2)		# desc[0].len = 59
-	sh	zero, 12(t2)		# desc[0].flags = 0 (device reads)
-	sh	zero, 14(t2)		# desc[0].next = 0
-
-	sh	zero, 16(t2)		# avail.flags = 0
-	lhu	t0,   18(t2)		# avail.idx++
-	addi	t0, t0, 1
-	sh	t0,   18(t2)
-	sh	zero, 20(t2)		# avail.ring[0] = descriptor 0
-
-	fence	w, w
-	li	t0, VIRTIO_NET_BASE
-	li	t1, 1
-	sw	t1, VIRT_QUEUE0(t0)	# kick queue 1 (TX)
-
-	RETURN
 
 # send_req_range: send FAMC REQ_RANGE packet to a specific host
 # a0 = start chunk (u16), a1 = end chunk (u16)
@@ -1459,15 +1283,6 @@ not_arp:
 	or	a2, a2, a4
 	sb	a2, 0(a1)
 
-	# debug: print chunk seq
-	li	a0, 'C'
-	jal	write_byte
-	mv	a0, t0
-	li	a1, 0
-	jal	print_hex
-	li	a0, '\n'
-	jal	write_byte
-
 	# increment count and check if done
 	addi	s3, s3, 1
 	li	t0, NUM_CHUNKS
@@ -1756,11 +1571,6 @@ b2s_g_idx:
 	.byte	1,	6,	11,	12	# diagonal 1
 	.byte	2,	7,	8,	13	# diagonal 2
 	.byte	3,	4,	9,	14	# diagonal 3
-
-# Default host used when no host list arrives over UART
-default_host:
-	.byte	SERVER_IP_0, SERVER_IP_1, SERVER_IP_2, SERVER_IP_3
-	.byte	(SERVER_PORT >> 8), (SERVER_PORT & 0xFF)
 
 # Hart mailbox: one word per hart. Full node writes a jump target here,
 # then sends IPI to wake the hart. Zero = stay parked.
