@@ -40,7 +40,7 @@
 .equ	VIO_STATUS,		0x070
 .equ	VIRT_MAGIC,		0x74726976
 
-.equ	VIRT_DESCRIPTOR_TABLE,	512
+.equ	VIRT_DESCRIPTOR_TABLE,	4096
 .equ	VIRT_DISK_STATUS,	8704		# reserve space for 'used ring'
 .equ	VIRT_DISK_HEADER,	8706
 .equ	LOAD_LOC,		8722
@@ -177,7 +177,7 @@ _base\@:
 	bltu		t2, t3, 1b
 
 	li		t1, 4096                                                                                             
-  	# sw		t1, 0x028(t0)       # GuestPageSize = 4096 
+  	sw		t1, 0x028(t0)       # GuestPageSize = 4096 
 
 	# Queue setup
 	sw		zero, 0x030(t0)		# QueueSel = 0
@@ -187,8 +187,9 @@ _base\@:
 	sw		t1, VIO_QUEUE_ALIGN(t0)		# QueueAlign = 4096
 
 	mv		t1, gp
-	addi		t1, t1, VIRT_DESCRIPTOR_TABLE
-	#srli		t1, t1, 12			# PFN = address >> 12
+	li		t5, VIRT_DESCRIPTOR_TABLE
+	add		t1, t1, t5
+	srli		t1, t1, 12			# PFN = address >> 12
 	sw		t1, VIO_QUEUE_PFN(t0)
 
 	# Set DRIVER_OK bit (4) - Device is now "Live"
@@ -201,7 +202,8 @@ _base\@:
 # a1 = counter
 .macro READ_BLOCK
 	mv		t0, gp
-	addi		t1, t0, VIRT_DESCRIPTOR_TABLE	# t1 = Disk table
+	li              t5, VIRT_DESCRIPTOR_TABLE
+	add		t1, t0, t5 # t1 = Disk table
 	li		t2, VIRT_DISK_HEADER		# t2 = Disk header
 	add		t2, t2, t0
 	li		t3, VIRT_DISK_STATUS
