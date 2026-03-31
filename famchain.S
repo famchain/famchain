@@ -28,33 +28,33 @@
 .equ	UART_LSR,		5
 .equ	UART_WR_MASK,		0x20
 
-.equ    VIRTIO_DISK_BASE,       0x10001000
-.equ    VIRT_QUEUE0,            0x050
-.equ    VIO_NET_ID,             1               # Device ID for Network is 1
-.equ    VIO_MAGIC,              0x000
-.equ    VIO_DEVICE_ID,          0x008
-.equ    VIO_DEVICE_FEATURES,    0x010
-.equ    VIO_DRIVER_FEATURES,    0x020
-.equ    VIO_QUEUE_ALIGN,        0x03C
-.equ    VIO_QUEUE_PFN,          0x040
-.equ    VIO_STATUS,             0x070
-.equ    VIRT_MAGIC,             0x74726976
+.equ	VIRTIO_DISK_BASE,	0x10001000
+.equ	VIRT_QUEUE0,		0x050
+.equ	VIO_NET_ID,		1		# Device ID for Network is 1
+.equ	VIO_MAGIC,		0x000
+.equ	VIO_DEVICE_ID,		0x008
+.equ	VIO_DEVICE_FEATURES,	0x010
+.equ	VIO_DRIVER_FEATURES,	0x020
+.equ	VIO_QUEUE_ALIGN,	0x03C
+.equ	VIO_QUEUE_PFN,		0x040
+.equ	VIO_STATUS,		0x070
+.equ	VIRT_MAGIC,		0x74726976
 
-.equ    VIRT_DESCRIPTOR_TABLE,  512
-.equ    VIRT_DISK_STATUS,       8704            # reserve space for 'used ring'
-.equ    VIRT_DISK_HEADER,       8706
-.equ    LOAD_LOC,               8722
+.equ	VIRT_DESCRIPTOR_TABLE,	512
+.equ	VIRT_DISK_STATUS,	8704		# reserve space for 'used ring'
+.equ	VIRT_DISK_HEADER,	8706
+.equ	LOAD_LOC,		8722
 
 # Size and Hash of Program 
-.equ    BIN_SIZE,               1296
-.equ    BIN_HASH0,              0x0615555B
-.equ    BIN_HASH1,              0x21032136
-.equ    BIN_HASH2,              0x53CB174E
-.equ    BIN_HASH3,              0xA7D9AD58
-.equ    BIN_HASH4,              0x32214BDD
-.equ    BIN_HASH5,              0x47BC5AF3
-.equ    BIN_HASH6,              0xCB4F2064
-.equ    BIN_HASH7,              0x60741073
+.equ	BIN_SIZE,		1296
+.equ	BIN_HASH0,		0x0615555B
+.equ	BIN_HASH1,		0x21032136
+.equ	BIN_HASH2,		0x53CB174E
+.equ	BIN_HASH3,		0xA7D9AD58
+.equ	BIN_HASH4,		0x32214BDD
+.equ	BIN_HASH5,		0x47BC5AF3
+.equ	BIN_HASH6,		0xCB4F2064
+.equ	BIN_HASH7,		0x60741073
 
 
 
@@ -130,131 +130,135 @@ _base\@:
 .endm
 
 .macro INIT_DISK
-        li              t0, VIRTIO_DISK_BASE
-        lw              t1, VIO_MAGIC(t0)               # Should be 0x74726976 ("virt")
-        li              t2, VIRT_MAGIC
-        bne             t1, t2, error_not_virtio
+	li		t0, VIRTIO_DISK_BASE
+	lw		t1, VIO_MAGIC(t0)		# Should be 0x74726976 ("virt")
+	li		t2, VIRT_MAGIC
+	bne		t1, t2, error_not_virtio
 
-        lw              t1, VIO_DEVICE_ID(t0)           # Should be 2 for Block Device
-        li              t2, 2
-        bne             t1, t2, error_not_disk
+	lw		t1, VIO_DEVICE_ID(t0)		# Should be 2 for Block Device
+	li		t2, 2
+	bne		t1, t2, error_not_disk
 
-        # Reset the device
-        sw              zero, VIO_STATUS(t0)
+	# Reset the device
+	sw		zero, VIO_STATUS(t0)
 
-        # Set ACKNOWLEDGE bit (1)
-        li              t1, 1
-        sw              t1, VIO_STATUS(t0)
+	# Set ACKNOWLEDGE bit (1)
+	li		t1, 1
+	sw		t1, VIO_STATUS(t0)
 
-        # Set DRIVER bit (2)
-        lw              t1, VIO_STATUS(t0)
-        ori             t1, t1, 2
-        sw              t1, VIO_STATUS(t0)
+	# Set DRIVER bit (2)
+	lw		t1, VIO_STATUS(t0)
+	ori		t1, t1, 2
+	sw		t1, VIO_STATUS(t0)
 
-        # Feature negotiation: read device features, accept none
-        lw              t1, VIO_DEVICE_FEATURES(t0)
-        sw              zero, VIO_DRIVER_FEATURES(t0)
+	# Feature negotiation: read device features, accept none
+	lw		t1, VIO_DEVICE_FEATURES(t0)
+	sw		zero, VIO_DRIVER_FEATURES(t0)
 
-        # Set FEATURES_OK bit (8)
-        lw              t1, VIO_STATUS(t0)
-        ori             t1, t1, 8
-        sw              t1, VIO_STATUS(t0)
+	# Set FEATURES_OK bit (8)
+	lw		t1, VIO_STATUS(t0)
+	ori		t1, t1, 8
+	sw		t1, VIO_STATUS(t0)
 
-        # Check if FEATURES_OK was accepted
-        lw              t1, VIO_STATUS(t0)
-        andi            t2, t1, 8
-        beqz            t2, error_features_not_supported
+	# Check if FEATURES_OK was accepted
+	lw		t1, VIO_STATUS(t0)
+	andi		t2, t1, 8
+	beqz		t2, error_features_not_supported
 
-        # zero the buffer
-        mv              t1, gp
-        mv              t2, t1
-        li              t3, LOAD_LOC
-        add             t3, t3, t2
+	# zero the buffer
+	mv		t1, gp
+	mv		t2, t1
+	li		t3, LOAD_LOC
+	add		t3, t3, t2
 
 1:
-        sb              zero, 0(t2)
-        addi            t2, t2, 1
-        bltu            t2, t3, 1b
+	sb		zero, 0(t2)
+	addi		t2, t2, 1
+	bltu		t2, t3, 1b
 
-        # Queue setup
-        sw              zero, 0x030(t0)                 # QueueSel = 0
-        li              t1, 16
-        sw              t1, 0x038(t0)                   # QueueNum = 16
-        li              t1, 4096
-        sw              t1, VIO_QUEUE_ALIGN(t0)         # QueueAlign = 4096
+	li		t1, 4096                                                                                             
+  	# sw		t1, 0x028(t0)       # GuestPageSize = 4096 
 
-        mv              t1, gp
-        addi            t1, t1, VIRT_DESCRIPTOR_TABLE
-        sw              t1, VIO_QUEUE_PFN(t0)
+	# Queue setup
+	sw		zero, 0x030(t0)		# QueueSel = 0
+	li		t1, 16
+	sw		t1, 0x038(t0)		# QueueNum = 16
+	li		t1, 4096
+	sw		t1, VIO_QUEUE_ALIGN(t0)		# QueueAlign = 4096
 
-        # Set DRIVER_OK bit (4) - Device is now "Live"
-        lw              t1, VIO_STATUS(t0)
-        ori             t1, t1, 4
-        sw              t1, VIO_STATUS(t0)
+	mv		t1, gp
+	addi		t1, t1, VIRT_DESCRIPTOR_TABLE
+	#srli		t1, t1, 12			# PFN = address >> 12
+	sw		t1, VIO_QUEUE_PFN(t0)
+
+	# Set DRIVER_OK bit (4) - Device is now "Live"
+	lw		t1, VIO_STATUS(t0)
+	ori		t1, t1, 4
+	sw		t1, VIO_STATUS(t0)
 .endm
 
 # a0 = sector
 # a1 = counter
 .macro READ_BLOCK
-        mv              t0, gp
-        addi            t1, t0, VIRT_DESCRIPTOR_TABLE   # t1 = Disk table
-        li              t2, VIRT_DISK_HEADER            # t2 = Disk header
-        add             t2, t2, t0
-        li              t3, VIRT_DISK_STATUS
-        add             t3, t3, t0                      # t3 = Disk status
+	mv		t0, gp
+	addi		t1, t0, VIRT_DESCRIPTOR_TABLE	# t1 = Disk table
+	li		t2, VIRT_DISK_HEADER		# t2 = Disk header
+	add		t2, t2, t0
+	li		t3, VIRT_DISK_STATUS
+	add		t3, t3, t0		# t3 = Disk status
 
-        sw              zero, 0(t2)                     # type = VIRTIO_BLK_T_IN (read)
-        sw              a0, 8(t2)
-        
-        sw              t2, 0(t1)                       # Addr
-        sw              zero, 4(t1)
-        li              t4, 16   
-        sw              t4, 8(t1)                       # Len
-        li              t4, 1                           # NEXT flag
-        sh              t4, 12(t1)                      # Flags
-        sh              t4, 14(t1)
-        
-        
-        
-        sw              t0, 16(t1)                      # Addr
-        sw              zero, 20(t1)
+	sw		zero, 0(t2)		# type = VIRTIO_BLK_T_IN (read)
+	sw		a0, 8(t2)
+	
+	sw		t2, 0(t1)		# Addr
+	sw		zero, 4(t1)
+	li		t4, 16	
+	sw		t4, 8(t1)		# Len
+	li		t4, 1		# NEXT flag
+	sh		t4, 12(t1)		# Flags
+	sh		t4, 14(t1)
+	
+	
+	
+	sw		t0, 16(t1)		# Addr
+	sw		zero, 20(t1)
 
-        li              t4, 512
-        sw              t4, 24(t1)                      # Len
-        li              t4, 3                           # NEXT | WRITE flags
-        sh              t4, 28(t1)                      # Flags
-        li              t4, 2
-        sh              t4, 30(t1)                      # Next index = 2
+	li		t4, 512
+	sw		t4, 24(t1)		# Len
+	li		t4, 3		# NEXT | WRITE flags
+	sh		t4, 28(t1)		# Flags
+	li		t4, 2
+	sh		t4, 30(t1)		# Next index = 2
 
 
-        sw              t3, 32(t1)                      # Addr (Table + 32)
-        sw              zero, 36(t1)
-        li              t4, 1
-        sw              t4, 40(t1)                      # Len
-        li              t4, 2                           # WRITE flag
-        sh              t4, 44(t1)                      # Flags
-        sh              zero, 46(t1)                    # Next = 0 (End)
+	sw		t3, 32(t1)		# Addr (Table + 32)
+	sw		zero, 36(t1)
+	li		t4, 1
+	sw		t4, 40(t1)		# Len
+	li		t4, 2		# WRITE flag
+	sh		t4, 44(t1)		# Flags
+	sh		zero, 46(t1)		# Next = 0 (End)
 
-        # Notify the Available Ring
-        # Available Ring starts at offset 256 (after 16 descriptors)
-        addi            t4, t1, 256
-        sh              zero, 4(t4)                     # Set ring[0] = 0
+	# Notify the Available Ring
+	# Available Ring starts at offset 256 (after 16 descriptors)
+	addi		t4, t1, 256
+	sh		zero, 4(t4)		# Set ring[0] = 0
 
-        li              t5, 0xFF
-        sb              t5, 0(t3)                       # Set status sentinel
+	li		t5, 0xFF
+	sb		t5, 0(t3)		# Set status sentinel
 
-        sh              a1, 2(t4)                       # Set idx
+	sh		a1, 2(t4)		# Set idx
 
-        # Kick the hardware
-        fence           w, w            # Ensure all visible
-        li              t5, VIRTIO_DISK_BASE
-        sw              zero, VIRT_QUEUE0(t5)           # Notify Queue 0
+	# Kick the hardware
+	fence		w, w		# Ensure all visible
+	li		t5, VIRTIO_DISK_BASE
+	sw		zero, VIRT_QUEUE0(t5)		# Notify Queue 0
 
-        # Wait for disk_status to change from 0xFF
-        li              t5, 0xFF
-1:      lbu             t4, 0(t3)
-        beq             t4, t5, 1b
-        fence           r, r
+	# Wait for disk_status to change from 0xFF
+	li		t5, 0xFF
+1:	lbu		t4, 0(t3)
+	beq		t4, t5, 1b
+	fence		r, r
 .endm
 
 
@@ -270,68 +274,68 @@ _start:
 
 	INIT_DISK
 
-        li              s2, LOAD_LOC
-        add             s2, s2, gp
-        li              s3, 0 # counter
-        li              s5, BIN_SIZE
+	li		s2, LOAD_LOC
+	add		s2, s2, gp
+	li		s3, 0 # counter
+	li		s5, BIN_SIZE
 
 start_block:
-        mv              a0, s3                          # counter
-        addi            s3, s3, 1
-        mv              a1, s3                          # idx = counter + 1
-        READ_BLOCK
+	mv		a0, s3		# counter
+	addi		s3, s3, 1
+	mv		a1, s3		# idx = counter + 1
+	READ_BLOCK
 
-        mv              s0, gp                          # data always lands at gp+0
-        addi            s1, s0, 512
+	mv		s0, gp		# data always lands at gp+0
+	addi		s1, s0, 512
 1:
-        lbu             a0, 0(s0)
-        sb              a0, 0(s2)
-        addi            s5, s5, -1
-        beqz            s5, 2f
-        addi            s2, s2, 1
-        addi            s0, s0, 1
-        bne             s0, s1, 1b
-        j               start_block
+	lbu		a0, 0(s0)
+	sb		a0, 0(s2)
+	addi		s5, s5, -1
+	beqz		s5, 2f
+	addi		s2, s2, 1
+	addi		s0, s0, 1
+	bne		s0, s1, 1b
+	j		start_block
 2:
 
-        li              s0, LOAD_LOC
-        add             s0, s0, gp
+	li		s0, LOAD_LOC
+	add		s0, s0, gp
 
-        # Check hash
-        addi            sp, sp, -32
-        mv              a0, s0
-        li              a1, BIN_SIZE
-        mv              a2, sp
-        jal             blake2s
+	# Check hash
+	addi		sp, sp, -32
+	mv		a0, s0
+	li		a1, BIN_SIZE
+	mv		a2, sp
+	jal		blake2s
 
-        lw              t0, 0(sp)
-        li              t1, BIN_HASH0
-        bne             t0, t1, hash_mismatch
-        lw              t0, 4(sp)
-        li              t1, BIN_HASH1
-        bne             t0, t1, hash_mismatch
-        lw              t0, 8(sp)
-        li              t1, BIN_HASH2
-        bne             t0, t1, hash_mismatch
-        lw              t0, 12(sp)
-        li              t1, BIN_HASH3
-        bne             t0, t1, hash_mismatch
-        lw              t0, 16(sp)
-        li              t1, BIN_HASH4
-        bne             t0, t1, hash_mismatch
-        lw              t0, 20(sp)
-        li              t1, BIN_HASH5
-        bne             t0, t1, hash_mismatch
-        lw              t0, 24(sp)
-        li              t1, BIN_HASH6
-        bne             t0, t1, hash_mismatch
-        lw              t0, 28(sp)
-        li              t1, BIN_HASH7
-        bne             t0, t1, hash_mismatch
+	lw		t0, 0(sp)
+	li		t1, BIN_HASH0
+	bne		t0, t1, hash_mismatch
+	lw		t0, 4(sp)
+	li		t1, BIN_HASH1
+	bne		t0, t1, hash_mismatch
+	lw		t0, 8(sp)
+	li		t1, BIN_HASH2
+	bne		t0, t1, hash_mismatch
+	lw		t0, 12(sp)
+	li		t1, BIN_HASH3
+	bne		t0, t1, hash_mismatch
+	lw		t0, 16(sp)
+	li		t1, BIN_HASH4
+	bne		t0, t1, hash_mismatch
+	lw		t0, 20(sp)
+	li		t1, BIN_HASH5
+	bne		t0, t1, hash_mismatch
+	lw		t0, 24(sp)
+	li		t1, BIN_HASH6
+	bne		t0, t1, hash_mismatch
+	lw		t0, 28(sp)
+	li		t1, BIN_HASH7
+	bne		t0, t1, hash_mismatch
 
-        li              s0, LOAD_LOC
-        add             s0, s0, gp
-        jr              s0
+	li		s0, LOAD_LOC
+	add		s0, s0, gp
+	jr		s0
 
 1:	wfi
 	j		1b
@@ -671,18 +675,18 @@ _b2s_copy_done:
 	RETURN
 
 hash_mismatch:
-        li              a0, 'm'
-        jal             write_byte
-1:      wfi
-        j               1b
+	li		a0, 'm'
+	jal		write_byte
+1:	wfi
+	j		1b
 
 error_not_virtio:
 error_not_disk:
 error_features_not_supported:
-        li              a0, 'z' 
-        jal             write_byte
-1:      wfi
-        j               1b
+	li		a0, 'z' 
+	jal		write_byte
+1:	wfi
+	j		1b
 
 
 
