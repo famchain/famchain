@@ -270,9 +270,6 @@ _start:
 
 	INIT_DISK
 
-
-        INIT_DISK
-
         li              s2, LOAD_LOC
         add             s2, s2, gp
         li              s3, 0 # counter
