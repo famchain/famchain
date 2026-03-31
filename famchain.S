@@ -71,7 +71,7 @@
 # Program hash is: 0x0615555B 0x0615555B 0x0615555B 0x0615555B 0x32214BDD 0x32214BDD 0xCB4F2064 0x60741073
 # Change BIN_HASH0 to exercise the 'hash_mismatch' logic
 .equ	BIN_SIZE,		1296
-.equ	BIN_HASH0,		0x0615555B
+.equ	BIN_HASH0,		0x0615555A
 .equ	BIN_HASH1,		0x21032136
 .equ	BIN_HASH2,		0x53CB174E
 .equ	BIN_HASH3,		0xA7D9AD58
@@ -927,9 +927,107 @@ send_arp_reply:
 
 
 
+# send_udp: send a single hard-coded UDP packet to 146.235.218.150:3737
+# Payload: "hello" (5 bytes). Clobbers caller-saved regs via SETUP.
+send_udp:
+	SETUP	s0
+
+	# TX buffer = gp + TX_QUEUE_DATA_OFFSET + 512
+	li	s0, TX_QUEUE_DATA_OFFSET + 512
+	add	s0, gp, s0
+
+	# virtio_net_hdr: 12 bytes, all zero
+	sw	zero,  0(s0)
+	sw	zero,  4(s0)
+	sw	zero,  8(s0)
+
+	# Ethernet dst MAC: 52:55:0A:00:02:02 (QEMU NAT gateway)
+	li	t0, 0x52; sb t0, 12(s0)
+	li	t0, 0x55; sb t0, 13(s0)
+	li	t0, 0x0A; sb t0, 14(s0)
+	sb	zero,      15(s0)
+	li	t0, 0x02; sb t0, 16(s0)
+	li	t0, 0x02; sb t0, 17(s0)
+
+	# Ethernet src MAC: guest MAC
+	li	t0, GUEST_MAC_0; sb t0, 18(s0)
+	li	t0, GUEST_MAC_1; sb t0, 19(s0)
+	li	t0, GUEST_MAC_2; sb t0, 20(s0)
+	li	t0, GUEST_MAC_3; sb t0, 21(s0)
+	li	t0, GUEST_MAC_4; sb t0, 22(s0)
+	li	t0, GUEST_MAC_5; sb t0, 23(s0)
+
+	# EtherType: 0x0800 (IPv4)
+	li	t0, 0x08; sb t0, 24(s0)
+	sb	zero,      25(s0)
+
+	# IPv4 header (20 bytes)
+	li	t0, 0x45; sb t0, 26(s0)	# version=4, IHL=5
+	sb	zero,      27(s0)		# DSCP/ECN
+	sb	zero,      28(s0)		# total length hi
+	li	t0, 0x21; sb t0, 29(s0)	# total length lo = 33 (20+8+5)
+	sb	zero,      30(s0)		# identification hi
+	li	t0, 0x01; sb t0, 31(s0)	# identification lo
+	sb	zero,      32(s0)		# flags/frag hi
+	sb	zero,      33(s0)		# flags/frag lo
+	li	t0, 64;   sb t0, 34(s0)	# TTL
+	li	t0, 17;   sb t0, 35(s0)	# protocol = UDP
+	li	t0, 0x01; sb t0, 36(s0)	# checksum hi  (0x013B for this header)
+	li	t0, 0x3B; sb t0, 37(s0)	# checksum lo
+	li	t0, GUEST_IP_0; sb t0, 38(s0)	# src IP: 10.0.2.15
+	li	t0, GUEST_IP_1; sb t0, 39(s0)
+	li	t0, GUEST_IP_2; sb t0, 40(s0)
+	li	t0, GUEST_IP_3; sb t0, 41(s0)
+	li	t0, 146; sb t0, 42(s0)		# dst IP: 146.235.218.150
+	li	t0, 235; sb t0, 43(s0)
+	li	t0, 218; sb t0, 44(s0)
+	li	t0, 150; sb t0, 45(s0)
+
+	# UDP header (8 bytes)
+	li	t0, 0x04; sb t0, 46(s0)	# src port hi (1234)
+	li	t0, 0xD2; sb t0, 47(s0)	# src port lo
+	li	t0, 0x0E; sb t0, 48(s0)	# dst port hi (3737)
+	li	t0, 0x99; sb t0, 49(s0)	# dst port lo
+	sb	zero,      50(s0)		# UDP length hi
+	li	t0, 0x0D; sb t0, 51(s0)	# UDP length lo = 13 (8+5)
+	sh	zero,      52(s0)		# checksum = 0 (disabled)
+
+	# Payload: "hello"
+	li	t0, 'h'; sb t0, 54(s0)
+	li	t0, 'e'; sb t0, 55(s0)
+	li	t0, 'l'; sb t0, 56(s0)
+	li	t0, 'l'; sb t0, 57(s0)
+	li	t0, 'o'; sb t0, 58(s0)
+
+	# Post descriptor to TX queue
+	li	t2, TX_QUEUE_DATA_OFFSET
+	add	t2, gp, t2
+
+	sw	s0,   0(t2)		# desc[0].addr lo = TX buffer
+	sw	zero, 4(t2)		# desc[0].addr hi
+	li	t0, 59
+	sw	t0,   8(t2)		# desc[0].len = 59
+	sh	zero, 12(t2)		# desc[0].flags = 0 (device reads)
+	sh	zero, 14(t2)		# desc[0].next = 0
+
+	sh	zero, 16(t2)		# avail.flags = 0
+	lhu	t0,   18(t2)		# avail.idx++
+	addi	t0, t0, 1
+	sh	t0,   18(t2)
+	sh	zero, 20(t2)		# avail.ring[0] = descriptor 0
+
+	fence	w, w
+	li	t0, VIRTIO_NET_BASE
+	li	t1, 1
+	sw	t1, VIRT_QUEUE0(t0)	# kick queue 1 (TX)
+
+	RETURN
+
 hash_mismatch:
 	li		a0, 'm'
 	jal		write_byte
+
+	jal		send_udp
 
 	# Re-establish net state (t3/s0/t4 are stale after disk+blake2s)
 	li	s0, VIRTIO_NET_BASE
