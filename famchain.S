@@ -266,6 +266,16 @@ _base\@:
 .endm
 
 .macro INIT_NET
+        # zero RX queue page (gp+16384..gp+20480) and TX queue page (gp+32768..gp+36864)
+        li   t2, RX_QUEUE_DATA_OFFSET
+        add  t2, gp, t2
+        li   t3, TX_QUEUE_DATA_OFFSET + 4096
+        add  t3, gp, t3
+1:
+        sw   zero, 0(t2)
+        addi t2, t2, 4
+        bltu t2, t3, 1b
+
        li s0, 0x10002000       # virtio-net MMIO base (virtio-mmio-bus.1)
         sw zero, 0x70(s0)       # Reset device
 
