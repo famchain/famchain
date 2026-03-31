@@ -836,12 +836,12 @@ send_arp_reply:
         addi    sp, sp, -4
         sw      ra, 0(sp)
 
-        # a0 = RX buffer (gp + RX_QUEUE_DATA_OFFSET + 512)
-        li      a0, RX_QUEUE_DATA_OFFSET + 512
-        add     a0, gp, a0
+        # a0 = RX buffer (gp + RX_QUEUE_DATA_OFFSET + 512 = gp + 512)
+        addi    a0, gp, 512
 
-        # a1 = TX buffer (gp + TX_QUEUE_DATA_OFFSET + 512 = gp + 512)
-        addi    a1, gp, 512
+        # a1 = TX buffer (gp + TX_QUEUE_DATA_OFFSET + 512)
+        li      a1, TX_QUEUE_DATA_OFFSET + 512
+        add     a1, gp, a1
 
         # virtio_net_hdr: 12 bytes, all zero
         sw      zero, 0(a1)
@@ -909,20 +909,24 @@ sb      zero,     29(a1)
         lbu     t0, 42(a0); sb t0, 52(a1)
         lbu     t0, 43(a0); sb t0, 53(a1)
 
-        # TX descriptor at gp (TX queue base, TX_QUEUE_DATA_OFFSET=0)
-        sw      a1,   0(gp)             # desc[0].addr low = TX buffer
-        sw      zero,  4(gp)            # desc[0].addr high = 0
-        li      t0, 54
-        sw      t0,    8(gp)            # desc[0].len = 54
-        sh      zero, 12(gp)            # desc[0].flags = 0 (device reads, not writes)
-        sh      zero, 14(gp)            # desc[0].next = 0
+        # t2 = TX queue base (gp + TX_QUEUE_DATA_OFFSET)
+        li      t2, TX_QUEUE_DATA_OFFSET
+        add     t2, gp, t2
 
-        # TX available ring at gp+16
-        sh      zero, 16(gp)            # avail.flags = 0
-        lhu     t0,   18(gp)            # read current avail.idx
+        # TX descriptor at TX queue base
+        sw      a1,   0(t2)             # desc[0].addr low = TX buffer
+        sw      zero,  4(t2)            # desc[0].addr high = 0
+        li      t0, 54
+        sw      t0,    8(t2)            # desc[0].len = 54
+        sh      zero, 12(t2)            # desc[0].flags = 0 (device reads, not writes)
+        sh      zero, 14(t2)            # desc[0].next = 0
+
+        # TX available ring at TX queue base + 16
+        sh      zero, 16(t2)            # avail.flags = 0
+        lhu     t0,   18(t2)            # read current avail.idx
         addi    t0, t0, 1
-        sh      t0,   18(gp)            # avail.idx++
-        sh      zero, 20(gp)            # avail.ring[0] = descriptor 0
+        sh      t0,   18(t2)            # avail.idx++
+        sh      zero, 20(t2)            # avail.ring[0] = descriptor 0
 
         fence   w, w
         li      t0, 1
