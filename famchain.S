@@ -69,6 +69,14 @@
 .equ	FAMC_CMD_REQ_RANGE,	0x02
 .equ	FAMC_CMD_RSP_CHUNK,	0x82
 
+.equ	CLOCK_HZ,		1000000000	# QEMU virt ~1 GHz
+.equ	TIMEOUT_CYCLES,		3000000000	# 3 seconds
+.equ	MAX_HOSTS,		16
+.equ	HOST_ENTRY_SZ,		6		# 4 bytes IP + 2 bytes port (big endian)
+# Sum of fixed IP header words for REQ_RANGE (9-byte payload, src=10.0.2.15):
+# 0x4500+0x0025+0x0001+0x0000+0x4011+0x0000+0x0A00+0x020F = 0x9146
+.equ	IP_CKSUM_FIXED,		0x9146
+
 .equ    BIN_SIZE,               3536
 .equ	CHUNK_SIZE,		1400
 .equ	NUM_CHUNKS,		(BIN_SIZE + CHUNK_SIZE - 1) / CHUNK_SIZE
@@ -1102,15 +1110,16 @@ send_udp:
 
 	RETURN
 
-# send_req_range: send FAMC REQ_RANGE packet
+# send_req_range: send FAMC REQ_RANGE packet to a specific host
 # a0 = start chunk (u16), a1 = end chunk (u16)
-# Payload: [FAMC][0x02][start_hi][start_lo][end_hi][end_lo]  (9 bytes)
-# IP total len = 37 (20+8+9), checksum = 0x0137, UDP len = 17
+# a2 = host ptr: [ip0 ip1 ip2 ip3 port_hi port_lo] (6 bytes, big endian)
+# IP checksum computed from dst IP using IP_CKSUM_FIXED base.
 send_req_range:
-	SETUP	s0, s1, s2
+	SETUP	s0, s1, s2, s3
 
 	mv	s1, a0			# save start
 	mv	s2, a1			# save end
+	mv	s3, a2			# save host ptr
 
 	li	s0, TX_QUEUE_DATA_OFFSET + 512
 	add	s0, gp, s0
@@ -1140,7 +1149,7 @@ send_req_range:
 	li	t0, 0x08; sb t0, 24(s0)
 	sb	zero,      25(s0)
 
-	# IPv4 header
+	# IPv4 header (fixed fields)
 	li	t0, 0x45; sb t0, 26(s0)	# version=4, IHL=5
 	sb	zero,      27(s0)		# DSCP/ECN
 	sb	zero,      28(s0)		# total length hi
@@ -1151,22 +1160,38 @@ send_req_range:
 	sb	zero,      33(s0)		# flags/frag lo
 	li	t0, 64;   sb t0, 34(s0)	# TTL
 	li	t0, 17;   sb t0, 35(s0)	# protocol = UDP
-	li	t0, 0x01; sb t0, 36(s0)	# checksum hi (0x0137)
-	li	t0, 0x37; sb t0, 37(s0)	# checksum lo
+
+	# dst IP from host ptr (s3)
+	lbu	t0, 0(s3); sb t0, 42(s0)
+	lbu	t0, 1(s3); sb t0, 43(s0)
+	lbu	t0, 2(s3); sb t0, 44(s0)
+	lbu	t0, 3(s3); sb t0, 45(s0)
+
+	# compute IP checksum: ~fold(IP_CKSUM_FIXED + dst_hi + dst_lo)
+	lbu	t0, 0(s3); lbu t1, 1(s3); slli t0, t0, 8; or t0, t0, t1  # dst_hi
+	lbu	t1, 2(s3); lbu t2, 3(s3); slli t1, t1, 8; or t1, t1, t2  # dst_lo
+	li	t2, IP_CKSUM_FIXED
+	add	t2, t2, t0
+	add	t2, t2, t1			# sum = fixed + dst_hi + dst_lo
+	srli	t3, t2, 16
+	slli	t2, t2, 16; srli t2, t2, 16	# zero upper 16 bits
+	add	t2, t2, t3			# fold carry
+	xori	t2, t2, -1			# ones complement
+	slli	t2, t2, 16; srli t2, t2, 16	# mask to 16 bits
+	srli	t3, t2, 8;  sb t3, 36(s0)	# checksum hi
+	andi	t3, t2, 0xFF; sb t3, 37(s0)	# checksum lo
+
+	# src IP (fixed: guest)
 	li	t0, GUEST_IP_0; sb t0, 38(s0)
 	li	t0, GUEST_IP_1; sb t0, 39(s0)
 	li	t0, GUEST_IP_2; sb t0, 40(s0)
 	li	t0, GUEST_IP_3; sb t0, 41(s0)
-	li	t0, SERVER_IP_0; sb t0, 42(s0)
-	li	t0, SERVER_IP_1; sb t0, 43(s0)
-	li	t0, SERVER_IP_2; sb t0, 44(s0)
-	li	t0, SERVER_IP_3; sb t0, 45(s0)
 
 	# UDP header
 	li	t0, (CLIENT_PORT >> 8);   sb t0, 46(s0)	# src port hi
 	li	t0, (CLIENT_PORT & 0xFF); sb t0, 47(s0)	# src port lo
-	li	t0, (SERVER_PORT >> 8);   sb t0, 48(s0)	# dst port hi
-	li	t0, (SERVER_PORT & 0xFF); sb t0, 49(s0)	# dst port lo
+	lbu	t0, 4(s3); sb t0, 48(s0)	# dst port hi from host ptr
+	lbu	t0, 5(s3); sb t0, 49(s0)	# dst port lo from host ptr
 	sb	zero,      50(s0)		# UDP length hi
 	li	t0, 0x11; sb t0, 51(s0)	# UDP length lo = 17 (8+9)
 	sh	zero,      52(s0)		# checksum = 0
@@ -1177,32 +1202,32 @@ send_req_range:
 	li	t0, 'M'; sb t0, 56(s0)
 	li	t0, 'C'; sb t0, 57(s0)
 	li	t0, FAMC_CMD_REQ_RANGE; sb t0, 58(s0)
-	srli	t0, s1, 8;  sb t0, 59(s0)	# start hi
+	srli	t0, s1, 8;    sb t0, 59(s0)	# start hi
 	andi	t0, s1, 0xFF; sb t0, 60(s0)	# start lo
-	srli	t0, s2, 8;  sb t0, 61(s0)	# end hi
+	srli	t0, s2, 8;    sb t0, 61(s0)	# end hi
 	andi	t0, s2, 0xFF; sb t0, 62(s0)	# end lo
 
 	# Post descriptor to TX queue
 	li	t2, TX_QUEUE_DATA_OFFSET
 	add	t2, gp, t2
 
-	sw	s0,   0(t2)		# desc[0].addr lo
-	sw	zero, 4(t2)		# desc[0].addr hi
+	sw	s0,   0(t2)
+	sw	zero, 4(t2)
 	li	t0, 63
-	sw	t0,   8(t2)		# desc[0].len = 63
-	sh	zero, 12(t2)		# desc[0].flags = 0
-	sh	zero, 14(t2)		# desc[0].next = 0
+	sw	t0,   8(t2)
+	sh	zero, 12(t2)
+	sh	zero, 14(t2)
 
-	sh	zero, 16(t2)		# avail.flags = 0
+	sh	zero, 16(t2)
 	lhu	t0,   18(t2)
 	addi	t0, t0, 1
-	sh	t0,   18(t2)		# avail.idx++
-	sh	zero, 20(t2)		# avail.ring[0] = 0
+	sh	t0,   18(t2)
+	sh	zero, 20(t2)
 
 	fence	w, w
 	li	t0, VIRTIO_NET_BASE
 	li	t1, 1
-	sw	t1, VIRT_QUEUE0(t0)	# kick queue 1 (TX)
+	sw	t1, VIRT_QUEUE0(t0)
 
 	RETURN
 
@@ -1210,33 +1235,108 @@ hash_mismatch:
 	li		a0, 'm'
 	jal		write_byte
 
-	li	a0, 0
-	li	a1, LAST_CHUNK
-	jal	send_req_range
-
-	# Re-establish net state (t3/s0/t4 are stale after disk+blake2s)
-	li	s0, VIRTIO_NET_BASE
-	li	t0, RX_QUEUE_DATA_OFFSET
-	add	t3, gp, t0			# t3 = RX queue base
-	li	t0, 4096
-	add	t4, t3, t0			# t4 = used ring base (queue_base + QueueAlign)
-	li	s1, 0				# s1 = last_used_idx
-
-	# allocate bitmap on stack: 256 bytes handles up to 2048 chunks
+	# ── allocate stack: 256B bitmap + 128B host buffer ──
 	addi	sp, sp, -256
 	mv	s2, sp				# s2 = bitmap base
-	li	t0, 64				# 256/4 words
-	mv	t1, s2
-1:	sw	zero, 0(t1)
-	addi	t1, t1, 4
-	addi	t0, t0, -1
-	bnez	t0, 1b
+	addi	sp, sp, -128
+	mv	s4, sp				# s4 = host buffer base
+
+	# zero bitmap
+	li	t0, 64; mv t1, s2
+1:	sw	zero, 0(t1); addi t1, t1, 4; addi t0, t0, -1; bnez t0, 1b
+
+	# ── read host list from UART (1-second timeout) ──
+	# format: [count][ip0 ip1 ip2 ip3 port_hi port_lo] × count
+	li	t5, UART_BASE
+	rdcycle	t0
+	li	t1, CLOCK_HZ
+	add	t1, t0, t1			# deadline = now + 1 second
+
+uart_wait_count:
+	lbu	t0, UART_LSR(t5)
+	andi	t0, t0, 0x01			# data ready?
+	bnez	t0, uart_read_count
+	rdcycle	t0
+	bltu	t0, t1, uart_wait_count
+	j	use_default_host		# timeout
+
+uart_read_count:
+	lbu	t0, 0(t5)			# count byte
+	beqz	t0, use_default_host
+	li	t1, MAX_HOSTS
+	bltu	t0, t1, 1f
+	mv	t0, t1				# cap at MAX_HOSTS
+1:	mv	s5, t0				# s5 = host count
+	mv	t2, s4				# t2 = write ptr into host buffer
+	mv	t3, s5
+
+uart_read_hosts:
+	beqz	t3, setup_net
+	li	t4, HOST_ENTRY_SZ
+uart_read_entry:
+	beqz	t4, uart_next_entry
+1:	lbu	t0, UART_LSR(t5)		# wait for byte (no timeout: data expected)
+	andi	t0, t0, 0x01
+	beqz	t0, 1b
+	lbu	t0, 0(t5)
+	sb	t0, 0(t2)
+	addi	t2, t2, 1
+	addi	t4, t4, -1
+	j	uart_read_entry
+uart_next_entry:
+	addi	t3, t3, -1
+	j	uart_read_hosts
+
+use_default_host:
+	LOAD_ADDRESS	s4, default_host
+	li		s5, 1
+
+setup_net:
+	li	s0, VIRTIO_NET_BASE
+	mv	t3, gp				# t3 = RX queue base
+	li	t0, 4096
+	add	t4, t3, t0			# t4 = used ring base
+	li	s1, 0				# s1 = last_used_idx
 	li	s3, 0				# s3 = chunks_received
+
+try_next_host:
+	beqz	s5, all_hosts_failed
+
+	# reset bitmap and received count
+	li	t0, 64; mv t1, s2
+1:	sw	zero, 0(t1); addi t1, t1, 4; addi t0, t0, -1; bnez t0, 1b
+	li	s3, 0
+
+	# snapshot cycle counter for timeout
+	rdcycle	s6
+
+	# send REQ_RANGE to current host
+	li	a0, 0
+	li	a1, LAST_CHUNK
+	mv	a2, s4
+	jal	send_req_range
+
+	# restore t3/t4 (clobbered by send_req_range)
+	mv	t3, gp
+	li	t0, 4096; add t4, t3, t0
 
 poll_loop:
 	fence	r, r
 	lhu	t5, 2(t4)
-	beq	t5, s1, poll_loop		# spin until packet arrives
+	bne	t5, s1, got_packet
+
+	# check timeout
+	rdcycle	t6
+	sub	t6, t6, s6
+	li	t0, TIMEOUT_CYCLES
+	bltu	t6, t0, poll_loop
+
+	# timeout — advance to next host
+	addi	s4, s4, HOST_ENTRY_SZ
+	addi	s5, s5, -1
+	j	try_next_host
+
+got_packet:
 
 	# ARP? ethertype=08:06 at t3+536, opcode=00:01 at t3+544
 	lw	t0, 8(t4)			# packet length
@@ -1493,8 +1593,13 @@ not_rsp_chunk:
 
 	j	poll_loop
 
+all_hosts_failed:
+	li	a0, 'F'
+	jal	write_byte
+	li	a0, '\n'
+	jal	write_byte
 1:	wfi
-	j		1b
+	j	1b
 
 error_not_virtio:
 error_not_disk:
@@ -1534,5 +1639,10 @@ b2s_g_idx:
 	.byte	1,	6,	11,	12	# diagonal 1
 	.byte	2,	7,	8,	13	# diagonal 2
 	.byte	3,	4,	9,	14	# diagonal 3
+
+# Default host used when no host list arrives over UART
+default_host:
+	.byte	SERVER_IP_0, SERVER_IP_1, SERVER_IP_2, SERVER_IP_3
+	.byte	(SERVER_PORT >> 8), (SERVER_PORT & 0xFF)
 
 data:
