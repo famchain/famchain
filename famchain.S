@@ -111,6 +111,7 @@ _start:
 	addi		a0, sp,	-64
 	li		a1, 3
 	addi		a2, sp, -128
+	addi		sp, sp, -128
 	li		t0, 'a'
 	sb		t0, 0(a0)
 	li		t0, 'b'
