@@ -1663,6 +1663,15 @@ error_features_not_supported:
 # Secondary harts enter here. Parks in WFI until the full node sends an IPI
 # with a jump target in hart_mailbox[hartid].
 secondary_park:
+	# debug: print "Sn" where n = hartid
+	csrr	a0, mhartid
+	addi	a0, a0, '0'		# ASCII hartid
+	li	t1, UART_BASE
+1:	lbu	t2, UART_LSR(t1)
+	andi	t2, t2, UART_WR_MASK
+	beqz	t2, 1b
+	sb	a0, 0(t1)
+
 	# set up trap vector → ipi_handler (direct mode)
 	LOAD_ADDRESS	t0, ipi_handler
 	csrw		mtvec, t0
