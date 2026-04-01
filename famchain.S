@@ -68,7 +68,8 @@
 # 0x4500+0x0025+0x0001+0x0000+0x4011+0x0000+0x0A00+0x020F = 0x9146
 .equ	IP_CKSUM_FIXED,		0x9146
 
-.equ    BIN_SIZE,               552
+.include "bin_config.inc"
+
 .equ	CHUNK_SIZE,		1400
 .equ	NUM_CHUNKS,		(BIN_SIZE + CHUNK_SIZE - 1) / CHUNK_SIZE
 .equ	LAST_CHUNK,		(NUM_CHUNKS - 1)
@@ -91,17 +92,7 @@
 .equ	VIRT_DISK_HEADER,	25090
 .equ	LOAD_LOC,		25106		# binary load location (unlimited headroom)
 
-# Size and Hash of Program 
-# Program hash is: 0x0615555B 0x0615555B 0x0615555B 0x0615555B 0x32214BDD 0x32214BDD 0xCB4F2064 0x60741073
-# Change BIN_HASH0 to exercise the 'hash_mismatch' logic
-.equ	BIN_HASH0,		0x2DA4F927
-.equ	BIN_HASH1,		0x416176B9
-.equ	BIN_HASH2,		0xE1BA5E81
-.equ	BIN_HASH3,		0xEDECCE18
-.equ	BIN_HASH4,		0x6420C988
-.equ	BIN_HASH5,		0x0ED9C1CC
-.equ	BIN_HASH6,		0xAEE85AF6
-.equ	BIN_HASH7,		0xF723DC02
+# BIN_SIZE and BIN_HASH0..7 are defined in bin_config.inc
 
 .altmacro
 .macro LOAD_ADDRESS reg, label
