@@ -1,0 +1,1352 @@
+# MIT License
+#
+# Copyright (c) 2026 Christopher Gilliard
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
+# =============================================================================
+# famchain.fam0 - RISC-V 32-bit Network Bootloader
+#
+# A bare-metal bootloader for RISC-V 32-bit (RV32I) running on QEMU virt
+# machine. Initializes virtio-net and virtio-blk devices, reads a binary
+# from disk, verifies it with BLAKE2s, and executes it. If the disk cache
+# is empty or corrupt, downloads the binary from seed hosts over UDP using
+# the FAMC protocol, verifies the hash, and jumps to the loaded program.
+# Seed hosts are provided as an ASCII "ip:port" list via UART at boot.
+# =============================================================================
+
+# --- Entry Point (_start) ---
+# Parks secondary harts (non-primary cores go to secondary_park), sets up
+# the global pointer (gp) page-aligned to the data section, initializes the
+# stack pointer (sp) at gp + 4 MiB, and zeros the memory region from gp
+# to LOAD_LOC to ensure a clean state before device initialization.
+
+# ── _start: ──
+73 22 40 F1 # read hart ID
+E3 14 02 74 # secondary harts -> park
+97 11 00 00 # LOAD_ADDRESS gp, data
+93 81 01 06 # gp = data label (PC-relative)
+B7 12 00 00 # t0 = 4095
+93 82 F2 FF # gp += 4095 (for alignment)
+B3 81 51 00 # gp = gp + t0
+B7 F2 FF FF # t0 = -4096 (0xFFFFF000)
+B3 F1 51 00 # gp &= -4096 (page-align)
+B7 02 40 00 # t0 = STACK_OFFSET (4 MiB)
+33 81 51 00 # sp = gp + 4 MiB
+93 83 01 00 # t2 = gp (start of zero region)
+37 6E 00 00 # t3 hi = LOAD_LOC
+13 0E 2E 21 # t3 = LOAD_LOC offset
+33 8E C1 01 # t3 = gp + LOAD_LOC (end of zero region)
+23 A0 03 00 # zero word at t2
+93 83 43 00 # t2 += 4
+E3 EC C3 FF # loop until t2 >= t3
+
+# --- Initialize virtio-net (INIT_NET) ---
+# Performs the virtio legacy MMIO handshake for the network device at
+# VIRTIO_NET_BASE (0x10002000): reset, ACK, DRIVER, negotiate features,
+# set FEATURES_OK, configure guest page size, set up RX queue (queue 0)
+# and TX queue (queue 1) each with depth 1, then set DRIVER_OK to bring
+# the device live. Posts the first RX descriptor (1536-byte write buffer)
+# and kicks queue 0 so the device can begin receiving packets.
+
+37 24 00 10 # s0 = VIRTIO_NET_BASE (0x10002000)
+23 28 04 06 # reset device (VIO_STATUS = 0)
+93 02 10 00 # t0 = 1
+23 28 54 06 # VIO_STATUS = ACK
+93 02 30 00 # t0 = 3
+23 28 54 06 # VIO_STATUS = ACK + DRIVER
+03 23 04 01 # read device features
+23 20 64 02 # accept all features
+03 23 04 07 # read VIO_STATUS
+13 63 83 00 # set FEATURES_OK bit
+23 28 64 06 # write VIO_STATUS
+B7 12 00 00 # t0 = 4096
+23 24 54 02 # set guest page size
+23 28 04 02 # select queue 0 (RX)
+93 02 10 00 # t0 = 1
+23 2C 54 02 # QueueNum = 1
+B7 12 00 00 # t0 = 4096
+23 2E 54 02 # QueueAlign = 4096
+93 02 00 00 # t0 = RX_QUEUE_DATA_OFFSET (0)
+B3 83 51 00 # t2 = gp + 0
+93 D3 C3 00 # PFN = address >> 12
+23 20 74 04 # set RX QueuePFN
+93 02 10 00 # t0 = 1
+23 28 54 02 # select queue 1 (TX)
+23 2C 54 02 # QueueNum = 1
+B7 12 00 00 # t0 = 4096
+23 2E 54 02 # QueueAlign = 4096
+B7 22 00 00 # t0 = TX_QUEUE_DATA_OFFSET (8192)
+B3 83 51 00 # t2 = gp + 8192
+93 D3 C3 00 # PFN = address >> 12
+23 20 74 04 # set TX QueuePFN
+03 23 04 07 # read VIO_STATUS
+13 63 43 00 # set DRIVER_OK bit
+23 28 64 06 # write VIO_STATUS (device live)
+13 8E 01 00 # t3 = gp (RX queue base)
+93 0E 0E 20 # t4 = RX buffer at queue_base+512
+23 20 DE 01 # desc[0].addr = buffer
+23 22 0E 00 # desc[0].addr high = 0
+93 0E 00 60 # desc[0].len = 1536
+23 24 DE 01 # desc[0].len (cont)
+93 0E 20 00 # desc[0].flags = WRITE
+23 16 DE 01 # desc[0].next = 0
+23 17 0E 00 # avail.flags = 0
+23 18 0E 00 # avail.idx = 1
+93 0E 10 00 # avail.idx (cont)
+23 19 DE 01 # avail.ring[0] = 0
+23 1A 0E 00 # fence w,w (memory barrier)
+0F 00 10 01 # kick queue 0 (RX)
+23 28 04 04 # t5 = UART_BASE
+
+# --- UART Seed List Parser (parse_loop through parse_done) ---
+# Reads an ASCII list of "ip:port" entries from UART, terminated by EOT
+# (0x04). Parses dotted-decimal IP addresses and port numbers, storing
+# each host as a 6-byte binary entry (4 bytes IP + 2 bytes port big-endian)
+# at gp+SEED_LIST_LOC. The first byte at SEED_LIST_LOC holds the host count.
+# Supports up to MAX_HOSTS (16) entries.
+
+37 0F 00 10 # t2 hi = SEED_LIST_LOC + 1
+B7 33 00 00 # t2 = offset for seed write ptr
+93 83 13 00 # t2 = gp + SEED_LIST_LOC + 1 (skip count)
+B3 83 71 00 # s5 = 0 (host count)
+93 0A 00 00 # s6 = 0 (accumulator)
+13 0B 00 00 # t3 = 0 (field index: 0-3=IP, 4=port)
+13 0E 00 00 # li	t3,0
+
+# ── parse_loop: ──
+83 42 5F 00 # read UART LSR
+93 F2 12 00 # check data ready bit
+E3 8C 02 FE # loop until byte available
+83 42 0F 00 # read character from UART
+13 03 40 00 # t1 = 4 (EOT)
+63 80 62 0A # if char == EOT -> parse_eot
+13 03 00 03 # t1 = 48 ('0')
+63 E2 62 02 # if char < '0' -> parse_sep
+13 03 A0 03 # t1 = 58 ('9'+1)
+63 FE 62 00 # if char >= ':' -> parse_sep
+93 82 02 FD # digit = char - '0'
+13 13 3B 00 # acc * 8
+93 1E 1B 00 # acc * 2
+33 0B D3 01 # acc * 10
+33 0B 5B 00 # acc = acc * 10 + digit
+6F F0 5F FC # loop back to parse_loop
+
+# ── parse_sep: ──
+13 03 E0 02 # t1 = '.'
+63 84 62 02 # if char == '.' -> parse_dot
+13 03 A0 03 # t1 = ':'
+63 86 62 02 # if char == ':' -> parse_colon
+13 03 40 00 # t1 = 4 (port field index)
+63 16 6E 00 # if not in port mode -> reset
+EF 0F C0 03 # store port (via t6 leaf call)
+93 83 63 00 # advance write ptr by HOST_ENTRY_SZ (6)
+
+# ── parse_reset: ──
+13 0B 00 00 # reset accumulator
+13 0E 00 00 # reset field index
+6F F0 9F F9 # loop back to parse_loop
+
+# ── parse_dot: ──
+13 03 30 00 # t1 = 3
+E3 78 6E F8 # if field >= 3 -> ignore extra dots
+6F 00 C0 00 # -> store_octet
+
+# ── parse_colon: ──
+13 03 30 00 # t1 = 3
+E3 12 6E F8 # if field != 3 -> ignore
+
+# ── store_octet: ──
+B3 8E C3 01 # t4 = write_ptr + field_index
+23 80 6E 01 # store octet byte
+13 0E 1E 00 # field_index++
+13 0B 00 00 # reset accumulator
+6F F0 1F F7 # loop back to parse_loop
+
+# ── store_port: ──
+13 03 00 01 # MAX_HOSTS check (16)
+63 F4 6A 02 # if count >= MAX_HOSTS -> done
+13 53 8B 00 # port high byte = acc >> 8
+23 82 63 00 # store port high
+13 73 FB 0F # port low byte = acc & 0xFF
+A3 82 63 00 # store port low
+93 8A 1A 00 # host count++
+67 80 0F 00 # return via t6
+
+# ── parse_eot: ──
+13 03 40 00 # t1 = 4
+63 14 6E 00 # if not in port mode -> done
+EF FF 9F FD # store final port
+
+# ── parse_done: ──
+B7 32 00 00 # t0 = SEED_LIST_LOC (12288)
+B3 82 51 00 # t0 = gp + SEED_LIST_LOC
+23 80 52 01 # store host count byte
+
+# --- Initialize virtio-blk (INIT_DISK) ---
+# Performs the virtio legacy MMIO handshake for the block device at
+# VIRTIO_DISK_BASE (0x10001000): verifies the magic number and device ID,
+# resets, negotiates features, sets FEATURES_OK, configures queue 0 with
+# depth 16, and brings the device live with DRIVER_OK. Prepares the
+# destination pointer (s2) at LOAD_LOC and sector counter for the boot read.
+
+# ── INIT_DISK: ──
+B7 12 00 10 # t0 = VIRTIO_DISK_BASE (0x10001000)
+03 A3 02 00 # read VIO_MAGIC
+B7 73 72 74 # t2 = expected magic ('virt')
+93 83 63 97 # t2 (cont)
+E3 18 73 52 # if magic wrong -> error
+03 A3 82 00 # read VIO_DEVICE_ID
+93 03 20 00 # t2 = 2 (block device)
+E3 12 73 52 # if not block device -> error
+23 A8 02 06 # reset device
+13 03 10 00 # t1 = 1
+23 A8 62 06 # VIO_STATUS = ACK
+03 A3 02 07 # read VIO_STATUS
+13 63 23 00 # set DRIVER bit
+23 A8 62 06 # write VIO_STATUS
+03 A3 02 01 # read device features
+23 A0 02 02 # accept none
+03 A3 02 07 # read VIO_STATUS
+13 63 83 00 # set FEATURES_OK
+23 A8 62 06 # write VIO_STATUS
+03 A3 02 07 # read VIO_STATUS
+93 73 83 00 # check FEATURES_OK
+E3 86 03 4E # if not accepted -> error
+37 13 00 00 # t1 = 4096
+23 A4 62 02 # set guest page size
+23 A8 02 02 # select queue 0
+13 03 00 01 # t1 = 16 (queue depth)
+23 AC 62 02 # QueueNum = 16
+37 13 00 00 # t1 = 4096
+23 AE 62 02 # QueueAlign = 4096
+13 83 01 00 # t1 = gp
+37 5F 00 00 # t5 = VIRT_DESCRIPTOR_TABLE (20480)
+33 03 E3 01 # t1 = gp + descriptor table
+13 53 C3 00 # PFN = address >> 12
+23 A0 62 04 # set disk QueuePFN
+03 A3 02 07 # read VIO_STATUS
+13 63 43 00 # set DRIVER_OK
+23 A8 62 06 # write VIO_STATUS (disk live)
+37 69 00 00 # s2 hi = LOAD_LOC
+13 09 29 21 # s2 = LOAD_LOC offset
+33 09 39 00 # s2 = gp + LOAD_LOC (dest ptr)
+93 09 00 00 # s3 = 0 (sector counter)
+93 0A 80 22 # s5 = BIN_SIZE (552)
+
+# --- Boot Read (start_block) ---
+# Reads the binary image from disk sector by sector (512 bytes each) into
+# memory at LOAD_LOC. Calls disk_read for each sector, copies bytes from
+# the disk data buffer to the destination, and decrements the remaining
+# byte count until BIN_SIZE bytes have been loaded.
+
+# ── start_block: ──
+13 85 09 00 # a0 = sector number
+93 89 19 00 # s3++ (avail_idx)
+93 85 09 00 # a1 = avail_idx
+EF 00 00 08 # jal disk_read
+B7 42 00 00 # t0 = DISK_DATA_BUFFER (16384)
+33 84 51 00 # s0 = gp + disk buffer
+93 04 04 20 # s1 = end of 512-byte buffer
+03 45 04 00 # load byte from disk buffer
+23 00 A9 00 # store byte to LOAD_LOC region
+93 8A FA FF # s5-- (bytes remaining)
+63 8A 0A 00 # if done -> check hash
+13 09 19 00 # advance dest ptr
+13 04 14 00 # advance src ptr
+E3 14 94 FE # loop until end of sector
+6F F0 9F FC # next sector
+
+# --- Hash Verification ---
+# Computes a BLAKE2s hash of the loaded binary at LOAD_LOC (BIN_SIZE bytes),
+# then calls check_hash to compare the 32-byte digest against the expected
+# hash stored in the data section. If the hash matches, execution continues
+# to the disk hit path. If it mismatches, branches to hash_mismatch to
+# attempt a network download.
+
+37 64 00 00 # s0 hi = LOAD_LOC
+13 04 24 21 # s0 = LOAD_LOC offset
+33 04 34 00 # s0 = gp + LOAD_LOC
+13 01 01 FE # allocate 32 bytes for hash output
+13 05 04 00 # a0 = input ptr
+93 05 80 22 # a1 = BIN_SIZE (552)
+13 06 01 00 # a2 = output ptr (sp)
+EF 00 80 4C # jal blake2s
+13 05 01 00 # a0 = hash output ptr
+EF 00 00 11 # jal check_hash
+13 01 01 02 # free hash output
+E3 1E 05 18 # if mismatch -> hash_mismatch (download)
+
+# --- Disk Hit Path ---
+# Hash matched: the disk cache is valid. Passes the seed list pointer
+# (gp + SEED_LIST_LOC) in a0 so the loaded program knows where to find
+# the host list, then jumps to the loaded binary at LOAD_LOC.
+
+37 35 00 00 # a0 hi = SEED_LIST_LOC
+33 05 35 00 # a0 = gp + SEED_LIST_LOC (pass to program)
+B7 62 00 00 # t0 hi = LOAD_LOC
+93 82 22 21 # t0 = LOAD_LOC offset
+B3 82 32 00 # t0 = gp + LOAD_LOC
+67 80 02 00 # jump to loaded program
+73 00 50 10 # wfi (halt)
+6F F0 DF FF # infinite loop
+
+# --- disk_read ---
+# Leaf function: reads one 512-byte sector from virtio-blk.
+# Sets up a 3-descriptor chain: desc[0] = virtio-blk header (sector number,
+# type=read), desc[1] = 512-byte data buffer (write), desc[2] = 1-byte
+# status (write). Posts to the available ring, kicks queue 0, then polls
+# the status byte until the device signals completion (status != 0xFF).
+# Args: a0 = sector number, a1 = avail_idx.
+
+# ── disk_read: ──
+37 5F 00 00 # t5 = VIRT_DESCRIPTOR_TABLE
+33 83 E1 01 # t1 = gp + descriptor table
+37 6E 00 00 # t3 = VIRT_DISK_STATUS
+13 0E 0E 20 # t3 = gp + disk status
+33 8E C1 01 # t2 = disk header (status + 2)
+93 03 2E 00 # type = 0 (read)
+23 A0 03 00 # sector number
+23 A4 A3 00 # desc[0].addr = header
+23 20 73 00 # desc[0].addr high = 0
+23 22 03 00 # desc[0].len = 16
+93 0E 00 01 # desc[0].flags = NEXT
+23 24 D3 01 # desc[0].next = 1
+93 0E 10 00 # desc[0].next (cont)
+23 16 D3 01 # t5 = DISK_DATA_BUFFER
+23 17 D3 01 # t5 = gp + buffer
+37 4F 00 00 # desc[1].addr = buffer
+33 8F E1 01 # desc[1].addr high = 0
+23 28 E3 01 # desc[1].len = 512
+23 2A 03 00 # desc[1].len (cont)
+93 0E 00 20 # desc[1].flags = NEXT|WRITE (3)
+23 2C D3 01 # desc[1].next = 2
+93 0E 30 00 # desc[1].next (cont)
+23 1E D3 01 # desc[2].addr = status
+93 0E 20 00 # desc[2].addr high = 0
+23 1F D3 01 # desc[2].len = 1
+23 20 C3 03 # desc[2].flags = WRITE (2)
+23 22 03 02 # desc[2].flags (cont)
+93 0E 10 00 # desc[2].next = 0
+23 24 D3 03 # t4 = avail ring base (+256)
+93 0E 20 00 # avail.ring[0] = 0
+23 16 D3 03 # t5 = 0xFF (sentinel)
+23 17 03 02 # set status sentinel
+93 0E 03 10 # avail.idx = a1
+23 92 0E 00 # fence w,w
+13 0F F0 0F # t5 = VIRTIO_DISK_BASE
+23 00 EE 01 # kick queue 0
+23 91 BE 00 # t5 = 0xFF
+0F 00 10 01 # read status byte
+37 1F 00 10 # wait until status != 0xFF
+23 28 0F 04 # fence r,r
+13 0F F0 0F # ret
+83 4E 0E 00 # lbu	t4,0(t3)
+E3 8E EE FF # beq	t4,t5,0x3cc
+0F 00 20 02 # fence	r,r
+67 80 00 00 # ret
+
+# --- write_guest_mac ---
+# Leaf function: writes the 6-byte guest MAC address (52:54:00:12:34:56)
+# to the buffer pointed to by a0. Used when building Ethernet frames for
+# ARP replies and outgoing UDP packets.
+
+# ── write_guest_mac: ──
+93 02 20 05 # store GUEST_MAC_0 (0x52)
+23 00 55 00 # store (cont)
+93 02 40 05 # store GUEST_MAC_1 (0x54)
+A3 00 55 00 # store (cont)
+23 01 05 00 # store GUEST_MAC_2 (0x00)
+93 02 20 01 # store GUEST_MAC_3 (0x12)
+A3 01 55 00 # store (cont)
+93 02 40 03 # store GUEST_MAC_4 (0x34)
+23 02 55 00 # store (cont)
+93 02 60 05 # store GUEST_MAC_5 (0x56)
+A3 02 55 00 # store (cont)
+67 80 00 00 # ret
+
+# --- check_hash ---
+# Leaf function: compares a 32-byte computed hash (pointed to by a0)
+# against the expected_hash in the data section, word by word (8 words).
+# Returns a0 = 0 if all words match, a0 = 1 on first mismatch.
+
+# ── check_hash: ──
+17 13 00 00 # LOAD_ADDRESS t1, expected_hash
+13 03 83 C3 # t1 = expected_hash ptr
+93 03 80 00 # t2 = 8 (word count)
+83 22 05 00 # load computed hash word
+03 2E 03 00 # load expected hash word
+63 9E C2 01 # if mismatch -> return 1
+13 05 45 00 # advance computed ptr
+13 03 43 00 # advance expected ptr
+93 83 F3 FF # t2--
+E3 94 03 FE # loop
+13 05 00 00 # a0 = 0 (match)
+67 80 00 00 # ret (match)
+13 05 10 00 # a0 = 1 (mismatch)
+67 80 00 00 # ret (mismatch)
+
+# --- tx_kick ---
+# Leaf function: posts a single TX descriptor and kicks virtio-net queue 1.
+# Writes the buffer address (a0) and length (a1) into TX desc[0], bumps
+# the available ring index, issues a fence, and writes to the queue notify
+# register to trigger transmission.
+
+# ── tx_kick: ──
+B7 23 00 00 # t2 = TX_QUEUE_DATA_OFFSET
+B3 83 71 00 # t2 = gp + TX queue
+23 A0 A3 00 # desc[0].addr = a0 (buffer)
+23 A2 03 00 # desc[0].addr high = 0
+23 A4 B3 00 # desc[0].len = a1 (length)
+23 96 03 00 # desc[0].flags = 0
+23 97 03 00 # desc[0].next = 0
+23 98 03 00 # avail.flags = 0
+83 D2 23 01 # read avail.idx
+93 82 12 00 # avail.idx++
+23 99 53 00 # write avail.idx
+23 9A 03 00 # avail.ring[0] = 0
+0F 00 10 01 # fence w,w
+B7 22 00 10 # t0 = VIRTIO_NET_BASE
+13 03 10 00 # t1 = 1 (TX queue number)
+23 A8 62 04 # kick queue 1 (TX)
+67 80 00 00 # ret
+
+# --- write_byte ---
+# Leaf function: writes one byte (in a0) to the UART transmit register.
+# Polls the UART LSR until the TX holding register is empty, then stores
+# the byte.
+
+# ── write_byte: ──
+37 03 00 10 # t1 = UART_BASE
+83 43 53 00 # read UART LSR
+93 F3 03 02 # check TX ready
+E3 8A 03 FE # wait if busy
+23 00 A3 00 # write byte
+67 80 00 00 # ret
+
+# --- b2s_g ---
+# BLAKE2s G mixing function (RFC 7693 section 3.1).
+# Performs the quarter-round mixing: two add-xor-rotate pairs with rotation
+# constants 16, 12, 8, and 7. Operates on four state words (va, vb, vc, vd)
+# and two message words (mx, my) passed in registers.
+
+# ── b2s_g: ──
+33 05 B5 00 # va += vb
+33 05 E5 00 # va += mx
+B3 C6 A6 00 # vd ^= va
+93 D2 06 01 # ROTR(vd, 16) part 1
+13 93 06 01 # ROTR(vd, 16) part 2
+B3 E6 62 00 # vd = rotated
+33 06 D6 00 # vc += vd
+B3 C5 C5 00 # vb ^= vc
+93 D2 C5 00 # ROTR(vb, 12) part 1
+13 93 45 01 # ROTR(vb, 12) part 2
+B3 E5 62 00 # vb = rotated
+33 05 B5 00 # va += vb
+33 05 F5 00 # va += my
+B3 C6 A6 00 # vd ^= va
+93 D2 86 00 # ROTR(vd, 8) part 1
+13 93 86 01 # ROTR(vd, 8) part 2
+B3 E6 62 00 # vd = rotated
+33 06 D6 00 # vc += vd
+B3 C5 C5 00 # vb ^= vc
+93 D2 75 00 # ROTR(vb, 7) part 1
+13 93 95 01 # ROTR(vb, 7) part 2
+B3 E5 62 00 # vb = rotated
+67 80 00 00 # ret
+
+# --- b2s_compress ---
+# BLAKE2s compression function (RFC 7693 section 3.2).
+# Initializes the 16-word working vector v[0..15] from the hash state h[0..7]
+# and IV[0..7], XORing IV[4..6] with the counter and finalization flag.
+# Runs 10 rounds of 8 G-calls each, using the sigma permutation table to
+# select message word pairs. After all rounds, folds v[0..15] back into h
+# via h[i] ^= v[i] ^ v[i+8].
+
+# ── b2s_compress: ──
+13 01 01 FE # SETUP s0-s6 (save to stack)
+23 20 11 00 # sw ra
+23 22 81 00 # sw s0
+23 24 91 00 # sw s1
+23 26 21 01 # sw s2
+23 28 31 01 # sw s3
+23 2A 41 01 # sw s4
+23 2C 51 01 # sw s5
+23 2E 61 01 # sw s6
+13 04 05 00 # s0 = h_ptr (a0)
+93 84 05 00 # s1 = m_ptr (a1)
+13 01 01 FC # allocate v[0..15] on stack (64 bytes)
+13 09 01 00 # s2 = v_base (sp)
+83 22 04 00 # lw	t0,0(s0)
+23 20 59 00 # sw	t0,0(s2)
+83 22 44 00 # lw	t0,4(s0)
+23 22 59 00 # sw	t0,4(s2)
+83 22 84 00 # lw	t0,8(s0)
+23 24 59 00 # sw	t0,8(s2)
+83 22 C4 00 # lw	t0,12(s0)
+23 26 59 00 # sw	t0,12(s2)
+83 22 04 01 # lw	t0,16(s0)
+23 28 59 00 # sw	t0,16(s2)
+83 22 44 01 # lw	t0,20(s0)
+23 2A 59 00 # sw	t0,20(s2)
+83 22 84 01 # lw	t0,24(s0)
+23 2C 59 00 # sw	t0,24(s2)
+83 22 C4 01 # lw	t0,28(s0)
+23 2E 59 00 # sw	t0,28(s2)
+17 13 00 00 # auipc	t1,0x1
+13 03 43 9F # addi	t1,t1,-1548
+83 22 03 00 # lw	t0,0(t1)
+23 20 59 02 # sw	t0,32(s2)
+83 22 43 00 # lw	t0,4(t1)
+23 22 59 02 # sw	t0,36(s2)
+83 22 83 00 # lw	t0,8(t1)
+23 24 59 02 # sw	t0,40(s2)
+83 22 C3 00 # lw	t0,12(t1)
+23 26 59 02 # sw	t0,44(s2)
+83 22 03 01 # lw	t0,16(t1)
+B3 C2 C2 00 # xor	t0,t0,a2
+23 28 59 02 # sw	t0,48(s2)
+83 22 43 01 # lw	t0,20(t1)
+B3 C2 D2 00 # xor	t0,t0,a3
+23 2A 59 02 # sw	t0,52(s2)
+83 22 83 01 # lw	t0,24(t1)
+B3 C2 E2 00 # xor	t0,t0,a4
+23 2C 59 02 # sw	t0,56(s2)
+83 22 C3 01 # lw	t0,28(t1)
+23 2E 59 02 # sw	t0,60(s2)
+97 19 00 00 # auipc	s3,0x1
+93 89 09 9C # addi	s3,s3,-1600
+17 1A 00 00 # auipc	s4,0x1
+13 0A 8A A5 # addi	s4,s4,-1448
+93 0A 00 00 # li	s5,0
+
+# ── _b2s_round: ──
+93 02 A0 00 # li	t0,10
+63 DA 5A 0E # bge	s5,t0,0x6d0
+13 0B 00 00 # li	s6,0
+
+# ── _b2s_gcall: ──
+93 02 80 00 # li	t0,8
+63 50 5B 0E # bge	s6,t0,0x6c8
+93 12 2B 00 # slli	t0,s6,0x2
+B3 82 42 01 # add	t0,t0,s4
+03 CE 02 00 # lbu	t3,0(t0)
+83 CE 12 00 # lbu	t4,1(t0)
+03 CF 22 00 # lbu	t5,2(t0)
+83 CF 32 00 # lbu	t6,3(t0)
+93 92 4A 00 # slli	t0,s5,0x4
+13 13 1B 00 # slli	t1,s6,0x1
+B3 82 62 00 # add	t0,t0,t1
+B3 82 32 01 # add	t0,t0,s3
+03 C3 02 00 # lbu	t1,0(t0)
+83 C3 12 00 # lbu	t2,1(t0)
+13 13 23 00 # slli	t1,t1,0x2
+33 03 93 00 # add	t1,t1,s1
+03 27 03 00 # lw	a4,0(t1)
+93 93 23 00 # slli	t2,t2,0x2
+B3 83 93 00 # add	t2,t2,s1
+83 A7 03 00 # lw	a5,0(t2)
+93 12 2E 00 # slli	t0,t3,0x2
+B3 82 22 01 # add	t0,t0,s2
+03 A5 02 00 # lw	a0,0(t0)
+93 92 2E 00 # slli	t0,t4,0x2
+B3 82 22 01 # add	t0,t0,s2
+83 A5 02 00 # lw	a1,0(t0)
+93 12 2F 00 # slli	t0,t5,0x2
+B3 82 22 01 # add	t0,t0,s2
+03 A6 02 00 # lw	a2,0(t0)
+93 92 2F 00 # slli	t0,t6,0x2
+B3 82 22 01 # add	t0,t0,s2
+83 A6 02 00 # lw	a3,0(t0)
+13 01 01 FF # addi	sp,sp,-16
+23 20 C1 01 # sw	t3,0(sp)
+23 22 D1 01 # sw	t4,4(sp)
+23 24 E1 01 # sw	t5,8(sp)
+23 26 F1 01 # sw	t6,12(sp)
+EF F0 9F E2 # jal	0x4a0
+03 2E 01 00 # lw	t3,0(sp)
+83 2E 41 00 # lw	t4,4(sp)
+03 2F 81 00 # lw	t5,8(sp)
+83 2F C1 00 # lw	t6,12(sp)
+13 01 01 01 # addi	sp,sp,16
+93 12 2E 00 # slli	t0,t3,0x2
+B3 82 22 01 # add	t0,t0,s2
+23 A0 A2 00 # sw	a0,0(t0)
+93 92 2E 00 # slli	t0,t4,0x2
+B3 82 22 01 # add	t0,t0,s2
+23 A0 B2 00 # sw	a1,0(t0)
+93 12 2F 00 # slli	t0,t5,0x2
+B3 82 22 01 # add	t0,t0,s2
+23 A0 C2 00 # sw	a2,0(t0)
+93 92 2F 00 # slli	t0,t6,0x2
+B3 82 22 01 # add	t0,t0,s2
+23 A0 D2 00 # sw	a3,0(t0)
+13 0B 1B 00 # addi	s6,s6,1
+6F F0 1F F2 # j	0x5e4
+
+# ── _b2s_gcall_done: ──
+93 8A 1A 00 # addi	s5,s5,1
+6F F0 DF F0 # j	0x5d8
+
+# ── _b2s_round_done: ──
+83 22 09 00 # lw	t0,0(s2)
+03 23 09 02 # lw	t1,32(s2)
+B3 C2 62 00 # xor	t0,t0,t1
+03 23 04 00 # lw	t1,0(s0)
+B3 C2 62 00 # xor	t0,t0,t1
+23 20 54 00 # sw	t0,0(s0)
+83 22 49 00 # lw	t0,4(s2)
+03 23 49 02 # lw	t1,36(s2)
+B3 C2 62 00 # xor	t0,t0,t1
+03 23 44 00 # lw	t1,4(s0)
+B3 C2 62 00 # xor	t0,t0,t1
+23 22 54 00 # sw	t0,4(s0)
+83 22 89 00 # lw	t0,8(s2)
+03 23 89 02 # lw	t1,40(s2)
+B3 C2 62 00 # xor	t0,t0,t1
+03 23 84 00 # lw	t1,8(s0)
+B3 C2 62 00 # xor	t0,t0,t1
+23 24 54 00 # sw	t0,8(s0)
+83 22 C9 00 # lw	t0,12(s2)
+03 23 C9 02 # lw	t1,44(s2)
+B3 C2 62 00 # xor	t0,t0,t1
+03 23 C4 00 # lw	t1,12(s0)
+B3 C2 62 00 # xor	t0,t0,t1
+23 26 54 00 # sw	t0,12(s0)
+83 22 09 01 # lw	t0,16(s2)
+03 23 09 03 # lw	t1,48(s2)
+B3 C2 62 00 # xor	t0,t0,t1
+03 23 04 01 # lw	t1,16(s0)
+B3 C2 62 00 # xor	t0,t0,t1
+23 28 54 00 # sw	t0,16(s0)
+83 22 49 01 # lw	t0,20(s2)
+03 23 49 03 # lw	t1,52(s2)
+B3 C2 62 00 # xor	t0,t0,t1
+03 23 44 01 # lw	t1,20(s0)
+B3 C2 62 00 # xor	t0,t0,t1
+23 2A 54 00 # sw	t0,20(s0)
+83 22 89 01 # lw	t0,24(s2)
+03 23 89 03 # lw	t1,56(s2)
+B3 C2 62 00 # xor	t0,t0,t1
+03 23 84 01 # lw	t1,24(s0)
+B3 C2 62 00 # xor	t0,t0,t1
+23 2C 54 00 # sw	t0,24(s0)
+83 22 C9 01 # lw	t0,28(s2)
+03 23 C9 03 # lw	t1,60(s2)
+B3 C2 62 00 # xor	t0,t0,t1
+03 23 C4 01 # lw	t1,28(s0)
+B3 C2 62 00 # xor	t0,t0,t1
+23 2E 54 00 # sw	t0,28(s0)
+13 01 01 04 # addi	sp,sp,64
+03 24 41 00 # lw	s0,4(sp)
+83 24 81 00 # lw	s1,8(sp)
+03 29 C1 00 # lw	s2,12(sp)
+83 29 01 01 # lw	s3,16(sp)
+03 2A 41 01 # lw	s4,20(sp)
+83 2A 81 01 # lw	s5,24(sp)
+03 2B C1 01 # lw	s6,28(sp)
+83 20 01 00 # lw	ra,0(sp)
+13 01 01 02 # addi	sp,sp,32
+67 80 00 00 # ret
+
+# --- blake2s ---
+# BLAKE2s hash wrapper (RFC 7693). Initializes the 8-word state with IV,
+# XORs in the parameter block (hash length 32, key length 0, fanout 1,
+# depth 1). Processes full 64-byte blocks by calling b2s_compress with
+# the running byte counter. For the final (possibly partial) block, pads
+# with zeros and calls b2s_compress with the finalization flag set (-1).
+# Copies the 32-byte digest from the state to the output buffer.
+
+# ── blake2s: ──
+13 01 01 FE # addi	sp,sp,-32
+23 20 11 00 # sw	ra,0(sp)
+23 22 81 00 # sw	s0,4(sp)
+23 24 91 00 # sw	s1,8(sp)
+23 26 21 01 # sw	s2,12(sp)
+23 28 31 01 # sw	s3,16(sp)
+23 2A 41 01 # sw	s4,20(sp)
+23 2C 51 01 # sw	s5,24(sp)
+23 2E 61 01 # sw	s6,28(sp)
+13 04 05 00 # mv	s0,a0
+93 84 05 00 # mv	s1,a1
+13 09 06 00 # mv	s2,a2
+13 01 01 FA # addi	sp,sp,-96
+93 09 01 00 # mv	s3,sp
+13 0A 01 02 # addi	s4,sp,32
+97 02 00 00 # auipc	t0,0x0
+93 82 C2 76 # addi	t0,t0,1900
+03 A3 02 00 # lw	t1,0(t0)
+23 A0 69 00 # sw	t1,0(s3)
+03 A3 42 00 # lw	t1,4(t0)
+23 A2 69 00 # sw	t1,4(s3)
+03 A3 82 00 # lw	t1,8(t0)
+23 A4 69 00 # sw	t1,8(s3)
+03 A3 C2 00 # lw	t1,12(t0)
+23 A6 69 00 # sw	t1,12(s3)
+03 A3 02 01 # lw	t1,16(t0)
+23 A8 69 00 # sw	t1,16(s3)
+03 A3 42 01 # lw	t1,20(t0)
+23 AA 69 00 # sw	t1,20(s3)
+03 A3 82 01 # lw	t1,24(t0)
+23 AC 69 00 # sw	t1,24(s3)
+03 A3 C2 01 # lw	t1,28(t0)
+23 AE 69 00 # sw	t1,28(s3)
+83 A2 09 00 # lw	t0,0(s3)
+37 03 01 01 # lui	t1,0x1010
+13 03 03 02 # addi	t1,t1,32
+B3 C2 62 00 # xor	t0,t0,t1
+23 A0 59 00 # sw	t0,0(s3)
+93 0A 00 00 # li	s5,0
+13 0B 00 00 # li	s6,0
+
+# ── _b2s_block: ──
+93 02 00 04 # li	t0,64
+63 D6 92 02 # bge	t0,s1,0x88c
+B3 8A 5A 00 # add	s5,s5,t0
+13 85 09 00 # mv	a0,s3
+93 05 04 00 # mv	a1,s0
+13 86 0A 00 # mv	a2,s5
+93 06 0B 00 # mv	a3,s6
+13 07 00 00 # li	a4,0
+EF F0 1F C8 # jal	0x4fc
+13 04 04 04 # addi	s0,s0,64
+93 84 04 FC # addi	s1,s1,-64
+6F F0 5F FD # j	0x85c
+
+# ── _b2s_last: ──
+93 02 40 00 # li	t0,4
+13 03 0A 00 # mv	t1,s4
+
+# ── _b2s_zero: ──
+23 20 03 00 # sw	zero,0(t1)
+23 22 03 00 # sw	zero,4(t1)
+23 24 03 00 # sw	zero,8(t1)
+23 26 03 00 # sw	zero,12(t1)
+13 03 03 01 # addi	t1,t1,16
+93 82 F2 FF # addi	t0,t0,-1
+E3 94 02 FE # bnez	t0,0x894
+93 02 04 00 # mv	t0,s0
+13 03 0A 00 # mv	t1,s4
+93 83 04 00 # mv	t2,s1
+
+# ── _b2s_copy: ──
+63 8E 03 00 # beqz	t2,0x8d8
+03 CE 02 00 # lbu	t3,0(t0)
+23 00 C3 01 # sb	t3,0(t1)
+93 82 12 00 # addi	t0,t0,1
+13 03 13 00 # addi	t1,t1,1
+93 83 F3 FF # addi	t2,t2,-1
+6F F0 9F FE # j	0x8bc
+
+# ── _b2s_copy_done: ──
+B3 8A 9A 00 # add	s5,s5,s1
+13 85 09 00 # mv	a0,s3
+93 05 0A 00 # mv	a1,s4
+13 86 0A 00 # mv	a2,s5
+93 06 0B 00 # mv	a3,s6
+13 07 F0 FF # li	a4,-1
+EF F0 DF C0 # jal	0x4fc
+83 A2 09 00 # lw	t0,0(s3)
+23 20 59 00 # sw	t0,0(s2)
+83 A2 49 00 # lw	t0,4(s3)
+23 22 59 00 # sw	t0,4(s2)
+83 A2 89 00 # lw	t0,8(s3)
+23 24 59 00 # sw	t0,8(s2)
+83 A2 C9 00 # lw	t0,12(s3)
+23 26 59 00 # sw	t0,12(s2)
+83 A2 09 01 # lw	t0,16(s3)
+23 28 59 00 # sw	t0,16(s2)
+83 A2 49 01 # lw	t0,20(s3)
+23 2A 59 00 # sw	t0,20(s2)
+83 A2 89 01 # lw	t0,24(s3)
+23 2C 59 00 # sw	t0,24(s2)
+83 A2 C9 01 # lw	t0,28(s3)
+23 2E 59 00 # sw	t0,28(s2)
+13 01 01 06 # addi	sp,sp,96
+03 24 41 00 # lw	s0,4(sp)
+83 24 81 00 # lw	s1,8(sp)
+03 29 C1 00 # lw	s2,12(sp)
+83 29 01 01 # lw	s3,16(sp)
+03 2A 41 01 # lw	s4,20(sp)
+83 2A 81 01 # lw	s5,24(sp)
+03 2B C1 01 # lw	s6,28(sp)
+83 20 01 00 # lw	ra,0(sp)
+13 01 01 02 # addi	sp,sp,32
+67 80 00 00 # ret
+
+# --- send_arp_reply ---
+# Builds and sends an ARP reply in response to a received ARP request.
+# Constructs a complete Ethernet+ARP frame in the TX buffer: copies the
+# sender's MAC/IP from the request as the target, fills in the guest MAC
+# (52:54:00:12:34:56) and IP (10.0.2.15) as the sender, sets the ARP
+# opcode to 2 (reply), and calls tx_kick to transmit the 54-byte frame.
+
+# ── send_arp_reply: ──
+13 01 01 FF # addi	sp,sp,-16
+23 20 11 00 # sw	ra,0(sp)
+23 22 81 00 # sw	s0,4(sp)
+37 24 00 10 # lui	s0,0x10002
+13 85 01 20 # addi	a0,gp,512
+B7 25 00 00 # lui	a1,0x2
+93 85 05 20 # addi	a1,a1,512
+B3 85 B1 00 # add	a1,gp,a1
+23 A0 05 00 # sw	zero,0(a1)
+23 A2 05 00 # sw	zero,4(a1)
+23 A4 05 00 # sw	zero,8(a1)
+83 42 25 02 # lbu	t0,34(a0)
+23 86 55 00 # sb	t0,12(a1)
+83 42 35 02 # lbu	t0,35(a0)
+A3 86 55 00 # sb	t0,13(a1)
+83 42 45 02 # lbu	t0,36(a0)
+23 87 55 00 # sb	t0,14(a1)
+83 42 55 02 # lbu	t0,37(a0)
+A3 87 55 00 # sb	t0,15(a1)
+83 42 65 02 # lbu	t0,38(a0)
+23 88 55 00 # sb	t0,16(a1)
+83 42 75 02 # lbu	t0,39(a0)
+A3 88 55 00 # sb	t0,17(a1)
+93 03 05 00 # mv	t2,a0
+13 85 25 01 # addi	a0,a1,18
+EF F0 9F A1 # jal	0x3dc
+13 85 03 00 # mv	a0,t2
+93 02 80 00 # li	t0,8
+23 8C 55 00 # sb	t0,24(a1)
+93 02 60 00 # li	t0,6
+A3 8C 55 00 # sb	t0,25(a1)
+23 8D 05 00 # sb	zero,26(a1)
+93 02 10 00 # li	t0,1
+A3 8D 55 00 # sb	t0,27(a1)
+93 02 80 00 # li	t0,8
+23 8E 55 00 # sb	t0,28(a1)
+A3 8E 05 00 # sb	zero,29(a1)
+93 02 60 00 # li	t0,6
+23 8F 55 00 # sb	t0,30(a1)
+93 02 40 00 # li	t0,4
+A3 8F 55 00 # sb	t0,31(a1)
+23 80 05 02 # sb	zero,32(a1)
+93 02 20 00 # li	t0,2
+A3 80 55 02 # sb	t0,33(a1)
+93 03 05 00 # mv	t2,a0
+13 85 25 02 # addi	a0,a1,34
+EF F0 5F 9C # jal	0x3dc
+13 85 03 00 # mv	a0,t2
+93 02 A0 00 # li	t0,10
+23 84 55 02 # sb	t0,40(a1)
+93 02 00 00 # li	t0,0
+A3 84 55 02 # sb	t0,41(a1)
+93 02 20 00 # li	t0,2
+23 85 55 02 # sb	t0,42(a1)
+93 02 F0 00 # li	t0,15
+A3 85 55 02 # sb	t0,43(a1)
+83 42 25 02 # lbu	t0,34(a0)
+23 86 55 02 # sb	t0,44(a1)
+83 42 35 02 # lbu	t0,35(a0)
+A3 86 55 02 # sb	t0,45(a1)
+83 42 45 02 # lbu	t0,36(a0)
+23 87 55 02 # sb	t0,46(a1)
+83 42 55 02 # lbu	t0,37(a0)
+A3 87 55 02 # sb	t0,47(a1)
+83 42 65 02 # lbu	t0,38(a0)
+23 88 55 02 # sb	t0,48(a1)
+83 42 75 02 # lbu	t0,39(a0)
+A3 88 55 02 # sb	t0,49(a1)
+83 42 85 02 # lbu	t0,40(a0)
+23 89 55 02 # sb	t0,50(a1)
+83 42 95 02 # lbu	t0,41(a0)
+A3 89 55 02 # sb	t0,51(a1)
+83 42 A5 02 # lbu	t0,42(a0)
+23 8A 55 02 # sb	t0,52(a1)
+83 42 B5 02 # lbu	t0,43(a0)
+A3 8A 55 02 # sb	t0,53(a1)
+13 85 05 00 # mv	a0,a1
+93 05 60 03 # li	a1,54
+EF F0 DF 9A # jal	0x444
+03 24 41 00 # lw	s0,4(sp)
+83 20 01 00 # lw	ra,0(sp)
+13 01 01 01 # addi	sp,sp,16
+67 80 00 00 # ret
+
+# --- send_req_range ---
+# Builds and sends a FAMC REQ_RANGE UDP packet to a seed host.
+# Constructs the full Ethernet/IP/UDP/FAMC frame: destination MAC from the
+# host entry, source MAC = guest MAC, EtherType = IPv4, IP header with
+# TTL=64 and protocol=UDP, UDP source port 1234, destination port from the
+# host entry, and FAMC payload with magic "FAMC", type 0x02 (REQ_RANGE),
+# start sequence (a0) and end sequence (a1) in big-endian.
+# Args: a0 = start seq, a1 = end seq, a2 = host entry pointer.
+
+# ── send_req_range: ──
+13 01 01 FE # addi	sp,sp,-32
+23 20 11 00 # sw	ra,0(sp)
+23 22 81 00 # sw	s0,4(sp)
+23 24 91 00 # sw	s1,8(sp)
+23 26 21 01 # sw	s2,12(sp)
+23 28 31 01 # sw	s3,16(sp)
+93 04 05 00 # mv	s1,a0
+13 89 05 00 # mv	s2,a1
+93 09 06 00 # mv	s3,a2
+37 24 00 00 # lui	s0,0x2
+13 04 04 20 # addi	s0,s0,512
+33 84 81 00 # add	s0,gp,s0
+23 20 04 00 # sw	zero,0(s0)
+23 22 04 00 # sw	zero,4(s0)
+23 24 04 00 # sw	zero,8(s0)
+93 02 20 05 # li	t0,82
+23 06 54 00 # sb	t0,12(s0)
+93 02 50 05 # li	t0,85
+A3 06 54 00 # sb	t0,13(s0)
+93 02 A0 00 # li	t0,10
+23 07 54 00 # sb	t0,14(s0)
+A3 07 04 00 # sb	zero,15(s0)
+93 02 20 00 # li	t0,2
+23 08 54 00 # sb	t0,16(s0)
+93 02 20 00 # li	t0,2
+A3 08 54 00 # sb	t0,17(s0)
+13 05 24 01 # addi	a0,s0,18
+EF F0 5F 8C # jal	0x3dc
+93 02 80 00 # li	t0,8
+23 0C 54 00 # sb	t0,24(s0)
+A3 0C 04 00 # sb	zero,25(s0)
+93 02 50 04 # li	t0,69
+23 0D 54 00 # sb	t0,26(s0)
+A3 0D 04 00 # sb	zero,27(s0)
+23 0E 04 00 # sb	zero,28(s0)
+93 02 50 02 # li	t0,37
+A3 0E 54 00 # sb	t0,29(s0)
+23 0F 04 00 # sb	zero,30(s0)
+93 02 10 00 # li	t0,1
+A3 0F 54 00 # sb	t0,31(s0)
+23 00 04 02 # sb	zero,32(s0)
+A3 00 04 02 # sb	zero,33(s0)
+93 02 00 04 # li	t0,64
+23 01 54 02 # sb	t0,34(s0)
+93 02 10 01 # li	t0,17
+A3 01 54 02 # sb	t0,35(s0)
+83 C2 09 00 # lbu	t0,0(s3)
+23 05 54 02 # sb	t0,42(s0)
+83 C2 19 00 # lbu	t0,1(s3)
+A3 05 54 02 # sb	t0,43(s0)
+83 C2 29 00 # lbu	t0,2(s3)
+23 06 54 02 # sb	t0,44(s0)
+83 C2 39 00 # lbu	t0,3(s3)
+A3 06 54 02 # sb	t0,45(s0)
+83 C2 09 00 # lbu	t0,0(s3)
+03 C3 19 00 # lbu	t1,1(s3)
+93 92 82 00 # slli	t0,t0,0x8
+B3 E2 62 00 # or	t0,t0,t1
+03 C3 29 00 # lbu	t1,2(s3)
+83 C3 39 00 # lbu	t2,3(s3)
+13 13 83 00 # slli	t1,t1,0x8
+33 63 73 00 # or	t1,t1,t2
+B7 93 00 00 # lui	t2,0x9
+93 83 63 14 # addi	t2,t2,326
+B3 83 53 00 # add	t2,t2,t0
+B3 83 63 00 # add	t2,t2,t1
+13 DE 03 01 # srli	t3,t2,0x10
+93 93 03 01 # slli	t2,t2,0x10
+93 D3 03 01 # srli	t2,t2,0x10
+B3 83 C3 01 # add	t2,t2,t3
+93 C3 F3 FF # not	t2,t2
+93 93 03 01 # slli	t2,t2,0x10
+93 D3 03 01 # srli	t2,t2,0x10
+13 DE 83 00 # srli	t3,t2,0x8
+23 02 C4 03 # sb	t3,36(s0)
+13 FE F3 0F # zext.b	t3,t2
+A3 02 C4 03 # sb	t3,37(s0)
+93 02 A0 00 # li	t0,10
+23 03 54 02 # sb	t0,38(s0)
+93 02 00 00 # li	t0,0
+A3 03 54 02 # sb	t0,39(s0)
+93 02 20 00 # li	t0,2
+23 04 54 02 # sb	t0,40(s0)
+93 02 F0 00 # li	t0,15
+A3 04 54 02 # sb	t0,41(s0)
+93 02 40 00 # li	t0,4
+23 07 54 02 # sb	t0,46(s0)
+93 02 20 0D # li	t0,210
+A3 07 54 02 # sb	t0,47(s0)
+83 C2 49 00 # lbu	t0,4(s3)
+23 08 54 02 # sb	t0,48(s0)
+83 C2 59 00 # lbu	t0,5(s3)
+A3 08 54 02 # sb	t0,49(s0)
+23 09 04 02 # sb	zero,50(s0)
+93 02 10 01 # li	t0,17
+A3 09 54 02 # sb	t0,51(s0)
+23 1A 04 02 # sh	zero,52(s0)
+93 02 60 04 # li	t0,70
+23 0B 54 02 # sb	t0,54(s0)
+93 02 10 04 # li	t0,65
+A3 0B 54 02 # sb	t0,55(s0)
+93 02 D0 04 # li	t0,77
+23 0C 54 02 # sb	t0,56(s0)
+93 02 30 04 # li	t0,67
+A3 0C 54 02 # sb	t0,57(s0)
+93 02 20 00 # li	t0,2
+23 0D 54 02 # sb	t0,58(s0)
+93 D2 84 00 # srli	t0,s1,0x8
+A3 0D 54 02 # sb	t0,59(s0)
+93 F2 F4 0F # zext.b	t0,s1
+23 0E 54 02 # sb	t0,60(s0)
+93 52 89 00 # srli	t0,s2,0x8
+A3 0E 54 02 # sb	t0,61(s0)
+93 72 F9 0F # zext.b	t0,s2
+23 0F 54 02 # sb	t0,62(s0)
+13 05 04 00 # mv	a0,s0
+93 05 F0 03 # li	a1,63
+EF F0 4F FC # jal	0x444
+03 24 41 00 # lw	s0,4(sp)
+83 24 81 00 # lw	s1,8(sp)
+03 29 C1 00 # lw	s2,12(sp)
+83 29 01 01 # lw	s3,16(sp)
+83 20 01 00 # lw	ra,0(sp)
+13 01 01 02 # addi	sp,sp,32
+67 80 00 00 # ret
+
+# --- Network Download Path (hash_mismatch) ---
+# Entered when the disk binary's hash does not match the expected hash.
+# Allocates a bitmap on the stack to track which chunks have been received,
+# zeros it, loads the seed list, and begins the network download process
+# by falling through to setup_net.
+
+# ── hash_mismatch: ──
+B7 42 00 00 # allocate bitmap (16384 bytes)
+33 01 51 40 # allocate (cont)
+13 09 01 00 # sp -= BITMAP_SIZE
+B7 12 00 00 # s2 = bitmap base
+13 03 09 00 # t0 = BITMAP_SIZE / 4 (4096 words)
+23 20 03 00 # t1 = bitmap ptr
+13 03 43 00 # zero word
+93 82 F2 FF # advance ptr
+E3 9A 02 FE # t0--
+B7 32 00 00 # loop until zeroed
+B3 82 51 00 # t0 = SEED_LIST_LOC
+83 CA 02 00 # t0 = gp + SEED_LIST_LOC
+13 8A 12 00 # s5 = host count
+63 8C 0A 24 # s4 = ptr to first host entry
+
+# --- Setup Net / Poll Loop (setup_net through poll_loop) ---
+# Sets up the RX queue base pointers for packet polling. Iterates through
+# the seed host list: for each host, clears the bitmap, records the cycle
+# counter for timeout tracking, sends a FAMC REQ_RANGE request, then enters
+# poll_loop. The poll loop checks the virtio-net used ring for new packets.
+# If no packet arrives within the timeout (~2 billion cycles), advances to
+# the next host. If all hosts are exhausted, jumps to all_hosts_failed.
+
+# ── setup_net: ──
+37 24 00 10 # if no hosts -> fail
+13 8E 01 00 # mv	t3,gp
+B7 12 00 00 # lui	t0,0x1
+B3 0E 5E 00 # add	t4,t3,t0
+93 04 00 00 # li	s1,0
+93 09 00 00 # li	s3,0
+
+# ── try_next_host: ──
+63 8E 0A 22 # beqz	s5,0xf2c
+B7 12 00 00 # lui	t0,0x1
+13 03 09 00 # mv	t1,s2
+23 20 03 00 # sw	zero,0(t1)
+13 03 43 00 # addi	t1,t1,4
+93 82 F2 FF # addi	t0,t0,-1
+E3 9A 02 FE # bnez	t0,0xcfc
+93 09 00 00 # li	s3,0
+73 2B 00 C0 # rdcycle	s6
+13 05 00 00 # li	a0,0
+93 05 00 00 # li	a1,0
+13 06 0A 00 # mv	a2,s4
+EF F0 DF D8 # jal	0xaac
+13 8E 01 00 # mv	t3,gp
+B7 12 00 00 # lui	t0,0x1
+B3 0E 5E 00 # add	t4,t3,t0
+
+# ── poll_loop: ──
+0F 00 20 02 # fence	r,r
+03 DF 2E 00 # lhu	t5,2(t4)
+63 12 9F 02 # bne	t5,s1,0xd5c
+F3 2F 00 C0 # rdcycle	t6
+B3 8F 6F 41 # sub	t6,t6,s6
+B7 32 6B EE # lui	t0,0xee6b3
+93 82 02 80 # addi	t0,t0,-2048
+E3 E2 5F FE # bltu	t6,t0,0xd30
+13 0A 6A 00 # addi	s4,s4,6
+93 8A FA FF # addi	s5,s5,-1
+6F F0 9F F9 # j	0xcf0
+
+# --- got_packet ---
+# Handles a received packet from the virtio-net RX queue. First checks if
+# it is an ARP request (EtherType 0x0806, opcode 1) and if so, calls
+# send_arp_reply and re-posts the RX buffer. Otherwise falls through to
+# check for a FAMC RSP_CHUNK packet.
+
+# ── got_packet: ──
+83 A2 8E 00 # lw	t0,8(t4)
+13 03 60 03 # li	t1,54
+63 CA 62 02 # blt	t0,t1,0xd98
+83 42 8E 21 # lbu	t0,536(t3)
+13 03 80 00 # li	t1,8
+63 94 62 02 # bne	t0,t1,0xd98
+83 42 9E 21 # lbu	t0,537(t3)
+13 03 60 00 # li	t1,6
+63 9E 62 00 # bne	t0,t1,0xd98
+83 42 0E 22 # lbu	t0,544(t3)
+63 9A 02 00 # bnez	t0,0xd98
+83 42 1E 22 # lbu	t0,545(t3)
+13 03 10 00 # li	t1,1
+63 94 62 00 # bne	t0,t1,0xd98
+EF F0 DF BC # jal	0x960
+
+# --- RSP_CHUNK Handler (not_arp through chunk copy) ---
+# Validates incoming FAMC RSP_CHUNK packets: checks minimum length (574),
+# verifies EtherType=IPv4, protocol=UDP, and the 4-byte "FAMC" magic at
+# the expected offset. Confirms type byte is 0x82 (RSP_CHUNK). Extracts
+# the 16-bit chunk sequence number, bounds-checks it, checks the bitmap
+# to skip duplicates, computes the destination offset (seq * CHUNK_SIZE),
+# copies the chunk data into LOAD_LOC + offset, marks the bitmap bit,
+# refreshes the timeout, and increments the received count. When all
+# chunks are received (count == 1), hashes and verifies the download,
+# then jumps to the loaded program on success.
+
+# ── not_arp: ──
+83 A2 8E 00 # lw	t0,8(t4)
+13 03 E0 23 # li	t1,574
+63 C4 62 16 # blt	t0,t1,0xf08
+83 42 8E 21 # lbu	t0,536(t3)
+13 03 80 00 # li	t1,8
+63 9E 62 14 # bne	t0,t1,0xf08
+83 42 9E 21 # lbu	t0,537(t3)
+63 9A 02 14 # bnez	t0,0xf08
+83 42 3E 22 # lbu	t0,547(t3)
+13 03 10 01 # li	t1,17
+63 94 62 14 # bne	t0,t1,0xf08
+83 42 6E 23 # lbu	t0,566(t3)
+13 03 60 04 # li	t1,70
+63 9E 62 12 # bne	t0,t1,0xf08
+83 42 7E 23 # lbu	t0,567(t3)
+13 03 10 04 # li	t1,65
+63 98 62 12 # bne	t0,t1,0xf08
+83 42 8E 23 # lbu	t0,568(t3)
+13 03 D0 04 # li	t1,77
+63 92 62 12 # bne	t0,t1,0xf08
+83 42 9E 23 # lbu	t0,569(t3)
+13 03 30 04 # li	t1,67
+63 9C 62 10 # bne	t0,t1,0xf08
+83 42 AE 23 # lbu	t0,570(t3)
+13 03 20 08 # li	t1,130
+63 96 62 10 # bne	t0,t1,0xf08
+83 42 BE 23 # lbu	t0,571(t3)
+03 43 CE 23 # lbu	t1,572(t3)
+93 92 82 00 # slli	t0,t0,0x8
+B3 E2 62 00 # or	t0,t0,t1
+13 03 10 00 # li	t1,1
+63 FA 62 0E # bgeu	t0,t1,0xf08
+13 D5 32 00 # srli	a0,t0,0x3
+B3 05 A9 00 # add	a1,s2,a0
+03 C6 05 00 # lbu	a2,0(a1)
+93 F6 72 00 # andi	a3,t0,7
+13 07 10 00 # li	a4,1
+33 17 D7 00 # sll	a4,a4,a3
+33 7F E6 00 # and	t5,a2,a4
+63 1A 0F 0C # bnez	t5,0xf08
+93 97 A2 00 # slli	a5,t0,0xa
+13 98 82 00 # slli	a6,t0,0x8
+B3 87 07 01 # add	a5,a5,a6
+13 98 72 00 # slli	a6,t0,0x7
+B3 87 07 01 # add	a5,a5,a6
+13 98 32 00 # slli	a6,t0,0x3
+B3 87 07 41 # sub	a5,a5,a6
+37 68 00 00 # lui	a6,0x6
+13 08 28 21 # addi	a6,a6,530
+33 08 38 00 # add	a6,a6,gp
+33 08 F8 00 # add	a6,a6,a5
+83 48 2E 23 # lbu	a7,562(t3)
+03 43 3E 23 # lbu	t1,563(t3)
+93 98 88 00 # slli	a7,a7,0x8
+B3 E8 68 00 # or	a7,a7,t1
+93 88 18 FF # addi	a7,a7,-15
+63 58 10 09 # blez	a7,0xf08
+13 03 80 57 # li	t1,1400
+63 44 13 09 # blt	t1,a7,0xf08
+13 03 DE 23 # addi	t1,t3,573
+63 8E 08 00 # beqz	a7,0xea4
+83 43 03 00 # lbu	t2,0(t1)
+23 00 78 00 # sb	t2,0(a6)
+13 03 13 00 # addi	t1,t1,1
+13 08 18 00 # addi	a6,a6,1
+93 88 F8 FF # addi	a7,a7,-1
+6F F0 9F FE # j	0xe88
+33 66 E6 00 # or	a2,a2,a4
+23 80 C5 00 # sb	a2,0(a1)
+73 2B 00 C0 # rdcycle	s6
+93 89 19 00 # addi	s3,s3,1
+93 02 10 00 # li	t0,1
+63 98 59 04 # bne	s3,t0,0xf08
+37 65 00 00 # lui	a0,0x6
+13 05 25 21 # addi	a0,a0,530
+33 05 35 00 # add	a0,a0,gp
+93 05 80 22 # li	a1,552
+13 01 01 FE # addi	sp,sp,-32
+13 06 01 00 # mv	a2,sp
+EF F0 9F 8E # jal	0x7bc
+13 05 01 00 # mv	a0,sp
+EF F0 0F D3 # jal	0x40c
+13 01 01 02 # addi	sp,sp,32
+63 1E 05 00 # bnez	a0,0xf00
+37 35 00 00 # lui	a0,0x3
+33 05 35 00 # add	a0,a0,gp
+B7 62 00 00 # lui	t0,0x6
+93 82 22 21 # addi	t0,t0,530
+B3 82 32 00 # add	t0,t0,gp
+67 80 02 00 # jr	t0
+
+# --- Error Handlers ---
+# download_hash_err: Downloaded binary failed BLAKE2s verification.
+# not_rsp_chunk: Received packet was not a valid RSP_CHUNK; re-post RX buffer.
+# all_hosts_failed: All seed hosts exhausted without successful download.
+# error_not_virtio: Virtio device magic or ID mismatch during INIT_DISK.
+
+# ── download_hash_err: ──
+13 05 80 04 # li	a0,72
+6F 00 40 03 # j	0xf38
+
+# ── not_rsp_chunk: ──
+93 84 14 00 # addi	s1,s1,1
+93 94 04 01 # slli	s1,s1,0x10
+93 D4 04 01 # srli	s1,s1,0x10
+03 5F 2E 01 # lhu	t5,18(t3)
+13 0F 1F 00 # addi	t5,t5,1
+23 19 EE 01 # sh	t5,18(t3)
+0F 00 10 01 # fence	w,w
+23 28 04 04 # sw	zero,80(s0)
+6F F0 9F E0 # j	0xd30
+
+# ── all_hosts_failed: ──
+13 05 60 04 # li	a0,70
+6F 00 80 00 # j	0xf38
+
+# ── error_not_virtio: ──
+13 05 A0 05 # li	a0,90
+
+# --- fatal ---
+# Prints an error character (in a0) followed by '!' to UART, then halts
+# the hart with WFI in an infinite loop. Used by all error handlers.
+
+# ── fatal: ──
+EF F0 0F D5 # jal write_byte (print error char)
+13 05 10 02 # a0 = '!'
+EF F0 8F D4 # jal write_byte
+73 00 50 10 # wfi
+6F F0 DF FF # infinite loop
+
+# --- secondary_park ---
+# Secondary hart parking loop. Non-primary harts spin here, polling the
+# hart_mailbox word in the data section. When the primary hart (or the
+# loaded program) writes a nonzero address to hart_mailbox, secondaries
+# jump to that address. This allows the full node to wake up extra cores.
+
+# ── secondary_park: ──
+17 03 00 00 # LOAD_ADDRESS t1, hart_mailbox
+13 03 83 11 # t1 = hart_mailbox ptr
+0F 00 20 02 # fence r,r
+83 22 03 00 # load mailbox value
+E3 8C 02 FE # if zero -> keep waiting
+67 80 02 00 # jump to target (full node takes over)
+
+# --- Data Section ---
+# Read-only data used by the bootloader:
+# - b2s_iv: BLAKE2s initialization vector (8 x 32-bit words, RFC 7693)
+# - b2s_sigma: BLAKE2s message schedule permutation table (10 rounds x 16 bytes)
+# - b2s_g_idx: G-function call indices (8 calls x 4 byte indices per round)
+# - expected_hash: 32-byte BLAKE2s hash of the expected binary
+# - hart_mailbox: 4-byte shared variable for secondary hart wakeup
+
+# ── data section ──
+
+# ── b2s_iv: ──
+67 E6 09 6A # IV[0] = 0x6A09E667
+85 AE 67 BB # IV[1] = 0xBB67AE85
+72 F3 6E 3C # IV[2] = 0x3C6EF372
+3A F5 4F A5 # IV[3] = 0xA54FF53A
+7F 52 0E 51 # IV[4] = 0x510E527F
+8C 68 05 9B # IV[5] = 0x9B05688C
+AB D9 83 1F # IV[6] = 0x1F83D9AB
+19 CD E0 5B # IV[7] = 0x5BE0CD19
+
+# ── b2s_sigma: ──
+00 01 02 03 # .byte	0, 1, 2, 3
+04 05 06 07 # .byte	4, 5, 6, 7
+08 09 0A 0B # .byte	8, 9, 10, 11
+0C 0D 0E 0F # .byte	12, 13, 14, 15
+0E 0A 04 08 # .byte	14, 10, 4, 8
+09 0F 0D 06 # .byte	9, 15, 13, 6
+01 0C 00 02 # .byte	1, 12, 0, 2
+0B 07 05 03 # .byte	11, 7, 5, 3
+0B 08 0C 00 # .byte	11, 8, 12, 0
+05 02 0F 0D # .byte	5, 2, 15, 13
+0A 0E 03 06 # .byte	10, 14, 3, 6
+07 01 09 04 # .byte	7, 1, 9, 4
+07 09 03 01 # .byte	7, 9, 3, 1
+0D 0C 0B 0E # .byte	13, 12, 11, 14
+02 06 05 0A # .byte	2, 6, 5, 10
+04 00 0F 08 # .byte	4, 0, 15, 8
+09 00 05 07 # .byte	9, 0, 5, 7
+02 04 0A 0F # .byte	2, 4, 10, 15
+0E 01 0B 0C # .byte	14, 1, 11, 12
+06 08 03 0D # .byte	6, 8, 3, 13
+02 0C 06 0A # .byte	2, 12, 6, 10
+00 0B 08 03 # .byte	0, 11, 8, 3
+04 0D 07 05 # .byte	4, 13, 7, 5
+0F 0E 01 09 # .byte	15, 14, 1, 9
+0C 05 01 0F # .byte	12, 5, 1, 15
+0E 0D 04 0A # .byte	14, 13, 4, 10
+00 07 06 03 # .byte	0, 7, 6, 3
+09 02 08 0B # .byte	9, 2, 8, 11
+0D 0B 07 0E # .byte	13, 11, 7, 14
+0C 01 03 09 # .byte	12, 1, 3, 9
+05 00 0F 04 # .byte	5, 0, 15, 4
+08 06 02 0A # .byte	8, 6, 2, 10
+06 0F 0E 09 # .byte	6, 15, 14, 9
+0B 03 00 08 # .byte	11, 3, 0, 8
+0C 02 0D 07 # .byte	12, 2, 13, 7
+01 04 0A 05 # .byte	1, 4, 10, 5
+0A 02 08 04 # .byte	10, 2, 8, 4
+07 06 01 05 # .byte	7, 6, 1, 5
+0F 0B 09 0E # .byte	15, 11, 9, 14
+03 0C 0D 00 # .byte	3, 12, 13, 0
+
+# ── b2s_g_idx: ──
+00 04 08 0C # .byte	0, 4, 8, 12
+01 05 09 0D # .byte	1, 5, 9, 13
+02 06 0A 0E # .byte	2, 6, 10, 14
+03 07 0B 0F # .byte	3, 7, 11, 15
+00 05 0A 0F # .byte	0, 5, 10, 15
+01 06 0B 0C # .byte	1, 6, 11, 12
+02 07 08 0D # .byte	2, 7, 8, 13
+03 04 09 0E # .byte	3, 4, 9, 14
+
+# ── expected_hash: ──
+27 F9 A4 2D # BIN_HASH0
+B9 76 61 41 # BIN_HASH1
+81 5E BA E1 # BIN_HASH2
+18 CE EC ED # BIN_HASH3
+88 C9 20 64 # BIN_HASH4
+CC C1 D9 0E # BIN_HASH5
+F6 5A E8 AE # BIN_HASH6
+02 DC 23 F7 # BIN_HASH7
+
+# ── hart_mailbox: ──
+00 00 00 00 # hart_mailbox (shared jump target for secondary harts)
