@@ -48,6 +48,7 @@ _node_start:
 	# Format: [u8 count][ip0 ip1 ip2 ip3 port_hi port_lo] × count
 	# CI sends "127.0.0.1:3737" → count=1, ip=7F.00.00.01, port=0x0E99
 	mv		s0, a0			# save seed list ptr
+	mv		s7, a1			# save hart mailbox ptr
 
 	# check count == 1
 	lbu		t0, 0(s0)
@@ -189,7 +190,53 @@ write_loop:
 	li		a0, '\n'
 	jal		write_byte
 
+	# ── test hart wake via mailbox ──
+	# Write function pointer to hart_mailbox, secondary harts should
+	# wake up and write their hartid to hart_signal. Hart 0 polls.
+	LOAD_ADDRESS	t0, hart_signal
+	sw		zero, 0(t0)		# clear signal
+	fence		w, w
+
+	# Write wake target to mailbox (s7 = hart_mailbox ptr from bootloader)
+	LOAD_ADDRESS	t0, hart_wake_target
+	fence		w, w
+	sw		t0, 0(s7)		# wake all secondary harts
+
+	# Poll hart_signal until a secondary hart writes to it
+	LOAD_ADDRESS	t1, hart_signal
+	li		t2, 10000000		# timeout counter
+hart_wait:
+	fence		r, r
+	lw		t0, 0(t1)
+	bnez		t0, hart_woke		# a hart wrote its id
+	addi		t2, t2, -1
+	bnez		t2, hart_wait
+	j		hart_fail		# timeout
+
+hart_woke:
+	# t0 = hartid written by secondary hart, should be >= 1
+	beqz		t0, hart_fail
+	li		a0, 'H'
+	jal		write_byte
+	li		a0, 'K'
+	jal		write_byte
+	li		a0, '\n'
+	jal		write_byte
 	jal		exit
+
+hart_fail:
+	li		a0, 'H'
+	jal		write_byte
+	li		a0, 'A'
+	jal		write_byte
+	li		a0, 'R'
+	jal		write_byte
+	li		a0, 'T'
+	jal		write_byte
+	li		a0, '!'
+	jal		write_byte
+1:	wfi
+	j		1b
 
 1:	wfi
 	j		1b
@@ -283,6 +330,16 @@ seed_fail:
 1:	wfi
 	j	1b
 
+# Secondary harts jump here when woken via mailbox.
+# Writes mhartid to hart_signal so hart 0 can verify.
+hart_wake_target:
+	csrr		t0, mhartid
+	LOAD_ADDRESS	t1, hart_signal
+	fence		w, w
+	sw		t0, 0(t1)		# signal hart 0
+1:	wfi
+	j		1b
+
 exit:
         li              t0, EXIT_ADDR           # load exit addr
         li              t1, EXIT_PASS           # shutdown command
@@ -290,6 +347,8 @@ exit:
 1:      wfi                                     # wait for interrupt in loop
         j               1b
 
-
+	.balign 4
+hart_signal:
+	.word	0
 
 _node_data:

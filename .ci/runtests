@@ -40,7 +40,7 @@ riscv64-unknown-elf-objcopy \
       -machine virt \
       -nographic \
       -bios none \
-      -smp 1 \
+      -smp 2 \
       -device loader,file=./tmp/famchain.bin,addr=0x80000000 \
       -netdev user,id=net0,hostfwd=tcp::2222-:22 \
       -drive file=./tmp/disk.img,if=none,format=raw,id=dr0 \
@@ -58,7 +58,7 @@ kill $SERVER_PID
       -machine virt \
       -nographic \
       -bios none \
-      -smp 1 \
+      -smp 2 \
       -device loader,file=./tmp/famchain.bin,addr=0x80000000 \
       -netdev user,id=net0,hostfwd=tcp::2222-:22 \
       -drive file=./tmp/disk.img,if=none,format=raw,id=dr0 \

@@ -441,6 +441,7 @@ start_block:
 
 	li		a0, SEED_LIST_LOC
 	add		a0, a0, gp
+	LOAD_ADDRESS	a1, hart_mailbox
 	li		t0, LOAD_LOC
 	add		t0, t0, gp
 	jr		t0
@@ -1314,9 +1315,10 @@ not_arp:
 	addi	sp, sp, 32
 	bnez	a0, download_hash_err
 
-	# hash verified — pass seed list pointer in a0, execute
+	# hash verified — pass seed list in a0, hart mailbox in a1, execute
 	li	a0, SEED_LIST_LOC
 	add	a0, a0, gp
+	LOAD_ADDRESS	a1, hart_mailbox
 	li	t0, LOAD_LOC
 	add	t0, t0, gp
 	jr	t0
