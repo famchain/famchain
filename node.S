@@ -2,8 +2,12 @@
 .equ	UART_LSR,		5
 .equ	UART_WR_MASK,		0x20
 
+.equ    VIRT_MAGIC,             0x74726976
+.equ    VIO_MAGIC,              0x000
+.equ    VIRTIO_DISK_BASE,       0x10001000
 .equ	VIRTIO_NET_BASE,	0x10002000
 .equ	VIRT_QUEUE0,		0x050
+.equ    VIO_DEVICE_ID,          0x008
 .equ	VIO_DEVICE_FEATURES,	0x010
 .equ	VIO_DRIVER_FEATURES,	0x020
 .equ	VIO_GUEST_PAGE_SIZE,	0x028
@@ -13,9 +17,13 @@
 .equ	VIO_QUEUE_PFN,		0x040
 .equ	VIO_STATUS,		0x070
 
-.equ	RX_QUEUE_DATA_OFFSET,	0		# net RX queue base (page-aligned)
-.equ	TX_QUEUE_DATA_OFFSET,	8192		# net TX queue base (page-aligned)
-.equ	LOAD_LOC,		16384		# binary load location (for stage1)
+.equ    RX_QUEUE_DATA_OFFSET,   0               # net RX queue base (page-aligned)
+.equ    TX_QUEUE_DATA_OFFSET,   8192            # net TX queue base (page-aligned)
+.equ    DISK_DATA_BUFFER,       16384           # disk read/write buffer (512 bytes)
+.equ    VIRT_DESCRIPTOR_TABLE,  20480           # disk descriptor table (page-aligned: 5×4096)
+.equ    VIRT_DISK_STATUS,       25088           # after disk used ring (20480+4096+512)
+.equ    VIRT_DISK_HEADER,       25090
+.equ    LOAD_LOC,               25106           # binary load location (unlimited headroom)
 
 .equ	GUEST_MAC_0,		0x52
 .equ	GUEST_MAC_1,		0x54
@@ -174,6 +182,66 @@ _base\@:
 .endm
 
 
+.macro INIT_DISK
+        li              t0, VIRTIO_DISK_BASE
+        lw              t1, VIO_MAGIC(t0)               # Should be 0x74726976 ("virt")
+        li              t2, VIRT_MAGIC
+        bne             t1, t2, error_not_virtio
+
+        lw              t1, VIO_DEVICE_ID(t0)           # Should be 2 for Block Device
+        li              t2, 2
+        bne             t1, t2, error_not_disk
+
+        # Reset the device
+        sw              zero, VIO_STATUS(t0)
+
+        # Set ACKNOWLEDGE bit (1)
+        li              t1, 1   
+        sw              t1, VIO_STATUS(t0)
+
+        # Set DRIVER bit (2)
+        lw              t1, VIO_STATUS(t0)
+        ori             t1, t1, 2
+        sw              t1, VIO_STATUS(t0)
+
+        # Feature negotiation: read device features, accept none
+        lw              t1, VIO_DEVICE_FEATURES(t0)
+        sw              zero, VIO_DRIVER_FEATURES(t0)
+
+        # Set FEATURES_OK bit (8)
+        lw              t1, VIO_STATUS(t0)
+        ori             t1, t1, 8
+        sw              t1, VIO_STATUS(t0)
+
+        # Check if FEATURES_OK was accepted
+        lw              t1, VIO_STATUS(t0)
+        andi            t2, t1, 8
+        beqz            t2, error_features_not_supported
+
+        li              t1, 4096
+        sw              t1, VIO_GUEST_PAGE_SIZE(t0)     # GuestPageSize = 4096
+
+        # Queue setup
+        sw              zero, VIO_QUEUE_SEL(t0)         # QueueSel = 0
+        li              t1, 16
+        sw              t1, VIO_QUEUE_NUM(t0)           # QueueNum = 16
+        li              t1, 4096
+        sw              t1, VIO_QUEUE_ALIGN(t0)         # QueueAlign = 4096
+
+	mv              t1, gp
+        li              t5, VIRT_DESCRIPTOR_TABLE
+        add             t1, t1, t5
+        srli            t1, t1, 12                      # PFN = address >> 12
+        sw              t1, VIO_QUEUE_PFN(t0)
+
+        # Set DRIVER_OK bit (4) - Device is now "Live"
+        lw              t1, VIO_STATUS(t0)
+        ori             t1, t1, 4
+        sw              t1, VIO_STATUS(t0)
+.endm
+
+
+
 _start:
 	csrr		tp, mhartid
 	bnez		tp, secondary_park
@@ -194,15 +262,15 @@ _start:
 	addi		t2, t2, 4
 	bltu		t2, t3, 1b
 
-
+	INIT_DISK
 	INIT_NET
 
 	li		s0, VIRTIO_NET_BASE
-	mv		t3, gp			# t3 = RX queue base
+	mv		t3, gp				# t3 = RX queue base
 	li		t0, 4096
-	add		t4, t3, t0		# t4 = used ring base
-	li		s1, 0			# s1 = last_used_idx
-	li		s3, 0			# s3 = chunks_received
+	add		t4, t3, t0			# t4 = used ring base
+	li		s1, 0				# s1 = last_used_idx
+	li		s3, 0				# s3 = chunks_received
 
 poll_loop:
 	fence		r, r
@@ -412,6 +480,17 @@ write_byte:
 	sb		a0, 0(t1)
 	ret
 
+error_not_virtio:
+error_not_disk:         
+error_features_not_supported:
+        li      a0, 'Z'
+# fatal: print char in a0 + '!', then halt
+fatal:
+        jal     write_byte      
+        li      a0, '!'
+        jal     write_byte
+1:      wfi             
+        j       1b
 
 hart_jump:
 	.word	0
