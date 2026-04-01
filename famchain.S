@@ -61,7 +61,7 @@
 .equ	FAMC_CMD_RSP_CHUNK,	0x82
 
 .equ	CLOCK_HZ,		1000000000	# QEMU virt ~1 GHz
-.equ	TIMEOUT_CYCLES,		3000000000	# 3 seconds
+.equ	TIMEOUT_CYCLES,		4000000000	# ~4 seconds (max for 32-bit at 1GHz)
 .equ	MAX_HOSTS,		16
 .equ	HOST_ENTRY_SZ,		6		# 4 bytes IP + 2 bytes port (big endian)
 # Sum of fixed IP header words for REQ_RANGE (9-byte payload, src=10.0.2.15):
@@ -295,7 +295,7 @@ _base\@:
 
 _start:
 	csrr	t0, mhartid
-1:	bnez	t0, 1b			# secondary harts: spin (full node sets up IPI)
+	bnez	t0, secondary_park
 
 	LOAD_ADDRESS	gp, data
 	li		t0, 4095
@@ -1164,6 +1164,9 @@ not_arp:
 	or	a2, a2, a4
 	sb	a2, 0(a1)
 
+	# reset timeout (3 seconds since last chunk)
+	rdcycle	s6
+
 	# increment count and check if done
 	addi	s3, s3, 1
 	li	t0, NUM_CHUNKS
@@ -1222,6 +1225,15 @@ fatal:
 1:	wfi
 	j	1b
 
+# Secondary harts poll hart_mailbox for a jump target from the full node.
+# t0 = mhartid (set in _start before branching here)
+secondary_park:
+	LOAD_ADDRESS t1, hart_mailbox
+1:	fence	r, r
+	lw	t0, 0(t1)
+	beqz	t0, 1b
+	jr	t0
+
 # IV = SHA-256 fractional parts of sqrt of first 8 primes
 b2s_iv:
 	.word	0x6A09E667, 0xBB67AE85, 0x3C6EF372, 0xA54FF53A
@@ -1256,5 +1268,12 @@ b2s_g_idx:
 expected_hash:
 	.word	BIN_HASH0, BIN_HASH1, BIN_HASH2, BIN_HASH3
 	.word	BIN_HASH4, BIN_HASH5, BIN_HASH6, BIN_HASH7
+
+# Shared mailbox: full node writes a function pointer here to wake all secondary harts.
+# Initialized to zero in the binary. All secondary harts jump to the same target;
+# they can distinguish themselves via csrr mhartid after taking over.
+	.balign 4
+hart_mailbox:
+	.word	0
 
 data:
