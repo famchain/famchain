@@ -85,7 +85,8 @@
 
 .equ	RX_QUEUE_DATA_OFFSET,	0		# net RX queue base (page-aligned)
 .equ	TX_QUEUE_DATA_OFFSET,	8192		# net TX queue base (page-aligned)
-.equ	SEED_LIST_LOC,		12288		# parsed seed list: [u8 count][6-byte entries...]
+.equ	SEED_LIST_LOC,		14336		# parsed seed list: [u8 count][6-byte entries...]
+						# (must not overlap TX used ring at gp+12288)
 .equ	DISK_DATA_BUFFER,	16384		# disk read/write buffer (512 bytes)
 .equ	VIRT_DESCRIPTOR_TABLE,	20480		# disk descriptor table (page-aligned: 5×4096)
 .equ	VIRT_DISK_STATUS,	25088		# after disk used ring (20480+4096+512)

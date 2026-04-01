@@ -43,7 +43,45 @@ _base\@:
 .endm
 
 _node_start:
-	addi		gp, gp, 1
+	# ── verify seed list passed in a0 ──
+	# Expected: bootloader passes seed list ptr in a0
+	# Format: [u8 count][ip0 ip1 ip2 ip3 port_hi port_lo] × count
+	# CI sends "127.0.0.1:3737" → count=1, ip=7F.00.00.01, port=0x0E99
+	mv		s0, a0			# save seed list ptr
+
+	# check count == 1
+	lbu		t0, 0(s0)
+	li		t1, 1
+	bne		t0, t1, seed_fail
+
+	# check ip[0] = 127 (0x7F)
+	lbu		t0, 1(s0)
+	li		t1, 0x7F
+	bne		t0, t1, seed_fail
+
+	# check ip[1] = 0
+	lbu		t0, 2(s0)
+	bnez		t0, seed_fail
+
+	# check ip[2] = 0
+	lbu		t0, 3(s0)
+	bnez		t0, seed_fail
+
+	# check ip[3] = 1
+	lbu		t0, 4(s0)
+	li		t1, 1
+	bne		t0, t1, seed_fail
+
+	# check port_hi = 0x0E (3737 >> 8)
+	lbu		t0, 5(s0)
+	li		t1, 0x0E
+	bne		t0, t1, seed_fail
+
+	# check port_lo = 0x99 (3737 & 0xFF)
+	lbu		t0, 6(s0)
+	li		t1, 0x99
+	bne		t0, t1, seed_fail
+
 	# ── setup gp and sp ──
 	LOAD_ADDRESS	gp, _node_data
 	li		t0, 4095
@@ -229,6 +267,21 @@ write_byte:
 	beqz	t2, write_byte
 	sb	a0, 0(t1)
 	ret
+
+seed_fail:
+	# print "SEED!" and hang (timeout will catch it in CI)
+	li	a0, 'S'
+	jal	write_byte
+	li	a0, 'E'
+	jal	write_byte
+	li	a0, 'E'
+	jal	write_byte
+	li	a0, 'D'
+	jal	write_byte
+	li	a0, '!'
+	jal	write_byte
+1:	wfi
+	j	1b
 
 exit:
         li              t0, EXIT_ADDR           # load exit addr
