@@ -1,0 +1,53 @@
+#!/bin/sh
+
+dd if=/dev/zero of=./tmp/disk.img bs=512 count=8 conv=notrunc
+
+riscv64-unknown-elf-as \
+        -march=rv32i_zicsr \
+        -mabi=ilp32 \
+        -I inc \
+        -o ./tmp/node.o \
+        ./test/node.S || exit 1
+
+riscv64-unknown-elf-objcopy \
+	-O binary \
+	./tmp/node.o \
+	./tmp/node.bin || exit 1
+
+./tools/gen_bin_config.py tmp/node.bin tmp
+./tools/server.py&
+
+riscv64-unknown-elf-as \
+	-march=rv32i_zicsr \
+	-mabi=ilp32 \
+	-I tmp \
+	-o ./tmp/famchain.o \
+	src/famchain.S || exit 1
+riscv64-unknown-elf-objcopy \
+	-O binary \
+	./tmp/famchain.o \
+	./tmp/famchain.bin || exit 1
+
+(echo "127.0.0.1:3737"; printf '\004') | qemu-system-riscv32 \
+      -machine virt \
+      -nographic \
+      -bios none \
+      -smp 1 \
+      -device loader,file=./tmp/famchain.bin,addr=0x80000000 \
+      -netdev user,id=net0,hostfwd=tcp::2222-:22 \
+      -drive file=./tmp/disk.img,if=none,format=raw,id=dr0 \
+      -device virtio-blk-device,drive=dr0,bus=virtio-mmio-bus.0 \
+      -device virtio-net-device,netdev=net0,bus=virtio-mmio-bus.1
+
+killall python3
+
+(echo "127.0.0.1:3737"; printf '\004') | qemu-system-riscv32 \
+      -machine virt \
+      -nographic \
+      -bios none \
+      -smp 1 \
+      -device loader,file=./tmp/famchain.bin,addr=0x80000000 \
+      -netdev user,id=net0,hostfwd=tcp::2222-:22 \
+      -drive file=./tmp/disk.img,if=none,format=raw,id=dr0 \
+      -device virtio-blk-device,drive=dr0,bus=virtio-mmio-bus.0 \
+      -device virtio-net-device,netdev=net0,bus=virtio-mmio-bus.1
