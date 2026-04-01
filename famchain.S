@@ -73,10 +73,14 @@
 .equ	NUM_CHUNKS,		(BIN_SIZE + CHUNK_SIZE - 1) / CHUNK_SIZE
 .equ	LAST_CHUNK,		(NUM_CHUNKS - 1)
 .equ	BITMAP_SIZE,		16384		# 16KB bitmap = 131072 chunks max (~175MB)
+.equ	STACK_OFFSET,		0x400000	# 4 MiB
 
 .if NUM_CHUNKS > (BITMAP_SIZE * 8)
 .error "BIN_SIZE too large for BITMAP_SIZE"
 .endif
+
+# NOTE: ensure LOAD_LOC + BIN_SIZE + CHUNK_SIZE < STACK_OFFSET (4 MiB).
+# With LOAD_LOC=25106, CHUNK_SIZE=1400, max BIN_SIZE ≈ 4,167,110 bytes.
 
 .equ	RX_QUEUE_DATA_OFFSET,	0		# net RX queue base (page-aligned)
 .equ	TX_QUEUE_DATA_OFFSET,	8192		# net TX queue base (page-aligned)
@@ -308,7 +312,7 @@ _start:
 	add		gp, gp, t0
 	li		t0, -4096
 	and		gp, gp, t0
-	li		t0, 0x100000
+	li		t0, STACK_OFFSET
 	add		sp, gp, t0
 
 	# zero gp+0 through gp+LOAD_LOC (covers net queues + disk structures)
