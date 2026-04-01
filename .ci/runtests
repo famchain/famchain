@@ -47,6 +47,7 @@ riscv64-unknown-elf-objcopy \
       -device virtio-blk-device,drive=dr0,bus=virtio-mmio-bus.0 \
       -device virtio-net-device,netdev=net0,bus=virtio-mmio-bus.1
 if [ $? -ne 0 ]; then
+	kill $SERVER_PID
 	echo "FAIL"
 	exit 1
 fi
