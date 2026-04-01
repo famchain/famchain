@@ -1,5 +1,11 @@
 #!/bin/sh
 
+
+if [ "$CI" = "true" ]; then
+	sudo apt-get update
+	sudo apt install gcc-riscv64-unknown-elf qemu-system-misc
+fi
+
 dd if=/dev/zero of=./tmp/disk.img bs=512 count=8 conv=notrunc
 
 riscv64-unknown-elf-as \
