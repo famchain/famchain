@@ -22,6 +22,8 @@ riscv64-unknown-elf-objcopy \
 
 ./tools/gen_bin_config.py tmp/node.bin tmp
 ./tools/server.py&
+SERVER_PID=$!
+
 
 riscv64-unknown-elf-as \
 	-march=rv32i_zicsr \
@@ -34,7 +36,7 @@ riscv64-unknown-elf-objcopy \
 	./tmp/famchain.o \
 	./tmp/famchain.bin || exit 1
 
-(echo "127.0.0.1:3737"; printf '\004') | qemu-system-riscv32 \
+(echo "127.0.0.1:3737"; printf '\004') | timeout 10 qemu-system-riscv32 \
       -machine virt \
       -nographic \
       -bios none \
@@ -44,10 +46,14 @@ riscv64-unknown-elf-objcopy \
       -drive file=./tmp/disk.img,if=none,format=raw,id=dr0 \
       -device virtio-blk-device,drive=dr0,bus=virtio-mmio-bus.0 \
       -device virtio-net-device,netdev=net0,bus=virtio-mmio-bus.1
+if [ $? -ne 0 ]; then
+	echo "FAIL"
+	exit 1
+fi
 
-killall python3
+kill $SERVER_PID
 
-(echo "127.0.0.1:3737"; printf '\004') | qemu-system-riscv32 \
+(echo "127.0.0.1:3737"; printf '\004') | timeout 10 qemu-system-riscv32 \
       -machine virt \
       -nographic \
       -bios none \
@@ -57,3 +63,7 @@ killall python3
       -drive file=./tmp/disk.img,if=none,format=raw,id=dr0 \
       -device virtio-blk-device,drive=dr0,bus=virtio-mmio-bus.0 \
       -device virtio-net-device,netdev=net0,bus=virtio-mmio-bus.1
+if [ $? -ne 0 ]; then
+	echo "FAIL"
+	exit 1
+fi
