@@ -72,6 +72,11 @@
 .equ	CHUNK_SIZE,		1400
 .equ	NUM_CHUNKS,		(BIN_SIZE + CHUNK_SIZE - 1) / CHUNK_SIZE
 .equ	LAST_CHUNK,		(NUM_CHUNKS - 1)
+.equ	BITMAP_SIZE,		16384		# 16KB bitmap = 131072 chunks max (~175MB)
+
+.if NUM_CHUNKS > (BITMAP_SIZE * 8)
+.error "BIN_SIZE too large for BITMAP_SIZE"
+.endif
 
 .equ	RX_QUEUE_DATA_OFFSET,	0		# net RX queue base (page-aligned)
 .equ	TX_QUEUE_DATA_OFFSET,	8192		# net TX queue base (page-aligned)
@@ -524,7 +529,7 @@ write_guest_mac:
 
 # check_hash: compare 32-byte hash at a0 against expected BIN_HASH values
 # a0 = pointer to 32-byte hash. Returns: a0 = 0 (match), 1 (mismatch).
-# Leaf function, clobbers t0-t2, modifies a0.
+# Leaf function, clobbers t0-t3, modifies a0.
 check_hash:
 	LOAD_ADDRESS t1, expected_hash
 	li	t2, 8
@@ -1117,12 +1122,13 @@ send_req_range:
 	RETURN
 
 hash_mismatch:
-	# ── allocate bitmap on stack (256 bytes) ──
-	addi	sp, sp, -256
+	# ── allocate bitmap on stack ──
+	li	t0, BITMAP_SIZE
+	sub	sp, sp, t0
 	mv	s2, sp				# s2 = bitmap base
 
 	# zero bitmap
-	li	t0, 64
+	li	t0, BITMAP_SIZE / 4
 	mv	t1, s2
 1:	sw	zero, 0(t1)
 	addi	t1, t1, 4
@@ -1148,12 +1154,12 @@ try_next_host:
 	beqz	s5, all_hosts_failed
 
 	# reset bitmap and received count
-	li	t0, 64
-	mv t1, s2
+	li	t0, BITMAP_SIZE / 4
+	mv	t1, s2
 1:	sw	zero, 0(t1)
-addi t1, t1, 4
-addi t0, t0, -1
-bnez t0, 1b
+	addi	t1, t1, 4
+	addi	t0, t0, -1
+	bnez	t0, 1b
 	li	s3, 0
 
 	# snapshot cycle counter for timeout
@@ -1206,7 +1212,11 @@ got_packet:
 	jal	send_arp_reply
 not_arp:
 
-	# FAMC RSP_CHUNK? IPv4 UDP with FAMC\x82 payload
+	# FAMC RSP_CHUNK? check minimum packet length first
+	lw	t0, 8(t4)			# packet length from used ring
+	li	t1, 574				# minimum: 12 virt_hdr + 14 eth + 20 ip + 8 udp + 7 famc_hdr + 1 data
+	blt	t0, t1, not_rsp_chunk
+
 	lbu	t0, 536(t3)
 	li t1, 0x08
 	bne t0, t1, not_rsp_chunk	# EtherType hi
@@ -1269,6 +1279,9 @@ not_arp:
 	slli	a7, a7, 8
 	or	a7, a7, t1			# a7 = UDP length field
 	addi	a7, a7, -15			# a7 = data length
+	blez	a7, not_rsp_chunk		# reject if <= 0
+	li	t1, CHUNK_SIZE
+	bgt	a7, t1, not_rsp_chunk		# reject if > CHUNK_SIZE
 
 	# copy data from t3+573 to dst
 	addi	t1, t3, 573			# t1 = src
