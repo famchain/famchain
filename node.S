@@ -476,6 +476,8 @@ read_hosts:
 	SETUP		s0, s1, s2
 	li		s0, HOST_TABLE
 	add		s0, s0, gp			# s0 = HOST_TABLE
+							# s1 = read byte
+	li		s2, 0				# s2 = accumulator
 
 
 parse_loop:
@@ -491,6 +493,27 @@ parse_loop:
 
 	li		t0, 4
 	beq		s1, t0, end_loop
+
+
+	li		t1, 48
+	bltu		s1, t1, parse_sep
+	li		t1, 58
+	bgeu		s1, t1, parse_sep
+
+	addi		s1, s1, -48		# digit value
+	slli		t0, s2, 3		# acc * 8
+	slli		t1, s2, 1		# acc * 2
+	add		s2, t0, t1		# acc * 10
+	add		s2, s2, s1		# + digit
+
+	j		parse_loop
+parse_sep:
+	mv		a0, s2
+	jal		print_hex
+	li		a0, '\n'
+	jal		write_byte
+	li		s2, 0
+
 	j		parse_loop
 end_loop:
 
