@@ -1,0 +1,8 @@
+#!/bin/sh
+
+if [ "$CI" = "true" ]; then
+	sudo apt-get update
+	sudo apt install -y gcc-riscv64-unknown-elf qemu-system-misc
+fi
+
+./tools/run_coverage.sh || exit 1
