@@ -10,7 +10,7 @@ riscv64-unknown-elf-objcopy \
 	./tmp/node.o \
 	./tmp/node.bin || exit 1
 
-qemu-system-riscv32 \
+(echo "146.235.218.150:3737 146.235.218.151:3737 146.234.222.101:443"; printf '\004') | qemu-system-riscv32 \
       -machine virt \
       -nographic \
       -bios none \

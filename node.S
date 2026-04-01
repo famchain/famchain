@@ -2,12 +2,12 @@
 .equ	UART_LSR,		5
 .equ	UART_WR_MASK,		0x20
 
-.equ    VIRT_MAGIC,             0x74726976
-.equ    VIO_MAGIC,              0x000
-.equ    VIRTIO_DISK_BASE,       0x10001000
+.equ	VIRT_MAGIC,		0x74726976
+.equ	VIO_MAGIC,		0x000
+.equ	VIRTIO_DISK_BASE,	0x10001000
 .equ	VIRTIO_NET_BASE,	0x10002000
 .equ	VIRT_QUEUE0,		0x050
-.equ    VIO_DEVICE_ID,          0x008
+.equ	VIO_DEVICE_ID,		0x008
 .equ	VIO_DEVICE_FEATURES,	0x010
 .equ	VIO_DRIVER_FEATURES,	0x020
 .equ	VIO_GUEST_PAGE_SIZE,	0x028
@@ -17,13 +17,14 @@
 .equ	VIO_QUEUE_PFN,		0x040
 .equ	VIO_STATUS,		0x070
 
-.equ    RX_QUEUE_DATA_OFFSET,   0               # net RX queue base (page-aligned)
-.equ    TX_QUEUE_DATA_OFFSET,   8192            # net TX queue base (page-aligned)
-.equ    DISK_DATA_BUFFER,       16384           # disk read/write buffer (512 bytes)
-.equ    VIRT_DESCRIPTOR_TABLE,  20480           # disk descriptor table (page-aligned: 5×4096)
-.equ    VIRT_DISK_STATUS,       25088           # after disk used ring (20480+4096+512)
-.equ    VIRT_DISK_HEADER,       25090
-.equ    LOAD_LOC,               25106           # binary load location (unlimited headroom)
+.equ	RX_QUEUE_DATA_OFFSET,	0		# net RX queue base (page-aligned)
+.equ	TX_QUEUE_DATA_OFFSET,	8192		# net TX queue base (page-aligned)
+.equ	DISK_DATA_BUFFER,	16384		# disk read/write buffer (512 bytes)
+.equ	VIRT_DESCRIPTOR_TABLE,	20480		# disk descriptor table (page-aligned: 5×4096)
+.equ	VIRT_DISK_STATUS,	25088		# after disk used ring (20480+4096+512)
+.equ	VIRT_DISK_HEADER,	25090
+.equ	HOST_TABLE,		25120		# Store 6 byte host entries (32 spaces)
+.equ	LOAD_LOC,		25312		# binary load location (unlimited headroom)
 
 .equ	GUEST_MAC_0,		0x52
 .equ	GUEST_MAC_1,		0x54
@@ -37,6 +38,10 @@
 .equ	GUEST_IP_3,		15
 
 .equ	CLIENT_PORT,		1234
+
+.equ	MAX_HOSTS,		16
+.equ	HOST_ENTRY_SZ,		6		# 4 bytes IP + 2 bytes port (big endian)
+
 
 .altmacro
 
@@ -183,61 +188,61 @@ _base\@:
 
 
 .macro INIT_DISK
-        li              t0, VIRTIO_DISK_BASE
-        lw              t1, VIO_MAGIC(t0)               # Should be 0x74726976 ("virt")
-        li              t2, VIRT_MAGIC
-        bne             t1, t2, error_not_virtio
+	li		t0, VIRTIO_DISK_BASE
+	lw		t1, VIO_MAGIC(t0)		# Should be 0x74726976 ("virt")
+	li		t2, VIRT_MAGIC
+	bne		t1, t2, error_not_virtio
 
-        lw              t1, VIO_DEVICE_ID(t0)           # Should be 2 for Block Device
-        li              t2, 2
-        bne             t1, t2, error_not_disk
+	lw		t1, VIO_DEVICE_ID(t0)		# Should be 2 for Block Device
+	li		t2, 2
+	bne		t1, t2, error_not_disk
 
-        # Reset the device
-        sw              zero, VIO_STATUS(t0)
+	# Reset the device
+	sw		zero, VIO_STATUS(t0)
 
-        # Set ACKNOWLEDGE bit (1)
-        li              t1, 1   
-        sw              t1, VIO_STATUS(t0)
+	# Set ACKNOWLEDGE bit (1)
+	li		t1, 1	
+	sw		t1, VIO_STATUS(t0)
 
-        # Set DRIVER bit (2)
-        lw              t1, VIO_STATUS(t0)
-        ori             t1, t1, 2
-        sw              t1, VIO_STATUS(t0)
+	# Set DRIVER bit (2)
+	lw		t1, VIO_STATUS(t0)
+	ori		t1, t1, 2
+	sw		t1, VIO_STATUS(t0)
 
-        # Feature negotiation: read device features, accept none
-        lw              t1, VIO_DEVICE_FEATURES(t0)
-        sw              zero, VIO_DRIVER_FEATURES(t0)
+	# Feature negotiation: read device features, accept none
+	lw		t1, VIO_DEVICE_FEATURES(t0)
+	sw		zero, VIO_DRIVER_FEATURES(t0)
 
-        # Set FEATURES_OK bit (8)
-        lw              t1, VIO_STATUS(t0)
-        ori             t1, t1, 8
-        sw              t1, VIO_STATUS(t0)
+	# Set FEATURES_OK bit (8)
+	lw		t1, VIO_STATUS(t0)
+	ori		t1, t1, 8
+	sw		t1, VIO_STATUS(t0)
 
-        # Check if FEATURES_OK was accepted
-        lw              t1, VIO_STATUS(t0)
-        andi            t2, t1, 8
-        beqz            t2, error_features_not_supported
+	# Check if FEATURES_OK was accepted
+	lw		t1, VIO_STATUS(t0)
+	andi		t2, t1, 8
+	beqz		t2, error_features_not_supported
 
-        li              t1, 4096
-        sw              t1, VIO_GUEST_PAGE_SIZE(t0)     # GuestPageSize = 4096
+	li		t1, 4096
+	sw		t1, VIO_GUEST_PAGE_SIZE(t0)	# GuestPageSize = 4096
 
-        # Queue setup
-        sw              zero, VIO_QUEUE_SEL(t0)         # QueueSel = 0
-        li              t1, 16
-        sw              t1, VIO_QUEUE_NUM(t0)           # QueueNum = 16
-        li              t1, 4096
-        sw              t1, VIO_QUEUE_ALIGN(t0)         # QueueAlign = 4096
+	# Queue setup
+	sw		zero, VIO_QUEUE_SEL(t0)		# QueueSel = 0
+	li		t1, 16
+	sw		t1, VIO_QUEUE_NUM(t0)		# QueueNum = 16
+	li		t1, 4096
+	sw		t1, VIO_QUEUE_ALIGN(t0)		# QueueAlign = 4096
 
-	mv              t1, gp
-        li              t5, VIRT_DESCRIPTOR_TABLE
-        add             t1, t1, t5
-        srli            t1, t1, 12                      # PFN = address >> 12
-        sw              t1, VIO_QUEUE_PFN(t0)
+	mv		t1, gp
+	li		t5, VIRT_DESCRIPTOR_TABLE
+	add		t1, t1, t5
+	srli		t1, t1, 12		# PFN = address >> 12
+	sw		t1, VIO_QUEUE_PFN(t0)
 
-        # Set DRIVER_OK bit (4) - Device is now "Live"
-        lw              t1, VIO_STATUS(t0)
-        ori             t1, t1, 4
-        sw              t1, VIO_STATUS(t0)
+	# Set DRIVER_OK bit (4) - Device is now "Live"
+	lw		t1, VIO_STATUS(t0)
+	ori		t1, t1, 4
+	sw		t1, VIO_STATUS(t0)
 .endm
 
 
@@ -264,6 +269,8 @@ _start:
 
 	INIT_DISK
 	INIT_NET
+
+	jal		read_hosts
 
 	li		s0, VIRTIO_NET_BASE
 	mv		t3, gp				# t3 = RX queue base
@@ -434,8 +441,8 @@ write_guest_mac:
 	sb		t0, 0(a0)
 	li		t0, GUEST_MAC_1
 	sb		t0, 1(a0)
-	li              t0, GUEST_MAC_2
-        sb              t0, 2(a0)
+	li		t0, GUEST_MAC_2
+	sb		t0, 2(a0)
 	li		t0, GUEST_MAC_3
 	sb		t0, 3(a0)
 	li		t0, GUEST_MAC_4
@@ -465,6 +472,30 @@ tx_kick:
 	sw		t1, VIRT_QUEUE0(t0)
 	ret	
 
+read_hosts:
+	SETUP		s0, s1, s2
+	li		s0, HOST_TABLE
+	add		s0, s0, gp			# s0 = HOST_TABLE
+
+
+parse_loop:
+	li		t0, UART_BASE
+1:	lbu		t1, UART_LSR(t0)
+	andi		t1, t1, 0x01
+	beqz		t1, 1b
+	lbu		s1, 0(t0)
+
+
+	mv		a0, s1
+	jal		write_byte
+
+	li		t0, 4
+	beq		s1, t0, end_loop
+	j		parse_loop
+end_loop:
+
+	RETURN
+
 secondary_park:
 	LOAD_ADDRESS	t1, hart_jump
 1:	fence		r, r
@@ -480,17 +511,49 @@ write_byte:
 	sb		a0, 0(t1)
 	ret
 
+print_hex:
+	SETUP		s0, s1, s2, t0, t1, t2, a0
+
+	mv		s0, a0		# Save original value
+
+	# Print "0x" prefix
+	bnez		a1, skip_0x
+	li		a0, '0' 
+	jal		write_byte
+	li		a0, 'x'
+	jal		write_byte
+skip_0x:
+
+1:	li		s1, 28		# Start at highest nibble
+2:
+	srl		t2, s0, s1		# Isolate nibble
+	andi		t2, t2, 0xF
+
+	# Convert nibble to ASCII
+	li		a0, 10
+	blt		t2, a0, 5f		# If 0-9
+	addi		t2, t2, 7		# Adjust for A-F
+5:	addi		a0, t2, 48		# ASCII '0'
+	jal		write_byte
+
+next_nibble:
+	addi		s1, s1, -4		# Move to next 4 bits
+	bgez		s1, 2b
+
+4:	RETURN
+
+
 error_not_virtio:
-error_not_disk:         
+error_not_disk:		
 error_features_not_supported:
-        li      a0, 'Z'
+	li	a0, 'Z'
 # fatal: print char in a0 + '!', then halt
 fatal:
-        jal     write_byte      
-        li      a0, '!'
-        jal     write_byte
-1:      wfi             
-        j       1b
+	jal	write_byte	
+	li	a0, '!'
+	jal	write_byte
+1:	wfi		
+	j	1b
 
 hart_jump:
 	.word	0
