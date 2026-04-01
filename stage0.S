@@ -234,8 +234,6 @@ poll_loop:
 	li		a0, 'z'
 	jal		write_byte
 not_arp:
-
-
 	# advance last_used_idx
 	addi		s1, s1, 1
 	slli		s1, s1, 16
@@ -323,60 +321,80 @@ send_arp_reply:
 	mv		a0, t2
 
 	# ARP sender IP = guest IP
-	li	t0, GUEST_IP_0; sb t0, 40(a1)
-	li	t0, GUEST_IP_1; sb t0, 41(a1)
-	li	t0, GUEST_IP_2; sb t0, 42(a1)
-	li	t0, GUEST_IP_3; sb t0, 43(a1)
+	li		t0, GUEST_IP_0
+	sb		t0, 40(a1)
+	li		t0, GUEST_IP_1
+	sb		t0, 41(a1)
+	li		t0, GUEST_IP_2
+	sb		t0, 42(a1)
+	li		t0, GUEST_IP_3
+	sb		t0, 43(a1)
 
 	# ARP target MAC = ARP sender MAC from RX (same source as Ethernet dst above)
-	lbu	t0, 34(a0); sb t0, 44(a1)
-	lbu	t0, 35(a0); sb t0, 45(a1)
-	lbu	t0, 36(a0); sb t0, 46(a1)
-	lbu	t0, 37(a0); sb t0, 47(a1)
-	lbu	t0, 38(a0); sb t0, 48(a1)
-	lbu	t0, 39(a0); sb t0, 49(a1)
+	lbu		t0, 34(a0)
+	sb		t0, 44(a1)
+	lbu		t0, 35(a0)
+	sb		t0, 45(a1)
+	lbu		t0, 36(a0)
+	sb		t0, 46(a1)
+	lbu		t0, 37(a0)
+	sb		t0, 47(a1)
+	lbu		t0, 38(a0)
+	sb		t0, 48(a1)
+	lbu		t0, 39(a0)
+	sb		t0, 49(a1)
 
 	# ARP target IP = ARP sender IP from RX
-	lbu	t0, 40(a0); sb t0, 50(a1)
-	lbu	t0, 41(a0); sb t0, 51(a1)
-	lbu	t0, 42(a0); sb t0, 52(a1)
-	lbu	t0, 43(a0); sb t0, 53(a1)
+	lbu		t0, 40(a0)
+	sb		t0, 50(a1)
+	lbu		t0, 41(a0)
+	sb		t0, 51(a1)
+	lbu		t0, 42(a0)
+	sb		t0, 52(a1)
+	lbu		t0, 43(a0)
+	sb		t0, 53(a1)
 
-	mv	a0, a1
-	li	a1, 54
-	jal	tx_kick
+	mv		a0, a1
+	li		a1, 54
+	jal		tx_kick
 
 	RETURN
 
 # write_guest_mac: write 6-byte guest MAC to address in a0. Clobbers t0.
 write_guest_mac:
-	li	t0, GUEST_MAC_0; sb t0, 0(a0)
-	li	t0, GUEST_MAC_1; sb t0, 1(a0)
-	sb	zero, 2(a0)		# GUEST_MAC_2 = 0
-	li	t0, GUEST_MAC_3; sb t0, 3(a0)
-	li	t0, GUEST_MAC_4; sb t0, 4(a0)
-	li	t0, GUEST_MAC_5; sb t0, 5(a0)
+	li		t0, GUEST_MAC_0
+	sb		t0, 0(a0)
+	li		t0, GUEST_MAC_1
+	sb		t0, 1(a0)
+	li              t0, GUEST_MAC_2
+        sb              t0, 2(a0)
+	li		t0, GUEST_MAC_3
+	sb		t0, 3(a0)
+	li		t0, GUEST_MAC_4
+	sb		t0, 4(a0)
+	li		t0, GUEST_MAC_5
+	sb		t0, 5(a0)
 	ret	
 
 # tx_kick: post TX descriptor and kick virtio-net TX queue
 # a0 = buffer address, a1 = packet length. Leaf, clobbers t0-t2.
 tx_kick:
-	li	t2, TX_QUEUE_DATA_OFFSET
-	add	t2, gp, t2
-	sw	a0, 0(t2)
-	sw	zero, 4(t2)
-	sw	a1, 8(t2)		
-	sh	zero, 12(t2)
-	sh	zero, 14(t2)		
-	sh	zero, 16(t2)
-	lhu	t0, 18(t2)
-	addi	t0, t0, 1
-	sh	t0, 18(t2)
-	sh	zero, 20(t2)
-	fence	w, w
-	li	t0, VIRTIO_NET_BASE
-	li	t1, 1
-	sw	t1, VIRT_QUEUE0(t0)
+	li		t2, TX_QUEUE_DATA_OFFSET
+	add		t2, gp, t2
+	sw		a0, 0(t2)
+	sw		zero, 4(t2)
+	sw		a1, 8(t2)		
+	sh		zero, 12(t2)
+	sh		zero, 14(t2)		
+	sh		zero, 16(t2)
+	lhu		t0, 18(t2)
+	addi		t0, t0, 1
+	sh		t0, 18(t2)
+	sh		zero, 20(t2)
+	fence		w, w
+	li		t0, VIRTIO_NET_BASE
+	li		t1, 1
+	sw		t1, VIRT_QUEUE0(t0)
 	ret	
 
 secondary_park:
