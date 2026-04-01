@@ -1,70 +1,199 @@
 #!/bin/sh
 
-
 if [ "$CI" = "true" ]; then
 	sudo apt-get update
-	sudo apt install gcc-riscv64-unknown-elf qemu-system-misc
+	sudo apt install -y gcc-riscv64-unknown-elf qemu-system-misc
 fi
 
-dd if=/dev/zero of=./tmp/disk.img bs=512 count=8 conv=notrunc
+AS="riscv64-unknown-elf-as"
+OBJCOPY="riscv64-unknown-elf-objcopy"
+MARCH="-march=rv32i_zicsr -mabi=ilp32"
 
-riscv64-unknown-elf-as \
-        -march=rv32i_zicsr \
-        -mabi=ilp32 \
-        -I inc \
-        -o ./tmp/node.o \
-        ./test/node.S || exit 1
+PASS=0
+FAIL=0
 
-riscv64-unknown-elf-objcopy \
-	-O binary \
-	./tmp/node.o \
-	./tmp/node.bin || exit 1
+# ── helpers ──
 
-./tools/gen_bin_config.py tmp/node.bin tmp
-./tools/server.py&
-SERVER_PID=$!
+build_node() {
+	# $1 = source file
+	$AS $MARCH -I inc -o tmp/node.o "$1" || exit 1
+	$OBJCOPY -O binary tmp/node.o tmp/node.bin || exit 1
+}
 
+build_bootloader() {
+	./tools/gen_bin_config.py tmp/node.bin tmp
+	$AS $MARCH -I tmp -o tmp/famchain.o src/famchain.S || exit 1
+	$OBJCOPY -O binary tmp/famchain.o tmp/famchain.bin || exit 1
+}
 
-riscv64-unknown-elf-as \
-	-march=rv32i_zicsr \
-	-mabi=ilp32 \
-	-I tmp \
-	-o ./tmp/famchain.o \
-	src/famchain.S || exit 1
-riscv64-unknown-elf-objcopy \
-	-O binary \
-	./tmp/famchain.o \
-	./tmp/famchain.bin || exit 1
+reset_disk() {
+	dd if=/dev/zero of=./tmp/disk.img bs=512 count=16 conv=notrunc 2>/dev/null
+}
 
-(echo "127.0.0.1:3737"; printf '\004') | timeout 10 qemu-system-riscv32 \
-      -machine virt \
-      -nographic \
-      -bios none \
-      -smp 2 \
-      -device loader,file=./tmp/famchain.bin,addr=0x80000000 \
-      -netdev user,id=net0,hostfwd=tcp::2222-:22 \
-      -drive file=./tmp/disk.img,if=none,format=raw,id=dr0 \
-      -device virtio-blk-device,drive=dr0,bus=virtio-mmio-bus.0 \
-      -device virtio-net-device,netdev=net0,bus=virtio-mmio-bus.1
-if [ $? -ne 0 ]; then
-	kill $SERVER_PID
-	echo "FAIL"
+start_server() {
+	./tools/server.py &
+	SERVER_PID=$!
+	sleep 1
+}
+
+stop_server() {
+	kill $SERVER_PID 2>/dev/null || true
+	sleep 1
+}
+
+run_qemu() {
+	# $1 = host list string, $2 = timeout (default 10), $3 = smp (default 2)
+	local hosts="$1"
+	local tmout="${2:-10}"
+	local smp="${3:-2}"
+	(echo "$hosts"; printf '\004') | timeout "$tmout" qemu-system-riscv32 \
+		-machine virt \
+		-nographic \
+		-bios none \
+		-smp "$smp" \
+		-device loader,file=./tmp/famchain.bin,addr=0x80000000 \
+		-netdev user,id=net0,hostfwd=tcp::2222-:22 \
+		-drive file=./tmp/disk.img,if=none,format=raw,id=dr0 \
+		-device virtio-blk-device,drive=dr0,bus=virtio-mmio-bus.0 \
+		-device virtio-net-device,netdev=net0,bus=virtio-mmio-bus.1 2>/dev/null
+}
+
+pass() {
+	echo "  PASS: $1"
+	PASS=$((PASS + 1))
+}
+
+fail() {
+	echo "  FAIL: $1"
+	FAIL=$((FAIL + 1))
+}
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Test 1: Basic download + disk cache + seed list + hart wake
+# ══════════════════════════════════════════════════════════════════════════════
+echo "=== Test 1: Basic download + cache + seeds + hart wake ==="
+build_node test/node.S
+build_bootloader
+reset_disk
+start_server
+
+# First run: download from network
+if run_qemu "127.0.0.1:3737"; then
+	pass "download + execute"
+else
+	fail "download + execute"
+fi
+
+stop_server
+
+# Second run: load from disk cache (no server needed)
+if run_qemu "127.0.0.1:3737"; then
+	pass "disk cache hit"
+else
+	fail "disk cache hit"
+fi
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Test 2: Multi-chunk download (3+ chunks)
+# ══════════════════════════════════════════════════════════════════════════════
+echo "=== Test 2: Multi-chunk download (3 chunks) ==="
+build_node test/node_large.S
+build_bootloader
+reset_disk
+start_server
+
+if run_qemu "127.0.0.1:3737"; then
+	pass "multi-chunk download"
+else
+	fail "multi-chunk download"
+fi
+
+stop_server
+
+# Second run: verify disk cache works for large binary too
+if run_qemu "127.0.0.1:3737"; then
+	pass "multi-chunk disk cache"
+else
+	fail "multi-chunk disk cache"
+fi
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Test 3: Multi-host round-robin (dead host first, fallback to live)
+# ══════════════════════════════════════════════════════════════════════════════
+echo "=== Test 3: Multi-host failover ==="
+build_node test/node.S
+build_bootloader
+reset_disk
+start_server
+
+# 192.0.2.1 is TEST-NET (RFC 5737), won't respond → timeout → fallback to 127.0.0.1
+if run_qemu "192.0.2.1:9999 127.0.0.1:3737" 20; then
+	pass "multi-host failover"
+else
+	fail "multi-host failover"
+fi
+
+stop_server
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Test 4: Hash mismatch rejection (corrupt binary → H!)
+# ══════════════════════════════════════════════════════════════════════════════
+echo "=== Test 4: Hash mismatch rejection ==="
+build_node test/node.S
+# Build bootloader with WRONG hash (use production config, not matching test node)
+$AS $MARCH -I inc -o tmp/famchain.o src/famchain.S || exit 1
+$OBJCOPY -O binary tmp/famchain.o tmp/famchain.bin || exit 1
+reset_disk
+start_server
+
+# Should download but reject (hash mismatch), print H! and hang → timeout
+output=$(run_qemu "127.0.0.1:3737" 10 1 2>&1 || true)
+if echo "$output" | grep -q "H!"; then
+	pass "hash mismatch rejection"
+else
+	fail "hash mismatch rejection (expected H!, got: $output)"
+fi
+
+stop_server
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Test 5: Disk corruption recovery (valid cache corrupted → re-downloads)
+# ══════════════════════════════════════════════════════════════════════════════
+echo "=== Test 5: Disk corruption recovery ==="
+build_node test/node.S
+build_bootloader
+reset_disk
+start_server
+
+# First: populate disk cache
+if run_qemu "127.0.0.1:3737"; then
+	pass "populate cache"
+else
+	fail "populate cache"
+	stop_server
 	exit 1
 fi
 
-kill $SERVER_PID
+# Corrupt the disk (overwrite first sector with garbage)
+printf '\xff\xff\xff\xff' | dd of=./tmp/disk.img bs=1 count=4 conv=notrunc 2>/dev/null
 
-(echo "127.0.0.1:3737"; printf '\004') | timeout 10 qemu-system-riscv32 \
-      -machine virt \
-      -nographic \
-      -bios none \
-      -smp 2 \
-      -device loader,file=./tmp/famchain.bin,addr=0x80000000 \
-      -netdev user,id=net0,hostfwd=tcp::2222-:22 \
-      -drive file=./tmp/disk.img,if=none,format=raw,id=dr0 \
-      -device virtio-blk-device,drive=dr0,bus=virtio-mmio-bus.0 \
-      -device virtio-net-device,netdev=net0,bus=virtio-mmio-bus.1
-if [ $? -ne 0 ]; then
-	echo "FAIL"
+# Re-run: should detect corruption, re-download, and succeed
+if run_qemu "127.0.0.1:3737"; then
+	pass "disk corruption recovery"
+else
+	fail "disk corruption recovery"
+fi
+
+stop_server
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Summary
+# ══════════════════════════════════════════════════════════════════════════════
+echo ""
+echo "══════════════════════════════════"
+echo "Results: $PASS passed, $FAIL failed"
+echo "══════════════════════════════════"
+
+if [ "$FAIL" -ne 0 ]; then
 	exit 1
 fi

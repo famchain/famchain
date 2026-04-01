@@ -1209,11 +1209,7 @@ got_packet:
 	jal	send_arp_reply
 not_arp:
 
-	# FAMC RSP_CHUNK? check minimum packet length first
-	lw	t0, 8(t4)			# packet length from used ring
-	li	t1, 574				# minimum: 12 virt_hdr + 14 eth + 20 ip + 8 udp + 7 famc_hdr + 1 data
-	blt	t0, t1, not_rsp_chunk
-
+	# FAMC RSP_CHUNK? IPv4 UDP with FAMC\x82 payload
 	lbu	t0, 536(t3)
 	li t1, 0x08
 	bne t0, t1, not_rsp_chunk	# EtherType hi

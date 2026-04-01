@@ -322,4 +322,7 @@ exit:
 hart_signal:
 	.word	0
 
+# Padding to force 3+ chunks (3 × 1400 = 4200 bytes minimum)
+.fill	3648, 1, 0x42
+
 _node_data:

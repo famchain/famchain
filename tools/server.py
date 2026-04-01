@@ -13,6 +13,7 @@ chunks = [data[i:i+CHUNK_SIZE] for i in range(0, len(data), CHUNK_SIZE)]
 print(f"Loaded {len(data)} bytes, {len(chunks)} chunks of up to {CHUNK_SIZE} bytes")
 
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 sock.bind(('0.0.0.0', PORT))
 print(f"Listening on UDP {PORT}...")
 
