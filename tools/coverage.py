@@ -191,10 +191,16 @@ def main():
             func = find_function(pc, labels)
             by_func.setdefault(func, []).append(pc)
 
+        # Find each function's base address for offset display
+        func_bases = {}
+        for addr, name in labels.items():
+            func_bases[name] = addr
+
         for func, pcs in sorted(by_func.items(), key=lambda x: x[1][0]):
-            pc_strs = [f"0x{pc:x}" for pc in pcs[:8]]
+            base = func_bases.get(func, 0)
+            pc_strs = [f"{func}+{(pc - base) // 4}" for pc in pcs[:8]]
             suffix = f" ... +{len(pcs)-8} more" if len(pcs) > 8 else ""
-            print(f"  {func}: {', '.join(pc_strs)}{suffix}")
+            print(f"  {', '.join(pc_strs)}{suffix}")
 
     # Exit with failure if below minimum coverage threshold
     if min_coverage > 0:
