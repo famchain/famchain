@@ -75,6 +75,7 @@
 
 .equ	RX_QUEUE_DATA_OFFSET,	0		# net RX queue base (page-aligned)
 .equ	TX_QUEUE_DATA_OFFSET,	8192		# net TX queue base (page-aligned)
+.equ	SEED_LIST_LOC,		12288		# parsed seed list: [u8 count][6-byte entries...]
 .equ	DISK_DATA_BUFFER,	16384		# disk read/write buffer (512 bytes)
 .equ	VIRT_DESCRIPTOR_TABLE,	20480		# disk descriptor table (page-aligned: 5×4096)
 .equ	VIRT_DISK_STATUS,	25088		# after disk used ring (20480+4096+512)
@@ -313,8 +314,87 @@ _start:
 	addi		t2, t2, 4
 	bltu		t2, t3, 1b
 
-	INIT_DISK
 	INIT_NET
+
+	# ── always parse seed list from UART into gp+SEED_LIST_LOC ──
+	# format: "ip:port ip:port...\004"
+	# stored as: [u8 count][ip0 ip1 ip2 ip3 port_hi port_lo] × N
+	li		t5, UART_BASE
+	li		t2, SEED_LIST_LOC + 1
+	add		t2, gp, t2		# t2 = write ptr (skip count byte)
+	li		s5, 0			# s5 = host count
+	li		s6, 0			# s6 = accumulator
+	li		t3, 0			# t3 = field index
+
+parse_loop:
+1:	lbu		t0, UART_LSR(t5)
+	andi		t0, t0, 0x01
+	beqz		t0, 1b
+	lbu		t0, 0(t5)
+
+	li		t1, 4			# EOT
+	beq		t0, t1, parse_eot
+
+	li		t1, 48
+	bltu		t0, t1, parse_sep
+	li		t1, 58
+	bgeu		t0, t1, parse_sep
+
+	addi		t0, t0, -48
+	slli		t1, s6, 3
+	slli		t4, s6, 1
+	add		s6, t1, t4
+	add		s6, s6, t0
+	j		parse_loop
+
+parse_sep:
+	li		t1, '.'
+	beq		t0, t1, parse_dot
+	li		t1, ':'
+	beq		t0, t1, parse_colon
+	li		t1, 4
+	bne		t3, t1, parse_reset
+	jal		t6, store_port
+	addi		t2, t2, HOST_ENTRY_SZ
+parse_reset:
+	li		s6, 0
+	li		t3, 0
+	j		parse_loop
+
+parse_dot:
+	li		t1, 3
+	bgeu		t3, t1, parse_loop
+	j		store_octet
+parse_colon:
+	li		t1, 3
+	bne		t3, t1, parse_loop
+store_octet:
+	add		t4, t2, t3
+	sb		s6, 0(t4)
+	addi		t3, t3, 1
+	li		s6, 0
+	j		parse_loop
+
+store_port:
+	srli		t1, s6, 8
+	sb		t1, 4(t2)
+	andi		t1, s6, 0xFF
+	sb		t1, 5(t2)
+	addi		s5, s5, 1
+	jalr		zero, 0(t6)
+
+parse_eot:
+	li		t1, 4
+	bne		t3, t1, parse_done
+	jal		t6, store_port
+parse_done:
+	# store count byte
+	li		t0, SEED_LIST_LOC
+	add		t0, gp, t0
+	sb		s5, 0(t0)
+
+	# ── read binary from disk ──
+	INIT_DISK
 
 	li		s2, LOAD_LOC
 	add		s2, s2, gp
@@ -356,9 +436,11 @@ start_block:
 	addi		sp, sp, 32
 	bnez		a0, hash_mismatch
 
-	li		s0, LOAD_LOC
-	add		s0, s0, gp
-	jr		s0
+	li		a0, SEED_LIST_LOC
+	add		a0, a0, gp
+	li		t0, LOAD_LOC
+	add		t0, t0, gp
+	jr		t0
 
 1:	wfi
 	j		1b
@@ -958,90 +1040,24 @@ send_req_range:
 	RETURN
 
 hash_mismatch:
-	# ── allocate stack: 256B bitmap + 128B host buffer ──
+	# ── allocate bitmap on stack (256 bytes) ──
 	addi	sp, sp, -256
 	mv	s2, sp				# s2 = bitmap base
-	addi	sp, sp, -128
-	mv	s4, sp				# s4 = host buffer base
 
 	# zero bitmap
-	li	t0, 64; mv t1, s2
-1:	sw	zero, 0(t1); addi t1, t1, 4; addi t0, t0, -1; bnez t0, 1b
+	li	t0, 64
+	mv	t1, s2
+1:	sw	zero, 0(t1)
+	addi	t1, t1, 4
+	addi	t0, t0, -1
+	bnez	t0, 1b
 
-	# ── read host list from UART (ASCII: "ip:port ip:port...\004") ──
-	# parser state: s6=accumulator, t3=field(0-3=IP,4=port), t2=write ptr
-	li	t5, UART_BASE
-	mv	t2, s4				# t2 = write ptr into host buffer
-	li	s5, 0				# s5 = host count
-	li	s6, 0				# s6 = number accumulator
-	li	t3, 0				# t3 = field index
-
-parse_loop:
-1:	lbu	t0, UART_LSR(t5)		# wait for UART byte
-	andi	t0, t0, 0x01
-	beqz	t0, 1b
-	lbu	t0, 0(t5)			# t0 = character
-
-	li	t1, 4				# EOT
-	beq	t0, t1, parse_eot
-
-	# digit? ('0'=48 .. '9'=57)
-	li	t1, 48
-	bltu	t0, t1, parse_sep
-	li	t1, 58
-	bgeu	t0, t1, parse_sep
-
-	# accumulator = accumulator * 10 + (char - '0')
-	addi	t0, t0, -48			# digit value
-	slli	t1, s6, 3			# 8 * acc
-	slli	t4, s6, 1			# 2 * acc
-	add	s6, t1, t4			# 10 * acc
-	add	s6, s6, t0			# + digit
-	j	parse_loop
-
-parse_sep:
-	li	t1, '.'
-	beq	t0, t1, parse_dot
-	li	t1, ':'
-	beq	t0, t1, parse_colon
-	# space, newline, or other = host separator
-	li	t1, 4
-	bne	t3, t1, parse_reset		# not in port mode → skip
-	jal	t6, store_port			# t6 = return addr (leaf trick)
-	addi	t2, t2, HOST_ENTRY_SZ		# advance write ptr
-parse_reset:
-	li	s6, 0
-	li	t3, 0
-	j	parse_loop
-
-parse_dot:
-	li	t1, 3
-	bgeu	t3, t1, parse_loop		# ignore extra dots
-	j	store_octet
-parse_colon:
-	li	t1, 3
-	bne	t3, t1, parse_loop		# must be after 3rd dot
-store_octet:
-	add	t4, t2, t3
-	sb	s6, 0(t4)
-	addi	t3, t3, 1
-	li	s6, 0
-	j	parse_loop
-
-# store port (big endian) and increment host count. Called via jal t6.
-store_port:
-	srli	t1, s6, 8; sb t1, 4(t2)
-	andi	t1, s6, 0xFF; sb t1, 5(t2)
-	addi	s5, s5, 1
-	jalr	zero, 0(t6)
-
-parse_eot:
-	li	t1, 4
-	bne	t3, t1, parse_done		# not in port mode → skip
-	jal	t6, store_port
-
-parse_done:
-	beqz	s5, all_hosts_failed		# no hosts parsed → halt
+	# ── load seed list from data region (parsed at boot) ──
+	li	t0, SEED_LIST_LOC
+	add	t0, gp, t0
+	lbu	s5, 0(t0)			# s5 = host count
+	addi	s4, t0, 1			# s4 = ptr to first host entry
+	beqz	s5, all_hosts_failed
 
 setup_net:
 	li	s0, VIRTIO_NET_BASE
@@ -1185,7 +1201,9 @@ not_arp:
 	addi	sp, sp, 32
 	bnez	a0, download_hash_err
 
-	# hash verified — execute
+	# hash verified — pass seed list pointer in a0, execute
+	li	a0, SEED_LIST_LOC
+	add	a0, a0, gp
 	li	t0, LOAD_LOC
 	add	t0, t0, gp
 	jr	t0
