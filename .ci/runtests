@@ -72,7 +72,7 @@ run_qemu() {
 }
 
 run_unit_test() {
-	# $1 = test name, $2 = source file
+	# $1 = test name, $2 = source file, $3 = timeout (default 10), $4 = extra qemu flags
 	echo "=== Unit: $1 ==="
 	$AS $MARCH -I inc -o "tmp/$1.o" "$2" || { fail "$1 (build)"; return; }
 	$OBJCOPY -O binary "tmp/$1.o" "tmp/$1.bin" || { fail "$1 (objcopy)"; return; }
@@ -81,9 +81,9 @@ run_unit_test() {
 		trace_flags="-d in_asm -D $TRACE_DIR/$1.log"
 	fi
 	local output
-	output=$(timeout 10 qemu-system-riscv32 \
+	output=$(timeout "${3:-10}" qemu-system-riscv32 \
 		-machine virt -nographic -bios none -smp 1 \
-		$trace_flags \
+		$trace_flags $4 \
 		-device loader,file="tmp/$1.bin",addr=0x80000000 \
 		</dev/null 2>/dev/null)
 	local rc=$?
@@ -110,10 +110,17 @@ fail() {
 }
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Unit Tests (no network/disk, pure compute)
+# Unit Tests
 # ══════════════════════════════════════════════════════════════════════════════
 
 run_unit_test "test_all" "test/test_all.S"
+
+# PoW tests need a disk for the 16MB bible table cache and more memory/time
+if [ ! -f tmp/pow_disk.img ]; then
+	dd if=/dev/zero of=tmp/pow_disk.img bs=1M count=32 2>/dev/null
+fi
+POW_QEMU="-m 256M -drive file=tmp/pow_disk.img,if=none,format=raw,id=dr0 -device virtio-blk-device,drive=dr0,bus=virtio-mmio-bus.0"
+run_unit_test "test_pow" "test/test_pow.S" 300 "$POW_QEMU"
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Integration Tests (bootloader + network + disk)
