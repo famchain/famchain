@@ -165,62 +165,23 @@ _start:
 
 	RUN_TEST tn_wots_tmsg
 	li		t0, MSG_OFF
-	add		t0, gp, t0
-	lbu		t1, 0(t0)
-	xori		t1, t1, 1
-	sb		t1, 0(t0)
-	li		t0, PK_OFF
 	add		a0, gp, t0
-	li		t0, SIG_OFF
-	add		a1, gp, t0
-	li		t0, MSG_OFF
-	add		a2, gp, t0
-	jal		wots_verify
-	beqz		a0, test_fail
-	# restore
-	li		t0, MSG_OFF
-	add		t0, gp, t0
-	lbu		t1, 0(t0)
-	xori		t1, t1, 1
-	sb		t1, 0(t0)
+	li		a1, 32
+	jal		check_tamper
 	PASS_TEST
 
 	RUN_TEST tn_wots_tsig
 	li		t0, SIG_OFF
-	add		t0, gp, t0
-	lbu		t1, 0(t0)
-	xori		t1, t1, 1
-	sb		t1, 0(t0)
-	li		t0, PK_OFF
 	add		a0, gp, t0
-	li		t0, SIG_OFF
-	add		a1, gp, t0
-	li		t0, MSG_OFF
-	add		a2, gp, t0
-	jal		wots_verify
-	beqz		a0, test_fail
-	# restore
-	li		t0, SIG_OFF
-	add		t0, gp, t0
-	lbu		t1, 0(t0)
-	xori		t1, t1, 1
-	sb		t1, 0(t0)
+	li		a1, 32
+	jal		check_tamper
 	PASS_TEST
 
 	RUN_TEST tn_wots_tpk
 	li		t0, PK_OFF
-	add		t0, gp, t0
-	lbu		t1, 0(t0)
-	xori		t1, t1, 1
-	sb		t1, 0(t0)
-	li		t0, PK_OFF
 	add		a0, gp, t0
-	li		t0, SIG_OFF
-	add		a1, gp, t0
-	li		t0, MSG_OFF
-	add		a2, gp, t0
-	jal		wots_verify
-	beqz		a0, test_fail
+	li		a1, 32
+	jal		check_tamper
 	PASS_TEST
 
 	# ══════════════════════════════════════════════════
@@ -304,6 +265,38 @@ check_roundtrip:
 	addi	t0, t0, 1
 	addi	t1, t1, 1
 	addi	t2, t2, -1
+	j	1b
+2:	RETURN
+
+# check_tamper: flip bit 0 of each byte in a0[0..a1-1], verify wots_verify rejects
+# a0 = target buffer to tamper, a1 = byte count
+# Uses PK_OFF/SIG_OFF/MSG_OFF from gp for verify calls.
+check_tamper:
+	SETUP	s0, s1, s2
+	mv	s0, a0				# target ptr
+	mv	s1, a1				# byte count
+	li	s2, 0				# byte index
+1:	bge	s2, s1, 2f
+	# flip bit 0
+	add	t0, s0, s2
+	lbu	t1, 0(t0)
+	xori	t1, t1, 1
+	sb	t1, 0(t0)
+	# verify must reject
+	li	t0, PK_OFF
+	add	a0, gp, t0
+	li	t0, SIG_OFF
+	add	a1, gp, t0
+	li	t0, MSG_OFF
+	add	a2, gp, t0
+	jal	wots_verify
+	beqz	a0, test_fail
+	# restore
+	add	t0, s0, s2
+	lbu	t1, 0(t0)
+	xori	t1, t1, 1
+	sb	t1, 0(t0)
+	addi	s2, s2, 1
 	j	1b
 2:	RETURN
 
