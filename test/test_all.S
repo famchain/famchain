@@ -181,6 +181,87 @@ _start:
 	li		a0, '.'
 	jal		write_byte
 
+	# Negative test 1: tampered message should fail verification
+	li		a0, 'N'
+	jal		write_byte
+	li		a0, '1'
+	jal		write_byte
+	# flip a bit in the message
+	li		t0, MSG_OFF
+	add		t0, gp, t0
+	lbu		t1, 0(t0)
+	xori		t1, t1, 1		# flip bit 0 of first byte
+	sb		t1, 0(t0)
+	# verify should return -1
+	li		t0, PK_OFF
+	add		a0, gp, t0
+	li		t0, SIG_OFF
+	add		a1, gp, t0
+	li		t0, MSG_OFF
+	add		a2, gp, t0
+	jal		wots_verify
+	beqz		a0, test_fail		# should NOT pass
+	li		a0, '.'
+	jal		write_byte
+	# restore message
+	li		t0, MSG_OFF
+	add		t0, gp, t0
+	lbu		t1, 0(t0)
+	xori		t1, t1, 1
+	sb		t1, 0(t0)
+
+	# Negative test 2: tampered signature should fail verification
+	li		a0, 'N'
+	jal		write_byte
+	li		a0, '2'
+	jal		write_byte
+	# flip a bit in the signature
+	li		t0, SIG_OFF
+	add		t0, gp, t0
+	lbu		t1, 0(t0)
+	xori		t1, t1, 1
+	sb		t1, 0(t0)
+	# verify should return -1
+	li		t0, PK_OFF
+	add		a0, gp, t0
+	li		t0, SIG_OFF
+	add		a1, gp, t0
+	li		t0, MSG_OFF
+	add		a2, gp, t0
+	jal		wots_verify
+	beqz		a0, test_fail		# should NOT pass
+	li		a0, '.'
+	jal		write_byte
+	# restore signature
+	li		t0, SIG_OFF
+	add		t0, gp, t0
+	lbu		t1, 0(t0)
+	xori		t1, t1, 1
+	sb		t1, 0(t0)
+
+	# Negative test 3: tampered public key should fail verification
+	li		a0, 'N'
+	jal		write_byte
+	li		a0, '3'
+	jal		write_byte
+	# flip a bit in pk
+	li		t0, PK_OFF
+	add		t0, gp, t0
+	lbu		t1, 0(t0)
+	xori		t1, t1, 1
+	sb		t1, 0(t0)
+	# verify should return -1
+	li		t0, PK_OFF
+	add		a0, gp, t0
+	li		t0, SIG_OFF
+	add		a1, gp, t0
+	li		t0, MSG_OFF
+	add		a2, gp, t0
+	jal		wots_verify
+	beqz		a0, test_fail		# should NOT pass
+	li		a0, '.'
+	jal		write_byte
+
 	li		a0, '\n'
 	jal		write_byte
 
