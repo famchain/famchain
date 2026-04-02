@@ -1,0 +1,27 @@
+#!/bin/sh
+# Run benchmarks. Not part of CI pass/fail — informational only.
+
+if [ "$CI" = "true" ]; then
+	sudo apt-get update
+	sudo apt install -y gcc-riscv64-unknown-elf qemu-system-misc
+fi
+
+AS="riscv64-unknown-elf-as"
+OBJCOPY="riscv64-unknown-elf-objcopy"
+MARCH="-march=rv32i_zicsr -mabi=ilp32"
+
+run_bench() {
+	# $1 = name, $2 = source file
+	echo "══════════════════════════════════"
+	echo " $1"
+	echo "══════════════════════════════════"
+	$AS $MARCH -I inc -o "tmp/$1.o" "$2" || { echo "BUILD FAILED"; return 1; }
+	$OBJCOPY -O binary "tmp/$1.o" "tmp/$1.bin" || { echo "OBJCOPY FAILED"; return 1; }
+	timeout 120 qemu-system-riscv32 \
+		-machine virt -nographic -bios none -smp 1 \
+		-device loader,file="tmp/$1.bin",addr=0x80000000 \
+		</dev/null 2>/dev/null
+	echo ""
+}
+
+run_bench "bench_wots" "test/bench_wots.S"

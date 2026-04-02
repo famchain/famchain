@@ -88,6 +88,7 @@ run_unit_test() {
 }
 
 run_unit_test "test_blake2s" "test/test_blake2s.S"
+run_unit_test "test_wots" "test/test_wots.S"
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Integration Tests (bootloader + network + disk)
