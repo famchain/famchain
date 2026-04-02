@@ -113,14 +113,11 @@ fail() {
 # Unit Tests
 # ══════════════════════════════════════════════════════════════════════════════
 
-run_unit_test "test_all" "test/test_all.S"
-
-# PoW tests need a disk for the 16MB bible table cache and more memory/time
-if [ ! -f tmp/pow_disk.img ]; then
-	dd if=/dev/zero of=tmp/pow_disk.img bs=1M count=32 2>/dev/null
+if [ ! -f tmp/test_disk.img ]; then
+	dd if=/dev/zero of=tmp/test_disk.img bs=1M count=32 2>/dev/null
 fi
-POW_QEMU="-m 256M -drive file=tmp/pow_disk.img,if=none,format=raw,id=dr0 -device virtio-blk-device,drive=dr0,bus=virtio-mmio-bus.0"
-run_unit_test "test_pow" "test/test_pow.S" 300 "$POW_QEMU"
+QEMU_DISK="-m 256M -drive file=tmp/test_disk.img,if=none,format=raw,id=dr0 -device virtio-blk-device,drive=dr0,bus=virtio-mmio-bus.0"
+run_unit_test "test_all" "test/test_all.S" 300 "$QEMU_DISK"
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Integration Tests (bootloader + network + disk)

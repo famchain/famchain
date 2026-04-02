@@ -20,17 +20,10 @@ echo "════════════════════════�
 cat "$TRACE_DIR"/0*.log > "$TRACE_DIR/merged_boot.log"
 python3 tools/coverage.py tmp/famchain.bin "$TRACE_DIR/merged_boot.log" --min $MIN_COVERAGE || RC=1
 
-# Auto-discover all unit test traces and report coverage for each
-for trace in "$TRACE_DIR"/test_*.log; do
-	name=$(basename "$trace" .log)
-	bin="tmp/${name}.bin"
-	if [ -f "$bin" ] && [ -f "$trace" ]; then
-		echo ""
-		echo "══════════════════════════════════════════════════════════════════"
-		echo " Coverage: $name"
-		echo "══════════════════════════════════════════════════════════════════"
-		python3 tools/coverage.py "$bin" "$trace" --min $MIN_COVERAGE || RC=1
-	fi
-done
+echo ""
+echo "══════════════════════════════════════════════════════════════════"
+echo " Library Coverage"
+echo "══════════════════════════════════════════════════════════════════"
+python3 tools/coverage.py tmp/test_all.bin "$TRACE_DIR/test_all.log" --min $MIN_COVERAGE || RC=1
 
 exit $RC
