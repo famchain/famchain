@@ -288,16 +288,16 @@ _corrupt_step_ok:
 _corrupt_done:
 	PASS_TEST
 
-	# ── Fuzz: feed random data to decompressor ──
+	# ── Fuzz: random data, varied sizes ──
 	RUN_TEST tn_cz_fuzz
 	li	s6, 0x12345678			# PRNG seed
 	li	s7, 256				# iterations
 _fuzz_loop:
 	beqz	s7, _fuzz_done
-	# fill 512 bytes with xorshift32 output
+	# fill 1024 bytes with xorshift32 output
 	li	t0, 0x40000
 	add	t0, gp, t0
-	li	t1, 128
+	li	t1, 256				# 1024 / 4
 	mv	t2, s6
 _fuzz_fill:
 	beqz	t1, _fuzz_try
@@ -313,18 +313,80 @@ _fuzz_fill:
 	j	_fuzz_fill
 _fuzz_try:
 	mv	s6, t2
-	# decompress random data
+	# vary input length: 5 + (seed & 0x3FF) → 5..1028 bytes
+	andi	a1, s6, 0x3FF
+	addi	a1, a1, 5
 	li	t0, 0x40000
 	add	a0, gp, t0
-	li	a1, 512
 	li	t0, 0x50000
 	add	a2, gp, t0
 	li	a3, 4096
 	jal	decompress_block
-	# don't care about result — just that it returned
 	addi	s7, s7, -1
 	j	_fuzz_loop
 _fuzz_done:
+	PASS_TEST
+
+	# ── Truncation: decompress valid data at progressively shorter lengths ──
+	# s2 = compressed bible data, s5 = compressed size
+	RUN_TEST tn_cz_trunc
+	li	s6, 5				# start at minimum length
+_trunc_loop:
+	bge	s6, s5, _trunc_done
+	mv	a0, s2
+	mv	a1, s6				# truncated length
+	li	t0, 0x40000
+	add	a2, gp, t0
+	li	a3, 4096
+	jal	decompress_block
+	# must not return original size (truncated input can't produce full output)
+	beq	a0, s1, test_fail
+_trunc_next:
+	# step by compressed_size / 64 to test ~64 cut points
+	srli	t0, s5, 6
+	li	t1, 1
+	bge	t0, t1, _trunc_step_ok
+	mv	t0, t1
+_trunc_step_ok:
+	add	s6, s6, t0
+	j	_trunc_loop
+_trunc_done:
+	PASS_TEST
+
+	# ── Edge cases ──
+	RUN_TEST tn_cz_edge
+	# 0-byte input → must reject
+	li	t0, 0x40000
+	add	a0, gp, t0
+	li	a1, 0
+	li	t0, 0x50000
+	add	a2, gp, t0
+	li	a3, 4096
+	jal	decompress_block
+	li	t0, -1
+	bne	a0, t0, test_fail
+
+	# 4-byte input → must reject (< 5)
+	li	t0, 0x40000
+	add	a0, gp, t0
+	li	a1, 4
+	li	t0, 0x50000
+	add	a2, gp, t0
+	li	a3, 4096
+	jal	decompress_block
+	li	t0, -1
+	bne	a0, t0, test_fail
+
+	# valid compressed data, capacity=0 → must reject
+	mv	a0, s2
+	mv	a1, s5
+	li	t0, 0x40000
+	add	a2, gp, t0
+	li	a3, 0
+	jal	decompress_block
+	li	t0, -1
+	bne	a0, t0, test_fail
+
 	PASS_TEST
 
 	# ══════════════════════════════════════════════════
@@ -491,6 +553,8 @@ tn_cz_large:	.asciz	"compress with match "
 tn_cz_bible:	.asciz	"compress bible 4MB  "
 tn_cz_corrupt:	.asciz	"decompress corrupt  "
 tn_cz_fuzz:	.asciz	"decompress fuzz     "
+tn_cz_trunc:	.asciz	"decompress truncate "
+tn_cz_edge:	.asciz	"decompress edge     "
 
 # ── blake2s vectors ──
 
