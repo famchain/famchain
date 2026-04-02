@@ -1902,6 +1902,7 @@ _dcz_match_decode:
 	add	t6, t5, t6			# match_dist
 
 	# copy match_len bytes from (output_pos - match_dist)
+	beqz	t6, _dcz_error			# dist == 0 = invalid
 	bgtu	t6, s2, _dcz_error		# dist > output_pos = invalid
 	sub	t4, s2, t6			# src_offset
 
