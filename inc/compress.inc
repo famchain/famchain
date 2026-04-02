@@ -408,13 +408,16 @@ _cz_build_lookup_table:
 # ══════════════════════════════════════════════════════════════════════════════
 # compress_block: compress input data
 # a0 = input_ptr
-# a1 = input_len
+# a1 = input_len (must be > 0)
 # a2 = output_ptr (must be at least input_len + 3 bytes)
 # a3 = match_array_ptr (must be at least input_len * 4 + 4 bytes, u32 entries)
 # Returns: a0 = compressed output size in bytes, or -1 on error
 # ══════════════════════════════════════════════════════════════════════════════
 compress_block:
 	SETUP	s0, s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11
+
+	# Input validation
+	beqz	a1, _cz_err			# zero-length input
 
 	mv	s0, a0				# input
 	mv	s1, a1				# input_len
@@ -825,7 +828,11 @@ _cz_write_sym_done:
 	addi	sp, sp, 1544			# frequencies
 	li	t0, CZ_HASH_TABLE_SIZE * 2
 	add	sp, sp, t0			# hash_table
+	j	_cz_ret
 
+_cz_err:
+	li	a0, -1
+_cz_ret:
 	RETURN
 
 
