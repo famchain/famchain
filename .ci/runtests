@@ -87,8 +87,7 @@ run_unit_test() {
 	fi
 }
 
-run_unit_test "test_blake2s" "test/test_blake2s.S"
-run_unit_test "test_wots" "test/test_wots.S"
+run_unit_test "test_all" "test/test_all.S"
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Integration Tests (bootloader + network + disk)

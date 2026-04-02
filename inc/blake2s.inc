@@ -287,7 +287,7 @@ _b2s_iv:
 # h[0] = IV[0] ^ 0x01010020, h[1..7] = IV[1..7]
 	.balign 4
 _b2s_h_init:
-	.word	0x6B08C647	# 0x6A09E667 ^ 0x01010020
+	.word	0x6B08E647	# 0x6A09E667 ^ 0x01010020
 	.word	0xBB67AE85, 0x3C6EF372, 0xA54FF53A
 	.word	0x510E527F, 0x9B05688C, 0x1F83D9AB, 0x5BE0CD19
 

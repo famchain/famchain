@@ -51,6 +51,35 @@ run_traced() {
 	return 0
 }
 
+# ══════════════════════════════════════════════════════════════════════════════
+# Unit test coverage (standalone binaries, no network/disk)
+# ══════════════════════════════════════════════════════════════════════════════
+
+UNIT_TRACE_DIR="$TRACE_DIR/unit"
+mkdir -p "$UNIT_TRACE_DIR"
+
+run_unit_traced() {
+	# $1 = name, $2 = source
+	echo "=== Unit: $1 ==="
+	$AS $MARCH -I inc -o "tmp/$1.o" "$2" || { echo "  FAIL (build)"; FAIL=$((FAIL + 1)); return; }
+	$OBJCOPY -O binary "tmp/$1.o" "tmp/$1.bin" || { echo "  FAIL (objcopy)"; FAIL=$((FAIL + 1)); return; }
+	if timeout 10 qemu-system-riscv32 \
+		-machine virt -nographic -bios none -smp 1 \
+		-d in_asm -D "$UNIT_TRACE_DIR/$1.log" \
+		-device loader,file="tmp/$1.bin",addr=0x80000000 \
+		</dev/null 2>/dev/null; then
+		echo "  PASS"
+	else
+		echo "  FAIL"; FAIL=$((FAIL + 1))
+	fi
+}
+
+run_unit_traced "test_all" "test/test_all.S"
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Integration test coverage (bootloader + network + disk)
+# ══════════════════════════════════════════════════════════════════════════════
+
 build_node test/node.S
 build_bootloader
 
@@ -119,8 +148,20 @@ if [ "$FAIL" -ne 0 ]; then
 fi
 
 echo ""
-echo "Merging traces..."
-cat "$TRACE_DIR"/*.log > "$MERGED_TRACE"
+echo "══════════════════════════════════════════════════════════════════"
+echo " Bootloader Coverage"
+echo "══════════════════════════════════════════════════════════════════"
+cat "$TRACE_DIR"/0*.log > "$MERGED_TRACE"
+python3 tools/coverage.py tmp/famchain.bin "$MERGED_TRACE" --min $MIN_COVERAGE
+BOOT_RC=$?
 
 echo ""
-python3 tools/coverage.py tmp/famchain.bin "$MERGED_TRACE" --min $MIN_COVERAGE
+echo "══════════════════════════════════════════════════════════════════"
+echo " Library Coverage (blake2s + WOTS+)"
+echo "══════════════════════════════════════════════════════════════════"
+python3 tools/coverage.py tmp/test_all.bin "$UNIT_TRACE_DIR/test_all.log" --min $MIN_COVERAGE
+LIB_RC=$?
+
+if [ "$BOOT_RC" -ne 0 ] || [ "$LIB_RC" -ne 0 ]; then
+	exit 1
+fi
