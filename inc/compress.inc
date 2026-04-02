@@ -576,6 +576,76 @@ _cz_compare_done:
 	sw	t0, 0(t2)
 	addi	s7, s7, 1
 
+	# update hash for positions i+1, i+2, i+3 (seeds next match)
+	addi	t0, s6, 1
+	add	t0, s0, t0			# in + i + 1
+	lbu	t1, 0(t0)
+	lbu	t2, 1(t0)
+	slli	t2, t2, 8
+	or	t1, t1, t2
+	lbu	t2, 2(t0)
+	slli	t2, t2, 16
+	or	t1, t1, t2
+	lbu	t2, 3(t0)
+	slli	t2, t2, 24
+	or	t1, t1, t2
+	srli	t2, t1, 16
+	xor	t2, t2, t1
+	srli	t3, t2, 8
+	xor	t2, t2, t3
+	slli	t2, t2, 16
+	srli	t2, t2, 16
+	slli	t3, t2, 1
+	add	t3, s4, t3
+	addi	t0, s6, 1
+	sh	t0, 0(t3)
+
+	addi	t0, s6, 2
+	add	t0, s0, t0
+	lbu	t1, 0(t0)
+	lbu	t2, 1(t0)
+	slli	t2, t2, 8
+	or	t1, t1, t2
+	lbu	t2, 2(t0)
+	slli	t2, t2, 16
+	or	t1, t1, t2
+	lbu	t2, 3(t0)
+	slli	t2, t2, 24
+	or	t1, t1, t2
+	srli	t2, t1, 16
+	xor	t2, t2, t1
+	srli	t3, t2, 8
+	xor	t2, t2, t3
+	slli	t2, t2, 16
+	srli	t2, t2, 16
+	slli	t3, t2, 1
+	add	t3, s4, t3
+	addi	t0, s6, 2
+	sh	t0, 0(t3)
+
+	addi	t0, s6, 3
+	add	t0, s0, t0
+	lbu	t1, 0(t0)
+	lbu	t2, 1(t0)
+	slli	t2, t2, 8
+	or	t1, t1, t2
+	lbu	t2, 2(t0)
+	slli	t2, t2, 16
+	or	t1, t1, t2
+	lbu	t2, 3(t0)
+	slli	t2, t2, 24
+	or	t1, t1, t2
+	srli	t2, t1, 16
+	xor	t2, t2, t1
+	srli	t3, t2, 8
+	xor	t2, t2, t3
+	slli	t2, t2, 16
+	srli	t2, t2, 16
+	slli	t3, t2, 1
+	add	t3, s4, t3
+	addi	t0, s6, 3
+	sh	t0, 0(t3)
+
 	# advance i by len
 	add	s6, s6, t6
 	j	_cz_match_loop
