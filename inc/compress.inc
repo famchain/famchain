@@ -1129,8 +1129,9 @@ _cz_calculate_lengths:
 # _cz_limit_lengths: limit code lengths to max_length with Kraft fixup
 # a0 = frequencies, a1 = code_lengths, a2 = count, a3 = max_length
 #
-# Pass 1: clamp any length > max to max
-# Pass 2: compute Kraft sum, if > 2^max, increment lowest-freq symbols
+# Pass 1: clamp lengths > max, track frequency-weighted excess
+# Pass 2: redistribute excess by incrementing shorter codes (quality)
+# Pass 3: enforce Kraft inequality (correctness)
 _cz_limit_lengths:
 	SETUP	s0, s1, s2, s3, s4, s5
 
@@ -1139,17 +1140,75 @@ _cz_limit_lengths:
 	mv	s2, a2				# count
 	mv	s3, a3				# max_length
 
-	# Pass 1: clamp any length > max to max
+	# ── Pass 1: clamp and compute excess ──
+	# excess = sum((len - max) * freq) for clamped symbols
+	# needed = sum(freq) for clamped symbols
+	li	s4, 0				# excess
+	li	s5, 0				# needed
 	li	t0, 0
-34:	bge	t0, s2, _cl_kraft
+_cl_p1:
+	bge	t0, s2, _cl_p2
 	slli	t1, t0, 2
-	add	t1, s1, t1
-	lhu	t2, CZ_CL_LEN(t1)
-	ble	t2, s3, 36f
-	sh	s3, CZ_CL_LEN(t1)
-36:	addi	t0, t0, 1
-	j	34b
+	add	t2, s1, t1
+	lhu	t3, CZ_CL_LEN(t2)		# length
+	ble	t3, s3, _cl_p1_next		# <= max, skip
 
+	# excess += (length - max) * freq (multiply by repeated add)
+	add	t4, s0, t1
+	lw	t4, 0(t4)			# freq
+	sub	t5, t3, s3			# diff = length - max
+_cl_p1_mul:
+	beqz	t5, _cl_p1_mulok
+	add	s4, s4, t4			# excess += freq
+	addi	t5, t5, -1
+	j	_cl_p1_mul
+_cl_p1_mulok:
+	add	s5, s5, t4			# needed += freq
+
+	# clamp
+	sh	s3, CZ_CL_LEN(t2)
+_cl_p1_next:
+	addi	t0, t0, 1
+	j	_cl_p1
+
+	# ── Pass 2: redistribute excess ──
+	# Increment shorter codes of low-freq symbols to compensate
+_cl_p2:
+	beqz	s4, _cl_kraft			# no excess, skip
+	beqz	s5, _cl_kraft
+_cl_p2_outer:
+	beqz	s4, _cl_kraft
+	beqz	s5, _cl_kraft
+	li	t0, 0
+_cl_p2_scan:
+	bge	t0, s2, _cl_kraft		# one full pass done
+	beqz	s4, _cl_kraft			# excess consumed
+	slli	t1, t0, 2
+	add	t2, s1, t1
+	lhu	t3, CZ_CL_LEN(t2)		# length
+	beqz	t3, _cl_p2_next			# skip unused
+	bge	t3, s3, _cl_p2_next		# skip length >= max
+	add	t4, s0, t1
+	lw	t4, 0(t4)			# freq
+	beqz	t4, _cl_p2_next			# skip zero freq
+
+	# delta = min(excess, freq)
+	mv	t5, t4
+	bleu	s4, t4, _cl_p2_use_exc
+	j	_cl_p2_apply
+_cl_p2_use_exc:
+	mv	t5, s4				# delta = excess
+_cl_p2_apply:
+	addi	t3, t3, 1
+	sh	t3, CZ_CL_LEN(t2)		# length++
+	sub	s4, s4, t5			# excess -= delta
+	sub	s5, s5, t5			# needed -= delta
+
+_cl_p2_next:
+	addi	t0, t0, 1
+	j	_cl_p2_scan
+
+	# ── Pass 3: enforce Kraft inequality ──
 _cl_kraft:
 	# Compute Kraft sum = sum(2^(max - len)) for all symbols with len > 0
 	li	s4, 0				# sum
@@ -1177,9 +1236,9 @@ _cl_fix:
 _cl_fix_loop:
 	ble	s4, s5, _cl_done
 
-	# Find symbol with minimum frequency, length in (0, max)
+	# Find symbol with minimum frequency, length in (1, max)
 	li	t6, -1				# best_idx = none
-	li	t5, -1				# min_freq = 0xFFFFFFFF (max u32)
+	li	t5, -1				# min_freq = 0xFFFFFFFF
 	li	t0, 0
 _cl_find:
 	bge	t0, s2, _cl_apply
