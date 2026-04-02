@@ -199,13 +199,13 @@ _bench_msg:
 	.balign	4
 
 _lbl_blake2s:
-	.asciz	"blake2s:  "
+	.asciz	"blake2s   cycles: "
 _lbl_keygen:
-	.asciz	"keygen:   "
+	.asciz	"keygen    cycles: "
 _lbl_sign:
-	.asciz	"sign:     "
+	.asciz	"sign      cycles: "
 _lbl_verify:
-	.asciz	"verify:   "
+	.asciz	"verify    cycles: "
 	.balign	4
 
 _bench_data:
