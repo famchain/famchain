@@ -104,15 +104,23 @@ def find_data_start(binfile):
         except (ValueError, IndexError):
             continue
 
-    # Find transition: window of mostly-bad instructions
+    # Find the final code-to-data transition.
+    # Skip small embedded data (IV tables etc.) — only trigger on a sustained
+    # run of bad instructions near the end of the binary.
     sorted_pcs = sorted(pcs_valid.keys())
-    WINDOW = 8
-    for i, pc in enumerate(sorted_pcs):
-        if not pcs_valid[pc]:
-            end = min(i + WINDOW, len(sorted_pcs))
-            bad = sum(1 for j in range(i, end) if not pcs_valid[sorted_pcs[j]])
-            if bad >= (end - i) // 2:
-                return pc
+    WINDOW = 16
+    # Scan backwards from the end to find where code last resumes
+    for i in range(len(sorted_pcs) - 1, -1, -1):
+        if pcs_valid[sorted_pcs[i]]:
+            # Found last valid instruction. Data starts after the next
+            # sustained run of bad instructions following it.
+            for j in range(i + 1, len(sorted_pcs)):
+                if not pcs_valid[sorted_pcs[j]]:
+                    end = min(j + WINDOW, len(sorted_pcs))
+                    bad = sum(1 for k in range(j, end) if not pcs_valid[sorted_pcs[k]])
+                    if bad >= (end - j) * 3 // 4:
+                        return sorted_pcs[j]
+            return max(pcs_valid.keys()) + 4
     return max(pcs_valid.keys()) + 4 if pcs_valid else 0
 
 def main():

@@ -455,13 +455,10 @@ _cz_match_loop:
 	slli	t2, t2, 24
 	or	t1, t1, t2			# t1 = key (unaligned u32 load)
 
-	# entry = (key * HASH_CONSTANT) >> 16
-	# RV32I has no mul — use shift-add for multiply by 0x9e3779b9
-	# This is expensive. Use a simplified hash instead:
 	# hash = ((key >> 16) ^ key) & 0xFFFF
+	# Note: with mul (RV32M), (key * 0x9e3779b9) >> 16 gives 2.84:1
 	srli	t2, t1, 16
 	xor	t2, t2, t1
-	# fold again
 	srli	t3, t2, 8
 	xor	t2, t2, t3
 	slli	t2, t2, 16
@@ -578,7 +575,7 @@ _cz_compare_done:
 
 	# update hash for positions i+1, i+2, i+3 (seeds next match)
 	addi	t0, s6, 1
-	add	t0, s0, t0			# in + i + 1
+	add	t0, s0, t0
 	lbu	t1, 0(t0)
 	lbu	t2, 1(t0)
 	slli	t2, t2, 8

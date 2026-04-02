@@ -157,7 +157,7 @@ BOOT_RC=$?
 
 echo ""
 echo "══════════════════════════════════════════════════════════════════"
-echo " Library Coverage (blake2s + WOTS+)"
+echo " Library Coverage (blake2s + WOTS+ + compress)"
 echo "══════════════════════════════════════════════════════════════════"
 python3 tools/coverage.py tmp/test_all.bin "$UNIT_TRACE_DIR/test_all.log" --min $MIN_COVERAGE
 LIB_RC=$?

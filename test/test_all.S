@@ -1,6 +1,6 @@
 # test_all.S — Combined unit tests for all libraries
 #
-# Runs blake2s + WOTS+ tests in sequence. Single binary, single coverage report.
+# Runs blake2s + WOTS+ + compress tests in sequence. Single binary, single coverage report.
 
 .equ	EXIT_ADDR,	0x100000
 .equ	EXIT_PASS,	0x5555
@@ -11,6 +11,7 @@
 .include "macros.inc"
 .include "blake2s.inc"
 .include "wots.inc"
+.include "compress.inc"
 
 # Memory layout in data region (from gp):
 .equ	SK_OFF,		0
@@ -25,7 +26,7 @@ _start:
 	add		gp, gp, t0
 	li		t0, -4096
 	and		gp, gp, t0
-	li		t0, 0x100000
+	li		t0, 0x200000
 	add		sp, gp, t0
 
 	# ══════════════════════════════════════════════════
@@ -266,6 +267,102 @@ _start:
 	jal		write_byte
 
 	# ══════════════════════════════════════════════════
+	# Compression tests
+	# ══════════════════════════════════════════════════
+
+	# Test C1: round-trip with repeating pattern
+	li	a0, 'C'
+	jal	write_byte
+	li	a0, '1'
+	jal	write_byte
+
+	LOAD_ADDRESS	a0, tv_cz_repeat
+	li	a1, 24
+	# output at gp + 0x10000, match_array at gp + 0x20000
+	li	t0, 0x10000
+	add	a2, gp, t0
+	li	t0, 0x20000
+	add	a3, gp, t0
+	jal	compress_block
+	blez	a0, test_fail
+	mv	s0, a0
+
+	li	t0, 0x10000
+	add	a0, gp, t0
+	mv	a1, s0
+	li	t0, 0x30000
+	add	a2, gp, t0
+	li	a3, 256
+	jal	decompress_block
+	li	t0, 24
+	bne	a0, t0, test_fail
+
+	LOAD_ADDRESS	t0, tv_cz_repeat
+	mv	t3, gp
+	li	t4, 0x30000
+	add	t1, t3, t4
+	li	t2, 24
+_cz_cmp1:
+	beqz	t2, _cz_cmp1_ok
+	lbu	t3, 0(t0)
+	lbu	t4, 0(t1)
+	bne	t3, t4, test_fail
+	addi	t0, t0, 1
+	addi	t1, t1, 1
+	addi	t2, t2, -1
+	j	_cz_cmp1
+_cz_cmp1_ok:
+	li	a0, '.'
+	jal	write_byte
+
+	# Test C2: round-trip with short all-literal input
+	li	a0, 'C'
+	jal	write_byte
+	li	a0, '2'
+	jal	write_byte
+
+	LOAD_ADDRESS	a0, tv_cz_short
+	li	a1, 5
+	li	t0, 0x10000
+	add	a2, gp, t0
+	li	t0, 0x20000
+	add	a3, gp, t0
+	jal	compress_block
+	blez	a0, test_fail
+	mv	s0, a0
+
+	li	t0, 0x10000
+	add	a0, gp, t0
+	mv	a1, s0
+	li	t0, 0x30000
+	add	a2, gp, t0
+	li	a3, 256
+	jal	decompress_block
+	li	t0, 5
+	bne	a0, t0, test_fail
+
+	LOAD_ADDRESS	t0, tv_cz_short
+	mv	t3, gp
+	li	t4, 0x30000
+	add	t1, t3, t4
+	li	t2, 5
+_cz_cmp2:
+	beqz	t2, _cz_cmp2_ok
+	lbu	t3, 0(t0)
+	lbu	t4, 0(t1)
+	bne	t3, t4, test_fail
+	addi	t0, t0, 1
+	addi	t1, t1, 1
+	addi	t2, t2, -1
+	j	_cz_cmp2
+_cz_cmp2_ok:
+	li	a0, '.'
+	jal	write_byte
+
+	li	a0, '\n'
+	jal	write_byte
+
+	# ══════════════════════════════════════════════════
 	# All passed
 	# ══════════════════════════════════════════════════
 	li		t0, EXIT_ADDR
@@ -316,6 +413,7 @@ write_byte:
 # ──────────────────────────────────────────────────────────────────────────────
 DEFINE_BLAKE2S
 DEFINE_WOTS
+DEFINE_COMPRESS
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -369,5 +467,14 @@ tv_wots_msg_hash:
 tv_wots_sk0:
 	.word	0xA140DE27, 0x4B1070DA, 0xCEB4C263, 0x74D48709
 	.word	0xB0ADA4FB, 0x3CC780CA, 0x42923694, 0x116E997A
+
+# ── compress vectors ──
+
+tv_cz_repeat:
+	.ascii	"ABCABCABCABCABCABCABCABC"
+
+tv_cz_short:
+	.ascii	"Hello"
+	.balign 4
 
 _test_data:
