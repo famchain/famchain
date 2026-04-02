@@ -252,27 +252,127 @@ _ph_ret:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# pow_hash_full: convenience wrapper — blake2s(header) then pow_hash
-# a0 = table_ptr, a1 = table_mask, a2 = header_ptr, a3 = out_ptr
+# pow_hash_full: canonical PoW hash for a single header
+# a0 = table_ptr, a1 = table_mask, a2 = header_ptr (128 bytes), a3 = out_ptr
+#
+# Computes: blake2s(header[0:124]) → ARX fold nonce from header[124:128] → 32 rounds
+# This matches what mine_block computes, so verifiers and miners agree.
 # ══════════════════════════════════════════════════════════════════════════════
 pow_hash_full:
-	SETUP	s0, s1, s2
+	SETUP	s0, s1, s2, s3
 
 	mv	s0, a0				# table_ptr
 	mv	s1, a1				# table_mask
-	mv	s2, a3				# out_ptr
+	mv	s2, a2				# header_ptr
+	mv	s3, a3				# out_ptr
 
-	# blake2s(header) → out_ptr (use as temp state)
-	mv	a0, a2				# header_ptr
-	li	a1, POW_HEADER_LEN
-	mv	a2, s2				# output = out_ptr
+	# blake2s(header[0:124]) → out_ptr
+	mv	a0, s2				# header_ptr
+	li	a1, POW_NONCE_OFFSET		# 124 bytes (exclude nonce)
+	mv	a2, s3				# output = out_ptr
 	jal	blake2s
+
+	# Load nonce from header[124]
+	li	t0, POW_NONCE_OFFSET
+	add	t0, s2, t0
+	lw	s2, 0(t0)			# s2 = nonce (reuse reg)
+
+	# ARX nonce fold into state at out_ptr
+	# word 0: add rot(nonce,0), xor rot(nonce,16)
+	lw	t0, 0(s3)
+	add	t0, t0, s2
+	srli	t1, s2, 16
+	slli	t2, s2, 16
+	or	t1, t1, t2
+	xor	t0, t0, t1
+	sw	t0, 0(s3)
+
+	# word 1: add rot(nonce,4), xor rot(nonce,20)
+	lw	t0, 4(s3)
+	srli	t1, s2, 4
+	slli	t2, s2, 28
+	or	t1, t1, t2
+	add	t0, t0, t1
+	srli	t1, s2, 20
+	slli	t2, s2, 12
+	or	t1, t1, t2
+	xor	t0, t0, t1
+	sw	t0, 4(s3)
+
+	# word 2: add rot(nonce,8), xor rot(nonce,24)
+	lw	t0, 8(s3)
+	srli	t1, s2, 8
+	slli	t2, s2, 24
+	or	t1, t1, t2
+	add	t0, t0, t1
+	srli	t1, s2, 24
+	slli	t2, s2, 8
+	or	t1, t1, t2
+	xor	t0, t0, t1
+	sw	t0, 8(s3)
+
+	# word 3: add rot(nonce,12), xor rot(nonce,28)
+	lw	t0, 12(s3)
+	srli	t1, s2, 12
+	slli	t2, s2, 20
+	or	t1, t1, t2
+	add	t0, t0, t1
+	srli	t1, s2, 28
+	slli	t2, s2, 4
+	or	t1, t1, t2
+	xor	t0, t0, t1
+	sw	t0, 12(s3)
+
+	# word 4: add rot(nonce,16), xor rot(nonce,0)
+	lw	t0, 16(s3)
+	srli	t1, s2, 16
+	slli	t2, s2, 16
+	or	t1, t1, t2
+	add	t0, t0, t1
+	xor	t0, t0, s2
+	sw	t0, 16(s3)
+
+	# word 5: add rot(nonce,20), xor rot(nonce,4)
+	lw	t0, 20(s3)
+	srli	t1, s2, 20
+	slli	t2, s2, 12
+	or	t1, t1, t2
+	add	t0, t0, t1
+	srli	t1, s2, 4
+	slli	t2, s2, 28
+	or	t1, t1, t2
+	xor	t0, t0, t1
+	sw	t0, 20(s3)
+
+	# word 6: add rot(nonce,24), xor rot(nonce,8)
+	lw	t0, 24(s3)
+	srli	t1, s2, 24
+	slli	t2, s2, 8
+	or	t1, t1, t2
+	add	t0, t0, t1
+	srli	t1, s2, 8
+	slli	t2, s2, 24
+	or	t1, t1, t2
+	xor	t0, t0, t1
+	sw	t0, 24(s3)
+
+	# word 7: add rot(nonce,28), xor rot(nonce,12)
+	lw	t0, 28(s3)
+	srli	t1, s2, 28
+	slli	t2, s2, 4
+	or	t1, t1, t2
+	add	t0, t0, t1
+	srli	t1, s2, 12
+	slli	t2, s2, 20
+	or	t1, t1, t2
+	xor	t0, t0, t1
+	sw	t0, 28(s3)
 
 	# pow_hash(table, mask, state=out_ptr, out=out_ptr)
 	mv	a0, s0
 	mv	a1, s1
-	mv	a2, s2				# state = out_ptr
-	mv	a3, s2				# out = out_ptr (in-place)
+	mv	a2, s3
+	mv	a3, s3
 	jal	pow_hash
 
 	RETURN
