@@ -250,11 +250,82 @@ _cz_bible_cmp:
 _cz_bible_ok:
 	PASS_TEST
 
-	# TODO: add corruption + fuzz tests for decompressor
-	# Blocked on remaining infinite-loop path in decompress_block with
-	# malicious input. Fixed so far: zero-length lookup entries, RLE bounds
-	# overflow, invalid code lengths in calculate_codes/build_lookup_table,
-	# match distance > output_pos. Need to find remaining hang path.
+	# ── Negative: corrupt compressed bible data at several positions ──
+	# s2 = compressed bible data, s5 = compressed size, s1 = original size
+	RUN_TEST tn_cz_corrupt
+	li	s6, 4				# skip 4-byte header
+_corrupt_loop:
+	bge	s6, s5, _corrupt_done
+	# flip byte
+	add	t0, s2, s6
+	lbu	t1, 0(t0)
+	xori	t1, t1, 0xFF
+	sb	t1, 0(t0)
+	# try decompress (small gp-relative buffers, small capacity)
+	mv	a0, s2
+	mv	a1, s5
+	li	t0, 0x40000
+	add	a2, gp, t0			# decompress output
+	li	a3, 4096			# small capacity
+	jal	decompress_block
+	mv	t5, a0
+	# restore byte
+	add	t0, s2, s6
+	lbu	t1, 0(t0)
+	xori	t1, t1, 0xFF
+	sb	t1, 0(t0)
+	# with 4096 capacity, result must differ from original 4.4MB size
+	beq	t5, s1, test_fail
+_corrupt_next:
+	# step by compressed_size / 16 to test ~16 positions
+	srli	t0, s5, 4
+	li	t1, 1
+	bge	t0, t1, _corrupt_step_ok
+	mv	t0, t1
+_corrupt_step_ok:
+	add	s6, s6, t0
+	j	_corrupt_loop
+_corrupt_done:
+	PASS_TEST
+
+	# ── Fuzz: feed random data to decompressor ──
+	RUN_TEST tn_cz_fuzz
+	li	s6, 0x12345678			# PRNG seed
+	li	s7, 256				# iterations
+_fuzz_loop:
+	beqz	s7, _fuzz_done
+	# fill 512 bytes with xorshift32 output
+	li	t0, 0x40000
+	add	t0, gp, t0
+	li	t1, 128
+	mv	t2, s6
+_fuzz_fill:
+	beqz	t1, _fuzz_try
+	slli	t3, t2, 13
+	xor	t2, t2, t3
+	srli	t3, t2, 17
+	xor	t2, t2, t3
+	slli	t3, t2, 5
+	xor	t2, t2, t3
+	sw	t2, 0(t0)
+	addi	t0, t0, 4
+	addi	t1, t1, -1
+	j	_fuzz_fill
+_fuzz_try:
+	mv	s6, t2
+	# decompress random data
+	li	t0, 0x40000
+	add	a0, gp, t0
+	li	a1, 512
+	li	t0, 0x50000
+	add	a2, gp, t0
+	li	a3, 4096
+	jal	decompress_block
+	# don't care about result — just that it returned
+	addi	s7, s7, -1
+	j	_fuzz_loop
+_fuzz_done:
+	PASS_TEST
 
 	# ══════════════════════════════════════════════════
 	# All passed
@@ -418,6 +489,8 @@ tn_cz_rt:	.asciz	"compress round-trip "
 tn_cz_short:	.asciz	"compress short      "
 tn_cz_large:	.asciz	"compress with match "
 tn_cz_bible:	.asciz	"compress bible 4MB  "
+tn_cz_corrupt:	.asciz	"decompress corrupt  "
+tn_cz_fuzz:	.asciz	"decompress fuzz     "
 
 # ── blake2s vectors ──
 
