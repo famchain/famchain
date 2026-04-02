@@ -207,6 +207,49 @@ _start:
 	jal	check_roundtrip
 	PASS_TEST
 
+	RUN_TEST tn_cz_bible
+	LOAD_ADDRESS	s0, tv_cz_bible
+	LOAD_ADDRESS	s1, tv_cz_bible_end
+	sub	s1, s1, s0			# input len
+
+	# buffers at absolute addresses (within default 128MB QEMU RAM)
+	li	s2, 0x82000000			# output (~4.5MB space)
+	li	s3, 0x83000000			# match_array (~17.6MB)
+	li	s4, 0x85000000			# decompress output (~4.5MB)
+
+	# compress
+	mv	a0, s0
+	mv	a1, s1
+	mv	a2, s2
+	mv	a3, s3
+	jal	compress_block
+	blez	a0, test_fail
+	mv	s5, a0				# compressed size
+
+	# decompress
+	mv	a0, s2
+	mv	a1, s5
+	mv	a2, s4
+	li	a3, 0x00500000			# 5MB capacity
+	jal	decompress_block
+	bne	a0, s1, test_fail
+
+	# byte compare
+	mv	t0, s0
+	mv	t1, s4
+	mv	t2, s1
+_cz_bible_cmp:
+	beqz	t2, _cz_bible_ok
+	lbu	t3, 0(t0)
+	lbu	t4, 0(t1)
+	bne	t3, t4, test_fail
+	addi	t0, t0, 1
+	addi	t1, t1, 1
+	addi	t2, t2, -1
+	j	_cz_bible_cmp
+_cz_bible_ok:
+	PASS_TEST
+
 	# ══════════════════════════════════════════════════
 	# All passed
 	# ══════════════════════════════════════════════════
@@ -368,6 +411,7 @@ tn_wots_tpk:	.asciz	"wots tampered pk    "
 tn_cz_rt:	.asciz	"compress round-trip "
 tn_cz_short:	.asciz	"compress short      "
 tn_cz_large:	.asciz	"compress with match "
+tn_cz_bible:	.asciz	"compress bible 4MB  "
 
 # ── blake2s vectors ──
 
@@ -439,6 +483,11 @@ tv_cz_large:
 	.ascii	"The quick brown fox jumps over the lazy dog. "
 	.ascii	"The quick brown fox jumps over "
 tv_cz_large_end:
+	.balign 4
+
+tv_cz_bible:
+	.incbin "resources/bible.txt"
+tv_cz_bible_end:
 	.balign 4
 
 _test_data:
