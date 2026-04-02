@@ -14,13 +14,18 @@
 #       via blake2s chain (16 iterations per 32-byte entry).
 #       Returns: a0 = 0 on success, -1 on error
 #
-#   pow_hash(a0=table_ptr, a1=table_mask, a2=header_ptr, a3=out_ptr)
-#       Compute PoW hash. blake2s(header) → 32 lookup rounds → 32-byte output.
-#       header is 128 bytes. table_mask = (table_size >> 5) - 1.
+#   pow_hash(a0=table_ptr, a1=table_mask, a2=state_ptr, a3=out_ptr)
+#       Compute PoW hash from pre-initialized state. 32 lookup rounds → output.
+#       state_ptr is 32 bytes (e.g. from blake2s + ARX nonce fold).
+#       table_mask = (table_size >> 5) - 1.
 #       Returns: nothing (result written to out_ptr)
 #
+#   pow_hash_full(a0=table_ptr, a1=table_mask, a2=header_ptr, a3=out_ptr)
+#       Convenience: blake2s(header) → pow_hash. For single-shot use.
+#       header is 128 bytes.
+#
 #   mine_block(a0=table_ptr, a1=table_mask, a2=header_ptr, a3=target_ptr)
-#       Mine: iterate nonces at header[124..127], hash, compare against target.
+#       Mine: blake2s(header[0:124]) once, then iterate nonces with ARX fold.
 #       Additional args on stack: out_ptr at 0(sp), max_iter at 4(sp).
 #       Returns: a0 = nonce on success, -1 if max_iter reached
 #
@@ -145,50 +150,41 @@ _be_ret:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# pow_hash: compute memory-hard PoW hash
-# a0 = table_ptr (16MB lookup table)
-# a1 = table_mask ((table_size >> 5) - 1, e.g. 0x7FFFF for 16MB)
-# a2 = header_ptr (128 bytes: block header with nonce at offset 124)
-# a3 = out_ptr (32-byte output)
+# pow_hash: compute memory-hard PoW hash from pre-initialized state
+# a0 = table_ptr
+# a1 = table_mask ((table_size >> 5) - 1)
+# a2 = state_ptr (32 bytes, will be modified in-place as working state)
+# a3 = out_ptr (32-byte output, may equal state_ptr)
+#
+# Performs 32 random lookup rounds: idx = XOR(state) & mask, state ^= table[idx]
 # ══════════════════════════════════════════════════════════════════════════════
 pow_hash:
-	SETUP	s0, s1, s2, s3, s4, s5
+	SETUP	s0, s1, s2, s3, s4
 
 	mv	s0, a0				# table_ptr
 	mv	s1, a1				# table_mask
-	mv	s2, a3				# out_ptr
+	mv	s2, a2				# state_ptr
+	mv	s3, a3				# out_ptr
 
-	# state = blake2s(header)
-	# a0 = header_ptr (already in a0... wait, a0 = table_ptr now)
-	mv	a0, a2				# header_ptr
-	li	a1, POW_HEADER_LEN		# 128
-	addi	sp, sp, -32			# state on stack
-	mv	a2, sp
-	jal	blake2s
-
-	# sp now points to 32-byte state
-	mv	s3, sp				# s3 = state ptr
-
-	# 32 lookup rounds
 	li	s4, POW_LOOKUP_ROUNDS
 _ph_round:
 	beqz	s4, _ph_done
 
 	# idx = (state[0] ^ state[1] ^ ... ^ state[7]) & table_mask
-	lw	t0, 0(s3)
-	lw	t1, 4(s3)
+	lw	t0, 0(s2)
+	lw	t1, 4(s2)
 	xor	t0, t0, t1
-	lw	t1, 8(s3)
+	lw	t1, 8(s2)
 	xor	t0, t0, t1
-	lw	t1, 12(s3)
+	lw	t1, 12(s2)
 	xor	t0, t0, t1
-	lw	t1, 16(s3)
+	lw	t1, 16(s2)
 	xor	t0, t0, t1
-	lw	t1, 20(s3)
+	lw	t1, 20(s2)
 	xor	t0, t0, t1
-	lw	t1, 24(s3)
+	lw	t1, 24(s2)
 	xor	t0, t0, t1
-	lw	t1, 28(s3)
+	lw	t1, 28(s2)
 	xor	t0, t0, t1
 	and	t0, t0, s1			# & table_mask
 	slli	t0, t0, 5			# * 32 (byte offset)
@@ -196,52 +192,53 @@ _ph_round:
 
 	# state ^= table[idx]
 	lw	t1, 0(t0)
-	lw	t2, 0(s3)
+	lw	t2, 0(s2)
 	xor	t2, t2, t1
-	sw	t2, 0(s3)
+	sw	t2, 0(s2)
 
 	lw	t1, 4(t0)
-	lw	t2, 4(s3)
+	lw	t2, 4(s2)
 	xor	t2, t2, t1
-	sw	t2, 4(s3)
+	sw	t2, 4(s2)
 
 	lw	t1, 8(t0)
-	lw	t2, 8(s3)
+	lw	t2, 8(s2)
 	xor	t2, t2, t1
-	sw	t2, 8(s3)
+	sw	t2, 8(s2)
 
 	lw	t1, 12(t0)
-	lw	t2, 12(s3)
+	lw	t2, 12(s2)
 	xor	t2, t2, t1
-	sw	t2, 12(s3)
+	sw	t2, 12(s2)
 
 	lw	t1, 16(t0)
-	lw	t2, 16(s3)
+	lw	t2, 16(s2)
 	xor	t2, t2, t1
-	sw	t2, 16(s3)
+	sw	t2, 16(s2)
 
 	lw	t1, 20(t0)
-	lw	t2, 20(s3)
+	lw	t2, 20(s2)
 	xor	t2, t2, t1
-	sw	t2, 20(s3)
+	sw	t2, 20(s2)
 
 	lw	t1, 24(t0)
-	lw	t2, 24(s3)
+	lw	t2, 24(s2)
 	xor	t2, t2, t1
-	sw	t2, 24(s3)
+	sw	t2, 24(s2)
 
 	lw	t1, 28(t0)
-	lw	t2, 28(s3)
+	lw	t2, 28(s2)
 	xor	t2, t2, t1
-	sw	t2, 28(s3)
+	sw	t2, 28(s2)
 
 	addi	s4, s4, -1
 	j	_ph_round
 
 _ph_done:
-	# Copy state to output
-	mv	t0, s2				# out_ptr
-	mv	t1, s3				# state
+	# Copy state to output (skip if out_ptr == state_ptr)
+	beq	s3, s2, _ph_ret
+	mv	t0, s3
+	mv	t1, s2
 	li	t2, 8
 _ph_copy:
 	lw	t3, 0(t1)
@@ -250,8 +247,34 @@ _ph_copy:
 	addi	t1, t1, 4
 	addi	t2, t2, -1
 	bnez	t2, _ph_copy
+_ph_ret:
+	RETURN
 
-	addi	sp, sp, 32			# free state
+
+# ══════════════════════════════════════════════════════════════════════════════
+# pow_hash_full: convenience wrapper — blake2s(header) then pow_hash
+# a0 = table_ptr, a1 = table_mask, a2 = header_ptr, a3 = out_ptr
+# ══════════════════════════════════════════════════════════════════════════════
+pow_hash_full:
+	SETUP	s0, s1, s2
+
+	mv	s0, a0				# table_ptr
+	mv	s1, a1				# table_mask
+	mv	s2, a3				# out_ptr
+
+	# blake2s(header) → out_ptr (use as temp state)
+	mv	a0, a2				# header_ptr
+	li	a1, POW_HEADER_LEN
+	mv	a2, s2				# output = out_ptr
+	jal	blake2s
+
+	# pow_hash(table, mask, state=out_ptr, out=out_ptr)
+	mv	a0, s0
+	mv	a1, s1
+	mv	a2, s2				# state = out_ptr
+	mv	a3, s2				# out = out_ptr (in-place)
+	jal	pow_hash
+
 	RETURN
 
 
@@ -259,10 +282,14 @@ _ph_copy:
 # mine_block: iterate nonces until hash < target
 # a0 = table_ptr
 # a1 = table_mask
-# a2 = header_ptr (128 bytes, nonce at offset 124, modified in place)
-# a3 = target_ptr (32 bytes, big-endian comparison)
+# a2 = header_ptr (128 bytes, nonce at offset 124)
+# a3 = target_ptr (32 bytes, LE u256 comparison)
 # Stack args: 0(sp) = out_ptr, 4(sp) = max_iter
 # Returns: a0 = nonce on success, -1 if max_iter reached
+#
+# Optimization: blake2s(header[0:124]) is computed once. For each nonce,
+# the base state is copied and the nonce is folded in via ARX (add-rotate-xor)
+# across all 8 state words. Then 32 lookup rounds are performed.
 # ══════════════════════════════════════════════════════════════════════════════
 mine_block:
 	SETUP	s0, s1, s2, s3, s4, s5, s6, s7
@@ -272,38 +299,153 @@ mine_block:
 	mv	s2, a2				# header_ptr
 	mv	s3, a3				# target_ptr
 
-	# Load stack args (offset by SETUP frame size)
-	# SETUP saved 9 words (ra + s0-s7), rounded to 48 bytes
+	# Load stack args (SETUP saved 9 words, rounded to 48 bytes)
 	lw	s4, 48(sp)			# out_ptr
 	lw	s5, 52(sp)			# max_iter
+
+	# Compute base_state = blake2s(header[0:124]) — once
+	addi	sp, sp, -32			# base_state on stack
+	mv	a0, s2				# header_ptr
+	li	a1, POW_NONCE_OFFSET		# 124 bytes (exclude nonce)
+	mv	a2, sp
+	jal	blake2s
+	mv	s7, sp				# s7 = base_state ptr
 
 	li	s6, 0				# nonce = 0
 
 _mb_loop:
-	bgeu	s6, s5, _mb_fail		# nonce >= max_iter → fail
+	bgeu	s6, s5, _mb_fail
 
-	# Write nonce into header[124..127] (LE)
-	li	t0, POW_NONCE_OFFSET
-	add	t0, s2, t0
-	sw	s6, 0(t0)
+	# Copy base_state → out_ptr (working state)
+	mv	t0, s4				# dst = out_ptr
+	mv	t1, s7				# src = base_state
+	lw	t2, 0(t1)
+	sw	t2, 0(t0)
+	lw	t2, 4(t1)
+	sw	t2, 4(t0)
+	lw	t2, 8(t1)
+	sw	t2, 8(t0)
+	lw	t2, 12(t1)
+	sw	t2, 12(t0)
+	lw	t2, 16(t1)
+	sw	t2, 16(t0)
+	lw	t2, 20(t1)
+	sw	t2, 20(t0)
+	lw	t2, 24(t1)
+	sw	t2, 24(t0)
+	lw	t2, 28(t1)
+	sw	t2, 28(t0)
 
-	# Compute hash
-	mv	a0, s0				# table_ptr
-	mv	a1, s1				# table_mask
-	mv	a2, s2				# header_ptr
-	mv	a3, s4				# out_ptr
+	# ARX nonce fold: for each word i, state[i] += rot(nonce, i*4); state[i] ^= rot(nonce, i*4+16)
+	# Rotations: 0,4,8,12,16,20,24,28 for add; 16,20,24,28,0,4,8,12 for xor
+
+	# word 0: add rot(nonce,0), xor rot(nonce,16)
+	lw	t0, 0(s4)
+	add	t0, t0, s6			# + nonce (rot 0)
+	srli	t1, s6, 16
+	slli	t2, s6, 16
+	or	t1, t1, t2			# rot(nonce, 16)
+	xor	t0, t0, t1
+	sw	t0, 0(s4)
+
+	# word 1: add rot(nonce,4), xor rot(nonce,20)
+	lw	t0, 4(s4)
+	srli	t1, s6, 4
+	slli	t2, s6, 28
+	or	t1, t1, t2			# rot(nonce, 4)
+	add	t0, t0, t1
+	srli	t1, s6, 20
+	slli	t2, s6, 12
+	or	t1, t1, t2			# rot(nonce, 20)
+	xor	t0, t0, t1
+	sw	t0, 4(s4)
+
+	# word 2: add rot(nonce,8), xor rot(nonce,24)
+	lw	t0, 8(s4)
+	srli	t1, s6, 8
+	slli	t2, s6, 24
+	or	t1, t1, t2			# rot(nonce, 8)
+	add	t0, t0, t1
+	srli	t1, s6, 24
+	slli	t2, s6, 8
+	or	t1, t1, t2			# rot(nonce, 24)
+	xor	t0, t0, t1
+	sw	t0, 8(s4)
+
+	# word 3: add rot(nonce,12), xor rot(nonce,28)
+	lw	t0, 12(s4)
+	srli	t1, s6, 12
+	slli	t2, s6, 20
+	or	t1, t1, t2			# rot(nonce, 12)
+	add	t0, t0, t1
+	srli	t1, s6, 28
+	slli	t2, s6, 4
+	or	t1, t1, t2			# rot(nonce, 28)
+	xor	t0, t0, t1
+	sw	t0, 12(s4)
+
+	# word 4: add rot(nonce,16), xor rot(nonce,0)
+	lw	t0, 16(s4)
+	srli	t1, s6, 16
+	slli	t2, s6, 16
+	or	t1, t1, t2			# rot(nonce, 16)
+	add	t0, t0, t1
+	xor	t0, t0, s6			# xor nonce (rot 0)
+	sw	t0, 16(s4)
+
+	# word 5: add rot(nonce,20), xor rot(nonce,4)
+	lw	t0, 20(s4)
+	srli	t1, s6, 20
+	slli	t2, s6, 12
+	or	t1, t1, t2			# rot(nonce, 20)
+	add	t0, t0, t1
+	srli	t1, s6, 4
+	slli	t2, s6, 28
+	or	t1, t1, t2			# rot(nonce, 4)
+	xor	t0, t0, t1
+	sw	t0, 20(s4)
+
+	# word 6: add rot(nonce,24), xor rot(nonce,8)
+	lw	t0, 24(s4)
+	srli	t1, s6, 24
+	slli	t2, s6, 8
+	or	t1, t1, t2			# rot(nonce, 24)
+	add	t0, t0, t1
+	srli	t1, s6, 8
+	slli	t2, s6, 24
+	or	t1, t1, t2			# rot(nonce, 8)
+	xor	t0, t0, t1
+	sw	t0, 24(s4)
+
+	# word 7: add rot(nonce,28), xor rot(nonce,12)
+	lw	t0, 28(s4)
+	srli	t1, s6, 28
+	slli	t2, s6, 4
+	or	t1, t1, t2			# rot(nonce, 28)
+	add	t0, t0, t1
+	srli	t1, s6, 12
+	slli	t2, s6, 20
+	or	t1, t1, t2			# rot(nonce, 12)
+	xor	t0, t0, t1
+	sw	t0, 28(s4)
+
+	# pow_hash(table, mask, state=out_ptr, out=out_ptr)
+	mv	a0, s0
+	mv	a1, s1
+	mv	a2, s4				# state = out_ptr (in-place)
+	mv	a3, s4				# out = out_ptr
 	jal	pow_hash
 
 	# Compare hash < target (LE u256: most significant byte at offset 31)
 	li	t5, 31
 _mb_cmp:
-	bltz	t5, _mb_found			# all equal → hash == target, accept
-	add	t0, s4, t5			# &hash[byte]
-	add	t1, s3, t5			# &target[byte]
+	bltz	t5, _mb_found			# all equal → hash <= target, accept
+	add	t0, s4, t5
+	add	t1, s3, t5
 	lbu	t2, 0(t0)
 	lbu	t3, 0(t1)
-	bltu	t2, t3, _mb_found		# hash byte < target → success
-	bgtu	t2, t3, _mb_next		# hash byte > target → next nonce
+	bltu	t2, t3, _mb_found
+	bgtu	t2, t3, _mb_next
 	addi	t5, t5, -1
 	j	_mb_cmp
 
@@ -312,12 +454,13 @@ _mb_next:
 	j	_mb_loop
 
 _mb_found:
-	mv	a0, s6				# return nonce
-	j	_mb_ret
+	mv	a0, s6
+	j	_mb_cleanup
 
 _mb_fail:
 	li	a0, -1
-_mb_ret:
+_mb_cleanup:
+	addi	sp, sp, 32			# free base_state
 	RETURN
 
 .endm	# DEFINE_POW

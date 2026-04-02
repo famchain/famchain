@@ -111,8 +111,8 @@ _start:
 	beq	t0, t1, _load_table
 
 	# ── Generate table with progress ──
-	li	a0, 'G'
-	jal	write_byte
+	LOAD_ADDRESS	a0, _lbl_generating
+	jal	print_str
 
 	# Phase 1: copy compressed data to table
 	LOAD_ADDRESS	s0, _bible_compressed
@@ -158,8 +158,6 @@ _gen_pad:
 	j	_gen_pad
 _gen_aligned:
 
-	li	a0, 'C'
-	jal	write_byte
 	# Phase 2: blake2s chain with progress dots
 	addi	s3, s1, 31
 	li	t0, -32
@@ -224,14 +222,11 @@ _gen_iter_done:
 
 _gen_done:
 	addi	sp, sp, 32
-	li	a0, 'D'
+	li	a0, '\n'
 	jal	write_byte
 
 	# Write magic to sector 0
-	# Restore avail_idx (s8 was clobbered by generation loop)
-	li	s8, 1				# 1 disk_read happened before generation
-	li	a0, 'E'
-	jal	write_byte
+	li	s8, 1				# restore avail_idx (s8 clobbered by generation)
 	li	t0, DISK_DATA_BUFFER
 	add	t0, gp, t0
 	li	t1, MAGIC_WORD
@@ -240,8 +235,6 @@ _gen_done:
 	addi	s8, s8, 1
 	mv	a1, s8
 	jal	disk_write
-	li	a0, 'F'
-	jal	write_byte
 
 	# Write 16MB table starting at sector 1
 	li	s0, 0
@@ -325,7 +318,7 @@ _run_tests:
 	LOAD_ADDRESS	a2, _test_header
 	addi	sp, sp, -32
 	mv	a3, sp
-	jal	pow_hash
+	jal	pow_hash_full
 	# Verify non-zero
 	lw	t0, 0(sp)
 	lw	t1, 4(sp)
@@ -356,13 +349,13 @@ _run_tests:
 	li	a1, TABLE_MASK
 	LOAD_ADDRESS	a2, _test_header
 	mv	a3, sp
-	jal	pow_hash
+	jal	pow_hash_full
 	# Second hash (same input)
 	li	a0, TABLE_ADDR
 	li	a1, TABLE_MASK
 	LOAD_ADDRESS	a2, _test_header
 	addi	a3, sp, 32
-	jal	pow_hash
+	jal	pow_hash_full
 	# Compare
 	li	t2, 8
 	mv	t0, sp
@@ -390,7 +383,7 @@ _det_ok:
 	li	a1, TABLE_MASK
 	LOAD_ADDRESS	a2, _test_header
 	mv	a3, sp
-	jal	pow_hash
+	jal	pow_hash_full
 	# Hash with nonce=1
 	LOAD_ADDRESS	t0, _test_header
 	li	t1, 1
@@ -399,7 +392,7 @@ _det_ok:
 	li	a1, TABLE_MASK
 	mv	a2, t0
 	addi	a3, sp, 32
-	jal	pow_hash
+	jal	pow_hash_full
 	# Restore nonce=0
 	LOAD_ADDRESS	t0, _test_header
 	sw	zero, POW_NONCE_OFFSET(t0)
