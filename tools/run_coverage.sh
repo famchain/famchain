@@ -58,13 +58,13 @@ echo "=== Test 1: Network download (empty disk) ==="
 reset_disk
 ./tools/server.py &
 SERVER_PID=$!
-sleep 1
+sleep 0.2
 if run_traced "01_download" "127.0.0.1:3737"; then
 	echo "  PASS"
 else
 	echo "  FAIL"; FAIL=$((FAIL + 1))
 fi
-kill $SERVER_PID 2>/dev/null; sleep 1
+kill $SERVER_PID 2>/dev/null; sleep 0.2
 
 echo "=== Test 2: Disk cache hit ==="
 if run_traced "02_cache_hit" "127.0.0.1:3737"; then
@@ -77,13 +77,13 @@ echo "=== Test 3: Multi-host failover ==="
 reset_disk
 ./tools/server.py &
 SERVER_PID=$!
-sleep 1
+sleep 0.2
 if run_traced "03_failover" "192.0.2.1:9999 127.0.0.1:3737" 20; then
 	echo "  PASS"
 else
 	echo "  FAIL"; FAIL=$((FAIL + 1))
 fi
-kill $SERVER_PID 2>/dev/null; sleep 1
+kill $SERVER_PID 2>/dev/null; sleep 0.2
 
 echo "=== Test 4: Hash mismatch rejection ==="
 $AS $MARCH -I inc -o tmp/famchain.o src/famchain.S
@@ -91,18 +91,18 @@ $OBJCOPY -O binary tmp/famchain.o tmp/famchain.bin
 reset_disk
 ./tools/server.py &
 SERVER_PID=$!
-sleep 1
+sleep 0.2
 # Expect timeout (H! + halt), so non-zero exit is success here
-run_traced "04_hash_reject" "127.0.0.1:3737" 10 1
+run_traced "04_hash_reject" "127.0.0.1:3737" 3 1
 echo "  PASS (H! expected)"
-kill $SERVER_PID 2>/dev/null; sleep 1
+kill $SERVER_PID 2>/dev/null; sleep 0.2
 
 echo "=== Test 5: Disk corruption recovery ==="
 build_bootloader
 reset_disk
 ./tools/server.py &
 SERVER_PID=$!
-sleep 1
+sleep 0.2
 run_traced "05_populate" "127.0.0.1:3737"
 printf '\xff\xff\xff\xff' | dd of=./tmp/disk.img bs=1 count=4 conv=notrunc 2>/dev/null
 if run_traced "05_corrupt_recover" "127.0.0.1:3737"; then
@@ -110,7 +110,7 @@ if run_traced "05_corrupt_recover" "127.0.0.1:3737"; then
 else
 	echo "  FAIL"; FAIL=$((FAIL + 1))
 fi
-kill $SERVER_PID 2>/dev/null; sleep 1
+kill $SERVER_PID 2>/dev/null; sleep 0.2
 
 if [ "$FAIL" -ne 0 ]; then
 	echo ""

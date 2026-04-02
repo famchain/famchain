@@ -33,12 +33,12 @@ reset_disk() {
 start_server() {
 	./tools/server.py &
 	SERVER_PID=$!
-	sleep 1
+	sleep 0.2
 }
 
 stop_server() {
 	kill $SERVER_PID 2>/dev/null || true
-	sleep 1
+	sleep 0.2
 }
 
 run_qemu() {
@@ -147,7 +147,7 @@ reset_disk
 start_server
 
 # Should download but reject (hash mismatch), print H! and hang → timeout
-output=$(run_qemu "127.0.0.1:3737" 10 1 2>&1 || true)
+output=$(run_qemu "127.0.0.1:3737" 3 1 2>&1 || true)
 if echo "$output" | grep -q "H!"; then
 	pass "hash mismatch rejection"
 else
