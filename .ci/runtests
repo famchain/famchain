@@ -69,6 +69,31 @@ fail() {
 }
 
 # ══════════════════════════════════════════════════════════════════════════════
+# Unit Tests (no network/disk, pure compute)
+# ══════════════════════════════════════════════════════════════════════════════
+
+run_unit_test() {
+	# $1 = test name, $2 = source file
+	echo "=== Unit: $1 ==="
+	$AS $MARCH -I inc -o "tmp/$1.o" "$2" || { fail "$1 (build)"; return; }
+	$OBJCOPY -O binary "tmp/$1.o" "tmp/$1.bin" || { fail "$1 (objcopy)"; return; }
+	if timeout 5 qemu-system-riscv32 \
+		-machine virt -nographic -bios none -smp 1 \
+		-device loader,file="tmp/$1.bin",addr=0x80000000 \
+		</dev/null 2>/dev/null; then
+		pass "$1"
+	else
+		fail "$1"
+	fi
+}
+
+run_unit_test "test_blake2s" "test/test_blake2s.S"
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Integration Tests (bootloader + network + disk)
+# ══════════════════════════════════════════════════════════════════════════════
+
+# ══════════════════════════════════════════════════════════════════════════════
 # Test 1: Basic download + disk cache + seed list + hart wake
 # ══════════════════════════════════════════════════════════════════════════════
 echo "=== Test 1: Basic download + cache + seeds + hart wake ==="
