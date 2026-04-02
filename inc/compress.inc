@@ -145,6 +145,8 @@ _cz_clz:
 # Bitstream helpers
 #
 # Convention: s8=base, s9=byte_offset, s10=accumulator, s11=bits_in_accum
+# Bounds: s3 = byte limit for reads (0 = no limit). When s9 >= s3, reads
+# feed zero bytes instead of reading past the buffer.
 # These are leaf functions — they do NOT save/restore registers.
 # Callers must use SETUP to protect s8-s11 if needed.
 # ══════════════════════════════════════════════════════════════════════════════
@@ -180,15 +182,23 @@ _cz_bswf_done:
 
 # _cz_bsr: read a0 (nbits) from bitstream, return value in a0
 # Clobbers: t0, t4
+# Bounds: if s3 > 0, checks s9 < s3 before each byte load (set s3=0 to disable)
 _cz_bsr:
 	mv	t4, a0
 _cz_bsr_load:
 	bge	s11, t4, _cz_bsr_extract
+	bnez	s3, _cz_bsr_check
+_cz_bsr_ok:
 	add	t0, s8, s9
 	lbu	t0, 0(t0)
 	sll	t0, t0, s11
 	or	s10, s10, t0
 	addi	s9, s9, 1
+	addi	s11, s11, 8
+	j	_cz_bsr_load
+_cz_bsr_check:
+	blt	s9, s3, _cz_bsr_ok
+	# past end of input — feed zeros (safe termination)
 	addi	s11, s11, 8
 	j	_cz_bsr_load
 _cz_bsr_extract:
@@ -202,13 +212,21 @@ _cz_bsr_extract:
 
 # _cz_bs_ensure: ensure at least a0 bits in accumulator
 # Clobbers: t0
+# Bounds: if s3 > 0, checks s9 < s3 before each byte load
 _cz_bs_ensure:
 	bge	s11, a0, _cz_bse_done
+	bnez	s3, _cz_bse_check
+_cz_bse_ok:
 	add	t0, s8, s9
 	lbu	t0, 0(t0)
 	sll	t0, t0, s11
 	or	s10, s10, t0
 	addi	s9, s9, 1
+	addi	s11, s11, 8
+	j	_cz_bs_ensure
+_cz_bse_check:
+	blt	s9, s3, _cz_bse_ok
+	# past end — feed zeros
 	addi	s11, s11, 8
 	j	_cz_bs_ensure
 _cz_bse_done:
@@ -1610,6 +1628,10 @@ decompress_block:
 	mv	s1, a3				# output_capacity
 	li	s2, 0				# output_pos
 
+	# Minimum input length check
+	li	t0, 5				# at least header + 1 byte of data
+	blt	a1, t0, _dcz_error_imm
+
 	# Read decompressed_size (4 bytes LE)
 	lbu	t0, 0(a0)
 	lbu	t1, 1(a0)
@@ -1620,7 +1642,9 @@ decompress_block:
 	or	t0, t0, t1
 	lbu	t1, 3(a0)
 	slli	t1, t1, 24
-	or	s3, t0, t1			# s3 = decompressed_size
+	# s3 = input byte limit for bitstream bounds checking
+	# (input_len minus the 4-byte header, since bitstream starts at input+4)
+	addi	s3, a1, -4			# bitstream byte limit
 
 	# Init bitstream at input + 4
 	addi	s8, a0, 4
@@ -1914,6 +1938,11 @@ _dcz_cleanup:
 	addi	sp, sp, 1540			# main_cl
 	addi	sp, sp, 512			# book_lookup
 	addi	sp, sp, 60			# book_cl
+	j	_dcz_cleanup_ret
+
+_dcz_error_imm:
+	# Error before any stack allocation — just return -1
+	li	a0, -1
 
 _dcz_cleanup_ret:
 	RETURN
