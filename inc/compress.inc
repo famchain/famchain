@@ -242,17 +242,21 @@ _cz_calculate_codes:
 	addi	t0, t0, -1
 	bnez	t0, 1b
 
-	# count lengths
+	# count lengths (skip out-of-range values)
 	mv	t0, s0				# ptr
 	mv	t1, s1				# count
 _cz_cc_count:
 	beqz	t1, _cz_cc_count_done
 	lhu	t2, CZ_CL_LEN(t0)		# length
+	beqz	t2, _cz_cc_count_next
+	li	t3, CZ_MAX_CODE_LENGTH
+	bgtu	t2, t3, _cz_cc_count_next	# skip invalid lengths
 	slli	t3, t2, 2
 	add	t3, s2, t3			# &length_count[length]
 	lw	t4, 0(t3)
 	addi	t4, t4, 1
 	sw	t4, 0(t3)
+_cz_cc_count_next:
 	addi	t0, t0, CZ_CL_SIZE
 	addi	t1, t1, -1
 	j	_cz_cc_count
@@ -283,6 +287,8 @@ _cz_cc_assign:
 	beqz	t1, _cz_cc_done
 	lhu	t2, CZ_CL_LEN(t0)		# length
 	beqz	t2, _cz_cc_skip			# skip zero-length
+	li	t3, CZ_MAX_CODE_LENGTH
+	bgtu	t2, t3, _cz_cc_skip		# skip invalid length
 
 	# code = length_start[len] + length_pos[len]++
 	slli	t3, t2, 2
@@ -348,6 +354,7 @@ _cz_build_lookup_table:
 	add	t1, s0, t1
 	lhu	t2, CZ_CL_LEN(t1)		# length
 	beqz	t2, 13f
+	bgt	t2, s3, 13f			# length > max_length: skip (invalid)
 
 	# index = code & ((1 << length) - 1)
 	lhu	t3, CZ_CL_CODE(t1)		# code
@@ -1699,6 +1706,7 @@ _dcz_rcl_loop:
 	add	t0, s5, t0
 	lhu	t5, CZ_HL_SYMBOL(t0)		# book symbol
 	lbu	t6, CZ_HL_LEN(t0)		# book code length
+	beqz	t6, _dcz_error_book		# invalid code (garbled table)
 
 	# consume bits
 	srl	s10, s10, t6
@@ -1729,6 +1737,8 @@ _dcz_rep_val:
 	addi	t3, a0, 3			# count
 _dcz_rv_loop:
 	beqz	t3, _dcz_rcl_loop
+	li	t0, CZ_SYMBOL_COUNT
+	bge	s6, t0, _dcz_error_book		# bounds check
 	slli	t0, s6, 2
 	add	t0, s4, t0
 	sh	s7, CZ_CL_LEN(t0)
@@ -1743,6 +1753,8 @@ _dcz_rep_zs:
 	addi	t3, a0, 3
 _dcz_rzs_loop:
 	beqz	t3, _dcz_rcl_loop
+	li	t0, CZ_SYMBOL_COUNT
+	bge	s6, t0, _dcz_error_book		# bounds check
 	slli	t0, s6, 2
 	add	t0, s4, t0
 	sh	zero, CZ_CL_LEN(t0)
@@ -1757,6 +1769,8 @@ _dcz_rep_zl:
 	addi	t3, a0, 11
 _dcz_rzl_loop:
 	beqz	t3, _dcz_rcl_loop
+	li	t0, CZ_SYMBOL_COUNT
+	bge	s6, t0, _dcz_error_book		# bounds check
 	slli	t0, s6, 2
 	add	t0, s4, t0
 	sh	zero, CZ_CL_LEN(t0)
@@ -1790,7 +1804,11 @@ _dcz_zmlt:
 	jal	_cz_build_lookup_table
 
 	# ── Main decode loop ──
+	# s3 = decompressed_size from header (used as iteration limit for safety)
+	li	s6, 0				# iteration counter
 _dcz_decode_loop:
+	bge	s6, s1, _dcz_error		# more iterations than capacity = invalid
+	addi	s6, s6, 1
 	# ensure enough bits for lookup
 	li	a0, CZ_MAX_CODE_LENGTH		# 11
 	jal	_cz_bs_ensure
@@ -1804,6 +1822,7 @@ _dcz_decode_loop:
 	add	t0, s5, t0
 	lhu	t5, CZ_HL_SYMBOL(t0)		# symbol
 	lbu	t6, CZ_HL_LEN(t0)		# code length
+	beqz	t6, _dcz_error			# invalid code (garbled table)
 
 	# consume bits
 	srl	s10, s10, t6
@@ -1859,6 +1878,7 @@ _dcz_match_decode:
 	add	t6, t5, t6			# match_dist
 
 	# copy match_len bytes from (output_pos - match_dist)
+	bgtu	t6, s2, _dcz_error		# dist > output_pos = invalid
 	sub	t4, s2, t6			# src_offset
 
 _dcz_copy:
@@ -1877,6 +1897,14 @@ _dcz_done:
 	mv	a0, s2				# return decompressed size
 	j	_dcz_cleanup
 
+_dcz_error_book:
+	# Error during book/RLE reading (main_cl allocated but not main_lookup)
+	li	a0, -1
+	addi	sp, sp, 1540			# main_cl
+	addi	sp, sp, 512			# book_lookup
+	addi	sp, sp, 60			# book_cl
+	j	_dcz_cleanup_ret
+
 _dcz_error:
 	li	a0, -1
 
@@ -1887,6 +1915,7 @@ _dcz_cleanup:
 	addi	sp, sp, 512			# book_lookup
 	addi	sp, sp, 60			# book_cl
 
+_dcz_cleanup_ret:
 	RETURN
 
 .endm	# DEFINE_COMPRESS

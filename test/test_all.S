@@ -250,6 +250,12 @@ _cz_bible_cmp:
 _cz_bible_ok:
 	PASS_TEST
 
+	# TODO: add corruption + fuzz tests for decompressor
+	# Blocked on remaining infinite-loop path in decompress_block with
+	# malicious input. Fixed so far: zero-length lookup entries, RLE bounds
+	# overflow, invalid code lengths in calculate_codes/build_lookup_table,
+	# match distance > output_pos. Need to find remaining hang path.
+
 	# ══════════════════════════════════════════════════
 	# All passed
 	# ══════════════════════════════════════════════════
