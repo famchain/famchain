@@ -28,6 +28,7 @@ jobs:
         task:
           - runtests
           - runcov
+          - runbenches
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
