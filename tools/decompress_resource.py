@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Compress a resource file using the famchain compressor (via QEMU).
+"""Decompress a .cz file using the famchain decompressor (via QEMU).
 
-Usage: python3 tools/compress_resource.py <input> <output>
+Usage: python3 tools/decompress_resource.py <input.cz> <output>
 """
 import os
 import struct
@@ -10,7 +10,7 @@ import sys
 import tempfile
 
 if len(sys.argv) < 3:
-    print(f"Usage: {sys.argv[0]} <input> <output>", file=sys.stderr)
+    print(f"Usage: {sys.argv[0]} <input.cz> <output>", file=sys.stderr)
     sys.exit(1)
 
 input_path = sys.argv[1]
@@ -21,19 +21,17 @@ OBJCOPY = "riscv64-unknown-elf-objcopy"
 MARCH = "-march=rv32i_zicsr -mabi=ilp32"
 
 input_size = os.path.getsize(input_path)
-print(f"Compressing {input_path} ({input_size} bytes)...", file=sys.stderr)
+print(f"Decompressing {input_path} ({input_size} bytes)...", file=sys.stderr)
 
 with tempfile.TemporaryDirectory() as tmp:
-    # Patch the .incbin path
-    asm_src = os.path.join(tmp, "compress.S")
-    with open("tools/compress_resource.S") as f:
+    asm_src = os.path.join(tmp, "decompress.S")
+    with open("tools/decompress_resource.S") as f:
         src = f.read().replace("RESOURCE_PATH", input_path)
     with open(asm_src, "w") as f:
         f.write(src)
 
-    # Assemble
-    obj = os.path.join(tmp, "compress.o")
-    binfile = os.path.join(tmp, "compress.bin")
+    obj = os.path.join(tmp, "decompress.o")
+    binfile = os.path.join(tmp, "decompress.bin")
     r = subprocess.run(f"{AS} {MARCH} -I inc -o {obj} {asm_src}",
                        shell=True, capture_output=True, text=True)
     if r.returncode != 0:
@@ -46,7 +44,6 @@ with tempfile.TemporaryDirectory() as tmp:
         print(f"Objcopy failed:\n{r.stderr}", file=sys.stderr)
         sys.exit(1)
 
-    # Run in QEMU, capture stdout (binary compressed data)
     r = subprocess.run(
         ["timeout", "60", "qemu-system-riscv32",
          "-machine", "virt", "-nographic", "-bios", "none", "-smp", "1",
@@ -63,18 +60,15 @@ with tempfile.TemporaryDirectory() as tmp:
         print(f"Output too short ({len(raw)} bytes)", file=sys.stderr)
         sys.exit(1)
 
-    # First 4 bytes = compressed size (LE)
-    compressed_size = struct.unpack('<I', raw[:4])[0]
-    compressed_data = raw[4:4 + compressed_size]
+    decompressed_size = struct.unpack('<I', raw[:4])[0]
+    decompressed_data = raw[4:4 + decompressed_size]
 
-    if len(compressed_data) != compressed_size:
-        print(f"Size mismatch: header says {compressed_size}, got {len(compressed_data)}",
+    if len(decompressed_data) != decompressed_size:
+        print(f"Size mismatch: header says {decompressed_size}, got {len(decompressed_data)}",
               file=sys.stderr)
         sys.exit(1)
 
     with open(output_path, 'wb') as f:
-        f.write(compressed_data)
+        f.write(decompressed_data)
 
-    ratio = compressed_size * 100 // input_size
-    print(f"Wrote {output_path}: {compressed_size} bytes ({ratio}% of original)",
-          file=sys.stderr)
+    print(f"Wrote {output_path}: {decompressed_size} bytes", file=sys.stderr)
