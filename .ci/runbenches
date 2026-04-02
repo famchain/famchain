@@ -24,4 +24,4 @@ run_bench() {
 	echo ""
 }
 
-run_bench "bench_wots" "test/bench_wots.S"
+run_bench "bench_wots" "bench/bench_wots.S"

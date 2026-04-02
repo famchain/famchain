@@ -1,6 +1,4 @@
-# test_all.S — Combined unit tests for all libraries
-#
-# Runs blake2s + WOTS+ + compress tests in sequence. Single binary, single coverage report.
+# test_all.S — Unit tests for all libraries
 
 .equ	EXIT_ADDR,	0x100000
 .equ	EXIT_PASS,	0x5555

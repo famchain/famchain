@@ -12,10 +12,16 @@ MARCH="-march=rv32i_zicsr -mabi=ilp32"
 PASS=0
 FAIL=0
 
+# Coverage mode: set TRACE_DIR to enable QEMU instruction tracing
+QEMU_TRACE_FLAGS=""
+if [ -n "$TRACE_DIR" ]; then
+	mkdir -p "$TRACE_DIR"
+	rm -f "$TRACE_DIR"/*.log
+fi
+
 # ── helpers ──
 
 build_node() {
-	# $1 = source file
 	$AS $MARCH -I inc -o tmp/node.o "$1" || exit 1
 	$OBJCOPY -O binary tmp/node.o tmp/node.bin || exit 1
 }
@@ -42,20 +48,46 @@ stop_server() {
 }
 
 run_qemu() {
-	# $1 = host list string, $2 = timeout (default 10), $3 = smp (default 2)
+	# $1 = host list string, $2 = timeout (default 10), $3 = smp (default 2), $4 = trace name
 	local hosts="$1"
 	local tmout="${2:-10}"
 	local smp="${3:-2}"
+	local trace_name="$4"
+	local trace_flags=""
+	if [ -n "$TRACE_DIR" ] && [ -n "$trace_name" ]; then
+		trace_flags="-d in_asm -D $TRACE_DIR/$trace_name.log"
+	fi
 	(echo "$hosts"; printf '\004') | timeout "$tmout" qemu-system-riscv32 \
 		-machine virt \
 		-nographic \
 		-bios none \
 		-smp "$smp" \
+		$trace_flags \
 		-device loader,file=./tmp/famchain.bin,addr=0x80000000 \
 		-netdev user,id=net0,hostfwd=tcp::2222-:22 \
 		-drive file=./tmp/disk.img,if=none,format=raw,id=dr0 \
 		-device virtio-blk-device,drive=dr0,bus=virtio-mmio-bus.0 \
 		-device virtio-net-device,netdev=net0,bus=virtio-mmio-bus.1 2>/dev/null
+}
+
+run_unit_test() {
+	# $1 = test name, $2 = source file
+	echo "=== Unit: $1 ==="
+	$AS $MARCH -I inc -o "tmp/$1.o" "$2" || { fail "$1 (build)"; return; }
+	$OBJCOPY -O binary "tmp/$1.o" "tmp/$1.bin" || { fail "$1 (objcopy)"; return; }
+	local trace_flags=""
+	if [ -n "$TRACE_DIR" ]; then
+		trace_flags="-d in_asm -D $TRACE_DIR/$1.log"
+	fi
+	if timeout 10 qemu-system-riscv32 \
+		-machine virt -nographic -bios none -smp 1 \
+		$trace_flags \
+		-device loader,file="tmp/$1.bin",addr=0x80000000 \
+		</dev/null 2>/dev/null; then
+		pass "$1"
+	else
+		fail "$1"
+	fi
 }
 
 pass() {
@@ -72,21 +104,6 @@ fail() {
 # Unit Tests (no network/disk, pure compute)
 # ══════════════════════════════════════════════════════════════════════════════
 
-run_unit_test() {
-	# $1 = test name, $2 = source file
-	echo "=== Unit: $1 ==="
-	$AS $MARCH -I inc -o "tmp/$1.o" "$2" || { fail "$1 (build)"; return; }
-	$OBJCOPY -O binary "tmp/$1.o" "tmp/$1.bin" || { fail "$1 (objcopy)"; return; }
-	if timeout 5 qemu-system-riscv32 \
-		-machine virt -nographic -bios none -smp 1 \
-		-device loader,file="tmp/$1.bin",addr=0x80000000 \
-		</dev/null 2>/dev/null; then
-		pass "$1"
-	else
-		fail "$1"
-	fi
-}
-
 run_unit_test "test_all" "test/test_all.S"
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -102,8 +119,7 @@ build_bootloader
 reset_disk
 start_server
 
-# First run: download from network
-if run_qemu "127.0.0.1:3737"; then
+if run_qemu "127.0.0.1:3737" 10 2 "01_download"; then
 	pass "download + execute"
 else
 	fail "download + execute"
@@ -111,8 +127,7 @@ fi
 
 stop_server
 
-# Second run: load from disk cache (no server needed)
-if run_qemu "127.0.0.1:3737"; then
+if run_qemu "127.0.0.1:3737" 10 2 "02_cache_hit"; then
 	pass "disk cache hit"
 else
 	fail "disk cache hit"
@@ -127,7 +142,7 @@ build_bootloader
 reset_disk
 start_server
 
-if run_qemu "127.0.0.1:3737"; then
+if run_qemu "127.0.0.1:3737" 10 2 "03_multi_chunk"; then
 	pass "multi-chunk download"
 else
 	fail "multi-chunk download"
@@ -135,8 +150,7 @@ fi
 
 stop_server
 
-# Second run: verify disk cache works for large binary too
-if run_qemu "127.0.0.1:3737"; then
+if run_qemu "127.0.0.1:3737" 10 2 "04_multi_cache"; then
 	pass "multi-chunk disk cache"
 else
 	fail "multi-chunk disk cache"
@@ -151,8 +165,7 @@ build_bootloader
 reset_disk
 start_server
 
-# 192.0.2.1 is TEST-NET (RFC 5737), won't respond → timeout → fallback to 127.0.0.1
-if run_qemu "192.0.2.1:9999 127.0.0.1:3737" 20; then
+if run_qemu "192.0.2.1:9999 127.0.0.1:3737" 20 2 "05_failover"; then
 	pass "multi-host failover"
 else
 	fail "multi-host failover"
@@ -165,14 +178,12 @@ stop_server
 # ══════════════════════════════════════════════════════════════════════════════
 echo "=== Test 4: Hash mismatch rejection ==="
 build_node test/node.S
-# Build bootloader with WRONG hash (use production config, not matching test node)
 $AS $MARCH -I inc -o tmp/famchain.o src/famchain.S || exit 1
 $OBJCOPY -O binary tmp/famchain.o tmp/famchain.bin || exit 1
 reset_disk
 start_server
 
-# Should download but reject (hash mismatch), print H! and hang → timeout
-output=$(run_qemu "127.0.0.1:3737" 3 1 2>&1 || true)
+output=$(run_qemu "127.0.0.1:3737" 3 1 "06_hash_reject" 2>&1 || true)
 if echo "$output" | grep -q "H!"; then
 	pass "hash mismatch rejection"
 else
@@ -190,8 +201,7 @@ build_bootloader
 reset_disk
 start_server
 
-# First: populate disk cache
-if run_qemu "127.0.0.1:3737"; then
+if run_qemu "127.0.0.1:3737" 10 2 "07_populate"; then
 	pass "populate cache"
 else
 	fail "populate cache"
@@ -199,11 +209,9 @@ else
 	exit 1
 fi
 
-# Corrupt the disk (overwrite first sector with garbage)
 printf '\xff\xff\xff\xff' | dd of=./tmp/disk.img bs=1 count=4 conv=notrunc 2>/dev/null
 
-# Re-run: should detect corruption, re-download, and succeed
-if run_qemu "127.0.0.1:3737"; then
+if run_qemu "127.0.0.1:3737" 10 2 "08_corrupt_recover"; then
 	pass "disk corruption recovery"
 else
 	fail "disk corruption recovery"

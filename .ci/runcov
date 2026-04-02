@@ -1,8 +1,31 @@
 #!/bin/sh
 
-if [ "$CI" = "true" ]; then
-	sudo apt-get update
-	sudo apt install -y gcc-riscv64-unknown-elf qemu-system-misc
-fi
+MIN_COVERAGE=25
+TRACE_DIR="/tmp/famchain_traces"
+export TRACE_DIR
 
-./tools/run_coverage.sh || exit 1
+# Run the exact same tests as runtests, but with tracing enabled
+./.ci/runtests || exit 1
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Coverage reports
+# ══════════════════════════════════════════════════════════════════════════════
+
+echo ""
+echo "══════════════════════════════════════════════════════════════════"
+echo " Bootloader Coverage"
+echo "══════════════════════════════════════════════════════════════════"
+cat "$TRACE_DIR"/0*.log > "$TRACE_DIR/merged_boot.log"
+python3 tools/coverage.py tmp/famchain.bin "$TRACE_DIR/merged_boot.log" --min $MIN_COVERAGE
+BOOT_RC=$?
+
+echo ""
+echo "══════════════════════════════════════════════════════════════════"
+echo " Library Coverage"
+echo "══════════════════════════════════════════════════════════════════"
+python3 tools/coverage.py tmp/test_all.bin "$TRACE_DIR/test_all.log" --min $MIN_COVERAGE
+LIB_RC=$?
+
+if [ "$BOOT_RC" -ne 0 ] || [ "$LIB_RC" -ne 0 ]; then
+	exit 1
+fi
