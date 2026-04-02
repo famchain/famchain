@@ -657,7 +657,7 @@ _pow_wcopy:
 _pow_write_done:
 	LOAD_ADDRESS	a0, _lbl_pow_saved
 	jal	print_str
-	j	_pow_tests
+	# Fall through to load — verifies load path even on first run
 
 _pow_load:
 	LOAD_ADDRESS	a0, _lbl_pow_load
@@ -691,6 +691,17 @@ _pow_read_done:
 	jal	print_str
 
 _pow_tests:
+	# Test bible_expand library function with 2MB table (exercises blake2s chain)
+	RUN_TEST tn_pow_expand
+	LOAD_ADDRESS	a0, tv_pow_bible
+	LOAD_ADDRESS	a1, tv_pow_bible_end
+	sub	a1, a1, a0
+	li	a2, POW_TABLE_ADDR		# reuse table buffer
+	li	a3, 0x200000			# 2MB
+	jal	bible_expand
+	bltz	a0, test_fail
+	PASS_TEST
+
 	RUN_TEST tn_pow_hash
 	li	a0, POW_TABLE_ADDR
 	li	a1, POW_TABLE_MASK
@@ -1077,6 +1088,7 @@ tn_cz_corrupt:	.asciz	"decompress corrupt  "
 tn_cz_fuzz:	.asciz	"decompress fuzz     "
 tn_cz_trunc:	.asciz	"decompress truncate "
 tn_cz_edge:	.asciz	"decompress edge     "
+tn_pow_expand:	.asciz	"bible_expand        "
 tn_pow_hash:	.asciz	"pow_hash non-zero   "
 tn_pow_determ:	.asciz	"pow_hash determinism"
 tn_pow_diff:	.asciz	"pow_hash nonce diff "
