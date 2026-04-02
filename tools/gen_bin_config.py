@@ -29,6 +29,7 @@ if len(sys.argv) >= 3:
     path = os.path.join(sys.argv[2], 'bin_config.inc')
     with open(path, 'w') as f:
         f.write(output)
-    print(f"Wrote {path}", file=sys.stderr)
+    if os.environ.get('VERBOSE') == '1':
+        print(f"Wrote {path}", file=sys.stderr)
 else:
     print(output, end='')

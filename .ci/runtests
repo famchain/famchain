@@ -67,7 +67,8 @@ run_qemu() {
 		-netdev user,id=net0,hostfwd=tcp::2222-:22 \
 		-drive file=./tmp/disk.img,if=none,format=raw,id=dr0 \
 		-device virtio-blk-device,drive=dr0,bus=virtio-mmio-bus.0 \
-		-device virtio-net-device,netdev=net0,bus=virtio-mmio-bus.1 2>/dev/null
+		-device virtio-net-device,netdev=net0,bus=virtio-mmio-bus.1 \
+		>/dev/null 2>/dev/null
 }
 
 run_unit_test() {
@@ -183,7 +184,19 @@ $OBJCOPY -O binary tmp/famchain.o tmp/famchain.bin || exit 1
 reset_disk
 start_server
 
-output=$(run_qemu "127.0.0.1:3737" 3 1 "06_hash_reject" 2>&1 || true)
+trace_flags=""
+if [ -n "$TRACE_DIR" ]; then
+	trace_flags="-d in_asm -D $TRACE_DIR/06_hash_reject.log"
+fi
+output=$({ echo "127.0.0.1:3737"; printf '\004'; } | timeout 3 qemu-system-riscv32 \
+	-machine virt -nographic -bios none -smp 1 \
+	$trace_flags \
+	-device loader,file=./tmp/famchain.bin,addr=0x80000000 \
+	-netdev user,id=net0,hostfwd=tcp::2222-:22 \
+	-drive file=./tmp/disk.img,if=none,format=raw,id=dr0 \
+	-device virtio-blk-device,drive=dr0,bus=virtio-mmio-bus.0 \
+	-device virtio-net-device,netdev=net0,bus=virtio-mmio-bus.1 \
+	2>/dev/null || true)
 if echo "$output" | grep -q "H!"; then
 	pass "hash mismatch rejection"
 else

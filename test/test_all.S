@@ -11,6 +11,19 @@
 .include "wots.inc"
 .include "compress.inc"
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Test macros
+# ──────────────────────────────────────────────────────────────────────────────
+.macro RUN_TEST label
+	LOAD_ADDRESS a0, \label
+	jal	print_str
+.endm
+
+.macro PASS_TEST
+	LOAD_ADDRESS a0, _str_pass
+	jal	print_str
+.endm
+
 # Memory layout in data region (from gp):
 .equ	SK_OFF,		0
 .equ	PK_OFF,		576
@@ -28,14 +41,10 @@ _start:
 	add		sp, gp, t0
 
 	# ══════════════════════════════════════════════════
-	# Blake2s tests
+	# Blake2s
 	# ══════════════════════════════════════════════════
 
-	# Test 1: empty input
-	li		a0, 'B'
-	jal		write_byte
-	li		a0, '1'
-	jal		write_byte
+	RUN_TEST tn_b2s_empty
 	LOAD_ADDRESS	a0, tv_b2s_empty
 	li		a1, 0
 	addi		sp, sp, -32
@@ -45,12 +54,9 @@ _start:
 	mv		a0, sp
 	jal		check_hash_32
 	addi		sp, sp, 32
+	PASS_TEST
 
-	# Test 2: "abc"
-	li		a0, 'B'
-	jal		write_byte
-	li		a0, '2'
-	jal		write_byte
+	RUN_TEST tn_b2s_abc
 	LOAD_ADDRESS	a0, tv_b2s_abc
 	li		a1, 3
 	addi		sp, sp, -32
@@ -60,12 +66,9 @@ _start:
 	mv		a0, sp
 	jal		check_hash_32
 	addi		sp, sp, 32
+	PASS_TEST
 
-	# Test 3: 64 bytes (one block)
-	li		a0, 'B'
-	jal		write_byte
-	li		a0, '3'
-	jal		write_byte
+	RUN_TEST tn_b2s_64
 	LOAD_ADDRESS	a0, tv_b2s_64
 	li		a1, 64
 	addi		sp, sp, -32
@@ -75,12 +78,9 @@ _start:
 	mv		a0, sp
 	jal		check_hash_32
 	addi		sp, sp, 32
+	PASS_TEST
 
-	# Test 4: 65 bytes (two blocks)
-	li		a0, 'B'
-	jal		write_byte
-	li		a0, '4'
-	jal		write_byte
+	RUN_TEST tn_b2s_65
 	LOAD_ADDRESS	a0, tv_b2s_65
 	li		a1, 65
 	addi		sp, sp, -32
@@ -90,12 +90,9 @@ _start:
 	mv		a0, sp
 	jal		check_hash_32
 	addi		sp, sp, 32
+	PASS_TEST
 
-	# Test 5: blake2s_64 (optimized path)
-	li		a0, 'B'
-	jal		write_byte
-	li		a0, '5'
-	jal		write_byte
+	RUN_TEST tn_b2s_opt
 	LOAD_ADDRESS	a0, tv_b2s_64
 	addi		sp, sp, -32
 	mv		a1, sp
@@ -104,12 +101,10 @@ _start:
 	mv		a0, sp
 	jal		check_hash_32
 	addi		sp, sp, 32
-
-	li		a0, '\n'
-	jal		write_byte
+	PASS_TEST
 
 	# ══════════════════════════════════════════════════
-	# WOTS+ tests
+	# WOTS+
 	# ══════════════════════════════════════════════════
 
 	# Setup seed (0xAA * 32)
@@ -122,11 +117,7 @@ _start:
 	.set	_i, _i + 1
 	.endr
 
-	# Compute message hash
-	li		a0, 'W'
-	jal		write_byte
-	li		a0, 'M'
-	jal		write_byte
+	RUN_TEST tn_wots_hash
 	LOAD_ADDRESS	a0, tv_wots_msg_text
 	li		a1, 21
 	li		t0, MSG_OFF
@@ -136,10 +127,9 @@ _start:
 	add		a0, gp, t0
 	LOAD_ADDRESS	t0, tv_wots_msg_hash
 	jal		check_hash_32
+	PASS_TEST
 
-	# Keygen
-	li		a0, 'K'
-	jal		write_byte
+	RUN_TEST tn_wots_keygen
 	li		t0, SEED_OFF
 	add		a0, gp, t0
 	li		t0, PK_OFF
@@ -147,14 +137,12 @@ _start:
 	li		t0, SK_OFF
 	add		a2, gp, t0
 	jal		wots_keyfrom
-	# spot-check sk[0]
 	mv		a0, gp
 	LOAD_ADDRESS	t0, tv_wots_sk0
 	jal		check_hash_32
+	PASS_TEST
 
-	# Sign
-	li		a0, 'S'
-	jal		write_byte
+	RUN_TEST tn_wots_sign
 	li		t0, SK_OFF
 	add		a0, gp, t0
 	li		t0, MSG_OFF
@@ -162,13 +150,9 @@ _start:
 	li		t0, SIG_OFF
 	add		a2, gp, t0
 	jal		wots_sign
+	PASS_TEST
 
-	li		a0, '.'
-	jal		write_byte
-
-	# Verify
-	li		a0, 'V'
-	jal		write_byte
+	RUN_TEST tn_wots_verify
 	li		t0, PK_OFF
 	add		a0, gp, t0
 	li		t0, SIG_OFF
@@ -177,21 +161,14 @@ _start:
 	add		a2, gp, t0
 	jal		wots_verify
 	bnez		a0, test_fail
-	li		a0, '.'
-	jal		write_byte
+	PASS_TEST
 
-	# Negative test 1: tampered message should fail verification
-	li		a0, 'N'
-	jal		write_byte
-	li		a0, '1'
-	jal		write_byte
-	# flip a bit in the message
+	RUN_TEST tn_wots_tmsg
 	li		t0, MSG_OFF
 	add		t0, gp, t0
 	lbu		t1, 0(t0)
-	xori		t1, t1, 1		# flip bit 0 of first byte
+	xori		t1, t1, 1
 	sb		t1, 0(t0)
-	# verify should return -1
 	li		t0, PK_OFF
 	add		a0, gp, t0
 	li		t0, SIG_OFF
@@ -199,28 +176,21 @@ _start:
 	li		t0, MSG_OFF
 	add		a2, gp, t0
 	jal		wots_verify
-	beqz		a0, test_fail		# should NOT pass
-	li		a0, '.'
-	jal		write_byte
-	# restore message
+	beqz		a0, test_fail
+	# restore
 	li		t0, MSG_OFF
 	add		t0, gp, t0
 	lbu		t1, 0(t0)
 	xori		t1, t1, 1
 	sb		t1, 0(t0)
+	PASS_TEST
 
-	# Negative test 2: tampered signature should fail verification
-	li		a0, 'N'
-	jal		write_byte
-	li		a0, '2'
-	jal		write_byte
-	# flip a bit in the signature
+	RUN_TEST tn_wots_tsig
 	li		t0, SIG_OFF
 	add		t0, gp, t0
 	lbu		t1, 0(t0)
 	xori		t1, t1, 1
 	sb		t1, 0(t0)
-	# verify should return -1
 	li		t0, PK_OFF
 	add		a0, gp, t0
 	li		t0, SIG_OFF
@@ -228,28 +198,21 @@ _start:
 	li		t0, MSG_OFF
 	add		a2, gp, t0
 	jal		wots_verify
-	beqz		a0, test_fail		# should NOT pass
-	li		a0, '.'
-	jal		write_byte
-	# restore signature
+	beqz		a0, test_fail
+	# restore
 	li		t0, SIG_OFF
 	add		t0, gp, t0
 	lbu		t1, 0(t0)
 	xori		t1, t1, 1
 	sb		t1, 0(t0)
+	PASS_TEST
 
-	# Negative test 3: tampered public key should fail verification
-	li		a0, 'N'
-	jal		write_byte
-	li		a0, '3'
-	jal		write_byte
-	# flip a bit in pk
+	RUN_TEST tn_wots_tpk
 	li		t0, PK_OFF
 	add		t0, gp, t0
 	lbu		t1, 0(t0)
 	xori		t1, t1, 1
 	sb		t1, 0(t0)
-	# verify should return -1
 	li		t0, PK_OFF
 	add		a0, gp, t0
 	li		t0, SIG_OFF
@@ -257,26 +220,16 @@ _start:
 	li		t0, MSG_OFF
 	add		a2, gp, t0
 	jal		wots_verify
-	beqz		a0, test_fail		# should NOT pass
-	li		a0, '.'
-	jal		write_byte
-
-	li		a0, '\n'
-	jal		write_byte
+	beqz		a0, test_fail
+	PASS_TEST
 
 	# ══════════════════════════════════════════════════
-	# Compression tests
+	# Compression
 	# ══════════════════════════════════════════════════
 
-	# Test C1: round-trip with repeating pattern
-	li	a0, 'C'
-	jal	write_byte
-	li	a0, '1'
-	jal	write_byte
-
+	RUN_TEST tn_cz_rt
 	LOAD_ADDRESS	a0, tv_cz_repeat
 	li	a1, 24
-	# output at gp + 0x10000, match_array at gp + 0x20000
 	li	t0, 0x10000
 	add	a2, gp, t0
 	li	t0, 0x20000
@@ -284,7 +237,6 @@ _start:
 	jal	compress_block
 	blez	a0, test_fail
 	mv	s0, a0
-
 	li	t0, 0x10000
 	add	a0, gp, t0
 	mv	a1, s0
@@ -294,7 +246,6 @@ _start:
 	jal	decompress_block
 	li	t0, 24
 	bne	a0, t0, test_fail
-
 	LOAD_ADDRESS	t0, tv_cz_repeat
 	mv	t3, gp
 	li	t4, 0x30000
@@ -310,15 +261,9 @@ _cz_cmp1:
 	addi	t2, t2, -1
 	j	_cz_cmp1
 _cz_cmp1_ok:
-	li	a0, '.'
-	jal	write_byte
+	PASS_TEST
 
-	# Test C2: round-trip with short all-literal input
-	li	a0, 'C'
-	jal	write_byte
-	li	a0, '2'
-	jal	write_byte
-
+	RUN_TEST tn_cz_short
 	LOAD_ADDRESS	a0, tv_cz_short
 	li	a1, 5
 	li	t0, 0x10000
@@ -328,7 +273,6 @@ _cz_cmp1_ok:
 	jal	compress_block
 	blez	a0, test_fail
 	mv	s0, a0
-
 	li	t0, 0x10000
 	add	a0, gp, t0
 	mv	a1, s0
@@ -338,7 +282,6 @@ _cz_cmp1_ok:
 	jal	decompress_block
 	li	t0, 5
 	bne	a0, t0, test_fail
-
 	LOAD_ADDRESS	t0, tv_cz_short
 	mv	t3, gp
 	li	t4, 0x30000
@@ -354,11 +297,7 @@ _cz_cmp2:
 	addi	t2, t2, -1
 	j	_cz_cmp2
 _cz_cmp2_ok:
-	li	a0, '.'
-	jal	write_byte
-
-	li	a0, '\n'
-	jal	write_byte
+	PASS_TEST
 
 	# ══════════════════════════════════════════════════
 	# All passed
@@ -370,17 +309,17 @@ _cz_cmp2_ok:
 	j		1b
 
 test_fail:
-	li		a0, '!'
-	jal		write_byte
-	li		a0, '\n'
-	jal		write_byte
+	LOAD_ADDRESS	a0, _str_fail
+	jal		print_str
 1:	wfi
 	j		1b
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Helpers
+# ──────────────────────────────────────────────────────────────────────────────
+
 # check_hash_32: compare 32 bytes at a0 against expected at t0
-# Prints "." on pass, "!" + halt on fail
 check_hash_32:
 	SETUP	s0, s1
 	mv	s0, a0
@@ -393,12 +332,19 @@ check_hash_32:
 	addi	s1, s1, 4
 	addi	t2, t2, -1
 	bnez	t2, 1b
-	li	a0, '.'
-	jal	write_byte
 	RETURN
 
+# print_str: print null-terminated string at a0
+print_str:
+	SETUP	s0
+	mv	s0, a0
+1:	lbu	a0, 0(s0)
+	beqz	a0, 2f
+	jal	write_byte
+	addi	s0, s0, 1
+	j	1b
+2:	RETURN
 
-# ──────────────────────────────────────────────────────────────────────────────
 write_byte:
 	li	t1, UART_BASE
 	lbu	t2, UART_LSR(t1)
@@ -415,9 +361,31 @@ DEFINE_COMPRESS
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Test vectors
+# String constants and test vectors
 # ══════════════════════════════════════════════════════════════════════════════
 	.balign 4
+
+_str_pass:
+	.asciz	"PASS\n"
+_str_fail:
+	.asciz	"FAIL\n"
+
+# ── test names ──
+
+tn_b2s_empty:	.asciz	"blake2s empty       "
+tn_b2s_abc:	.asciz	"blake2s abc         "
+tn_b2s_64:	.asciz	"blake2s 64 bytes    "
+tn_b2s_65:	.asciz	"blake2s 65 bytes    "
+tn_b2s_opt:	.asciz	"blake2s_64          "
+tn_wots_hash:	.asciz	"wots msg hash       "
+tn_wots_keygen:	.asciz	"wots keygen         "
+tn_wots_sign:	.asciz	"wots sign           "
+tn_wots_verify:	.asciz	"wots verify         "
+tn_wots_tmsg:	.asciz	"wots tampered msg   "
+tn_wots_tsig:	.asciz	"wots tampered sig   "
+tn_wots_tpk:	.asciz	"wots tampered pk    "
+tn_cz_rt:	.asciz	"compress round-trip "
+tn_cz_short:	.asciz	"compress short      "
 
 # ── blake2s vectors ──
 
