@@ -207,6 +207,46 @@ _start:
 	jal	check_roundtrip
 	PASS_TEST
 
+	RUN_TEST tn_cz_mozilla
+	LOAD_ADDRESS	s0, tv_cz_mozilla
+	LOAD_ADDRESS	s1, tv_cz_mozilla_end
+	sub	s1, s1, s0
+	li	s2, 0x82000000
+	li	s3, 0x82100000
+	li	s4, 0x82800000
+	mv	a0, s0
+	mv	a1, s1
+	mv	a2, s2
+	mv	a3, s3
+	jal	compress_block
+	blez	a0, test_fail
+	# compressed must be < 80% of input (sanity: actual compression happened)
+	srli	t0, s1, 1			# input / 2
+	srli	t1, s1, 2			# input / 4
+	add	t0, t0, t1			# input * 3/4 ≈ 75%
+	bge	a0, t0, test_fail
+	mv	s5, a0
+	mv	a0, s2
+	mv	a1, s5
+	mv	a2, s4
+	li	a3, 0x00200000
+	jal	decompress_block
+	bne	a0, s1, test_fail
+	mv	t0, s0
+	mv	t1, s4
+	mv	t2, s1
+_cz_moz_cmp:
+	beqz	t2, _cz_moz_ok
+	lbu	t3, 0(t0)
+	lbu	t4, 0(t1)
+	bne	t3, t4, test_fail
+	addi	t0, t0, 1
+	addi	t1, t1, 1
+	addi	t2, t2, -1
+	j	_cz_moz_cmp
+_cz_moz_ok:
+	PASS_TEST
+
 	RUN_TEST tn_cz_bible
 	LOAD_ADDRESS	s0, tv_cz_bible
 	LOAD_ADDRESS	s1, tv_cz_bible_end
@@ -224,6 +264,11 @@ _start:
 	mv	a3, s3
 	jal	compress_block
 	blez	a0, test_fail
+	# compressed must be < 75% of input
+	srli	t0, s1, 1
+	srli	t1, s1, 2
+	add	t0, t0, t1
+	bge	a0, t0, test_fail
 	mv	s5, a0				# compressed size
 
 	# decompress
@@ -550,6 +595,7 @@ tn_wots_tpk:	.asciz	"wots tampered pk    "
 tn_cz_rt:	.asciz	"compress round-trip "
 tn_cz_short:	.asciz	"compress short      "
 tn_cz_large:	.asciz	"compress with match "
+tn_cz_mozilla:	.asciz	"compress mozilla     "
 tn_cz_bible:	.asciz	"compress bible 4MB  "
 tn_cz_corrupt:	.asciz	"decompress corrupt  "
 tn_cz_fuzz:	.asciz	"decompress fuzz     "
@@ -626,6 +672,11 @@ tv_cz_large:
 	.ascii	"The quick brown fox jumps over the lazy dog. "
 	.ascii	"The quick brown fox jumps over "
 tv_cz_large_end:
+	.balign 4
+
+tv_cz_mozilla:
+	.incbin "resources/mozilla"
+tv_cz_mozilla_end:
 	.balign 4
 
 tv_cz_bible:

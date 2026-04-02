@@ -1,4 +1,4 @@
-# bench_compress.S — Compress bible.txt, verify round-trip, report ratio
+# bench_compress.S — Compress datasets, verify round-trip, report ratio + cycles
 
 .equ	EXIT_ADDR,	0x100000
 .equ	EXIT_PASS,	0x5555
@@ -12,125 +12,21 @@
 _start:
 	li	sp, 0x90000000
 
-	LOAD_ADDRESS	s0, _bible_start
-	LOAD_ADDRESS	s1, _bible_end
-	sub	s1, s1, s0			# s1 = input size
+	# ── mozilla (164KB binary) ──
+	LOAD_ADDRESS	a0, _lbl_mozilla
+	jal	print_str
+	LOAD_ADDRESS	a0, _mozilla_start
+	LOAD_ADDRESS	a1, _mozilla_end
+	sub	a1, a1, a0
+	jal	bench_one
 
-	# Workspace
-	li	s2, 0x81000000			# output buffer
-	li	s3, 0x81800000			# match_array
-	li	s4, 0x82C00000			# decompress output
-
-	# ── Compress ──
-	rdcycle	s6
-	mv	a0, s0
-	mv	a1, s1
-	mv	a2, s2
-	mv	a3, s3
-	jal	compress_block
-	rdcycle	s7
-	bltz	a0, _error
-	mv	s5, a0				# s5 = compressed size
-	sub	s6, s7, s6			# s6 = compress cycles
-
-	# ── Decompress + verify ──
-	rdcycle	s7
-	mv	a0, s2
-	mv	a1, s5
-	mv	a2, s4
-	li	a3, 0x00500000
-	jal	decompress_block
-	rdcycle	s8
-	bltz	a0, _error
-	bne	a0, s1, _verify_error
-	sub	s7, s8, s7			# s7 = decompress cycles
-
-	mv	t0, s0
-	mv	t1, s4
-	mv	t2, s1
-_verify_cmp:
-	beqz	t2, _verify_ok
-	lbu	t3, 0(t0)
-	lbu	t4, 0(t1)
-	bne	t3, t4, _verify_error
-	addi	t0, t0, 1
-	addi	t1, t1, 1
-	addi	t2, t2, -1
-	j	_verify_cmp
-
-_verify_ok:
-	# ── Report ──
-	# "input:      NNNNNNN bytes"
-	LOAD_ADDRESS	a0, _lbl_input
+	# ── bible (4.4MB text) ──
+	LOAD_ADDRESS	a0, _lbl_bible
 	jal	print_str
-	mv	a0, s1
-	jal	print_dec
-	LOAD_ADDRESS	a0, _lbl_bytes
-	jal	print_str
-
-	# "compressed: NNNNNNN bytes"
-	LOAD_ADDRESS	a0, _lbl_compressed
-	jal	print_str
-	mv	a0, s5
-	jal	print_dec
-	LOAD_ADDRESS	a0, _lbl_bytes
-	jal	print_str
-
-	# "ratio:      NN%"
-	# percentage = compressed * 100 / input
-	# use repeated subtraction for division
-	LOAD_ADDRESS	a0, _lbl_ratio
-	jal	print_str
-
-	# s5 * 100: shift-add (100 = 64 + 32 + 4)
-	slli	t0, s5, 6			# * 64
-	slli	t1, s5, 5			# * 32
-	add	t0, t0, t1			# * 96
-	slli	t1, s5, 2			# * 4
-	add	t0, t0, t1			# * 100 = numerator
-
-	# divide by s1 (input size) via repeated subtraction
-	li	t1, 0				# quotient
-_div_loop:
-	bltu	t0, s1, _div_done
-	sub	t0, t0, s1
-	addi	t1, t1, 1
-	j	_div_loop
-_div_done:
-	mv	a0, t1
-	jal	print_dec
-	LOAD_ADDRESS	a0, _lbl_pct
-	jal	print_str
-
-	# "compress:   NNNNN cycles (NN cycles/byte)"
-	LOAD_ADDRESS	a0, _lbl_compress
-	jal	print_str
-	mv	a0, s6
-	jal	print_dec
-	LOAD_ADDRESS	a0, _lbl_cyc_open
-	jal	print_str
-	mv	a0, s6
-	mv	a1, s1
-	jal	print_div
-	LOAD_ADDRESS	a0, _lbl_cyc_close
-	jal	print_str
-
-	# "decompress: NNNNN cycles (NN cycles/byte)"
-	LOAD_ADDRESS	a0, _lbl_decompress
-	jal	print_str
-	mv	a0, s7
-	jal	print_dec
-	LOAD_ADDRESS	a0, _lbl_cyc_open
-	jal	print_str
-	mv	a0, s7
-	mv	a1, s1
-	jal	print_div
-	LOAD_ADDRESS	a0, _lbl_cyc_close
-	jal	print_str
-
-	# "verify:     OK"
-	LOAD_ADDRESS	a0, _lbl_verify
-	jal	print_str
+	LOAD_ADDRESS	a0, _bible_start
+	LOAD_ADDRESS	a1, _bible_end
+	sub	a1, a1, a0
+	jal	bench_one
 
 	li	t0, EXIT_ADDR
 	li	t1, EXIT_PASS
@@ -144,11 +40,122 @@ _error:
 _ehalt:	wfi
 	j	_ehalt
 
-_verify_error:
-	LOAD_ADDRESS	a0, _lbl_verr
+
+# ── bench_one: compress + decompress + verify + report ──
+# a0 = input_ptr, a1 = input_len
+bench_one:
+	SETUP	s0, s1, s2, s3, s4, s5, s6, s7
+
+	mv	s0, a0				# input
+	mv	s1, a1				# input len
+	li	s2, 0x81000000			# output buffer
+	li	s3, 0x81800000			# match_array
+	li	s4, 0x82C00000			# decompress output
+
+	# compress
+	rdcycle	s6
+	mv	a0, s0
+	mv	a1, s1
+	mv	a2, s2
+	mv	a3, s3
+	jal	compress_block
+	rdcycle	s7
+	bltz	a0, _error
+	mv	s5, a0				# compressed size
+	sub	s6, s7, s6			# compress cycles
+
+	# decompress
+	rdcycle	s7
+	mv	a0, s2
+	mv	a1, s5
+	mv	a2, s4
+	li	a3, 0x00500000
+	jal	decompress_block
+	rdcycle	t0
+	bltz	a0, _error
+	bne	a0, s1, _error
+	sub	s7, t0, s7			# decompress cycles
+
+	# verify
+	mv	t0, s0
+	mv	t1, s4
+	mv	t2, s1
+_bo_cmp:
+	beqz	t2, _bo_report
+	lbu	t3, 0(t0)
+	lbu	t4, 0(t1)
+	bne	t3, t4, _error
+	addi	t0, t0, 1
+	addi	t1, t1, 1
+	addi	t2, t2, -1
+	j	_bo_cmp
+
+_bo_report:
+	# input
+	LOAD_ADDRESS	a0, _lbl_input
 	jal	print_str
-_vhalt:	wfi
-	j	_vhalt
+	mv	a0, s1
+	jal	print_dec
+	LOAD_ADDRESS	a0, _lbl_bytes
+	jal	print_str
+
+	# compressed
+	LOAD_ADDRESS	a0, _lbl_compressed
+	jal	print_str
+	mv	a0, s5
+	jal	print_dec
+	LOAD_ADDRESS	a0, _lbl_bytes
+	jal	print_str
+
+	# ratio
+	LOAD_ADDRESS	a0, _lbl_ratio
+	jal	print_str
+	slli	t0, s5, 6
+	slli	t1, s5, 5
+	add	t0, t0, t1
+	slli	t1, s5, 2
+	add	t0, t0, t1			# compressed * 100
+	li	t1, 0
+1:	bltu	t0, s1, 2f
+	sub	t0, t0, s1
+	addi	t1, t1, 1
+	j	1b
+2:	mv	a0, t1
+	jal	print_dec
+	LOAD_ADDRESS	a0, _lbl_pct
+	jal	print_str
+
+	# compress cycles
+	LOAD_ADDRESS	a0, _lbl_compress
+	jal	print_str
+	mv	a0, s6
+	jal	print_dec
+	LOAD_ADDRESS	a0, _lbl_cyc_open
+	jal	print_str
+	mv	a0, s6
+	mv	a1, s1
+	jal	print_div
+	LOAD_ADDRESS	a0, _lbl_cyc_close
+	jal	print_str
+
+	# decompress cycles
+	LOAD_ADDRESS	a0, _lbl_decompress
+	jal	print_str
+	mv	a0, s7
+	jal	print_dec
+	LOAD_ADDRESS	a0, _lbl_cyc_open
+	jal	print_str
+	mv	a0, s7
+	mv	a1, s1
+	jal	print_div
+	LOAD_ADDRESS	a0, _lbl_cyc_close
+	jal	print_str
+
+	# verify OK
+	LOAD_ADDRESS	a0, _lbl_verify
+	jal	print_str
+
+	RETURN
 
 
 # ── helpers ──
@@ -210,7 +217,6 @@ _pd_ret:
 	addi	sp, sp, 48
 	ret
 
-# print_div: print a0 / a1 as decimal
 print_div:
 	addi	sp, sp, -4
 	sw	ra, 0(sp)
@@ -239,6 +245,10 @@ DEFINE_COMPRESS
 
 # ── labels ──
 .balign 4
+_lbl_mozilla:
+	.asciz	"\n── mozilla (binary) ──\n"
+_lbl_bible:
+	.asciz	"\n── bible (text) ──\n"
 _lbl_input:
 	.asciz	"input:      "
 _lbl_compressed:
@@ -260,11 +270,13 @@ _lbl_cyc_open:
 _lbl_cyc_close:
 	.asciz	" cycles/byte)\n"
 _lbl_err:
-	.asciz	"ERROR: compress/decompress failed\n"
-_lbl_verr:
-	.asciz	"ERROR: round-trip mismatch\n"
+	.asciz	"ERROR\n"
 
 .balign 4
+_mozilla_start:
+	.incbin "resources/mozilla"
+_mozilla_end:
+	.balign 4
 _bible_start:
 	.incbin "resources/bible.txt"
 _bible_end:
