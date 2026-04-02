@@ -1678,6 +1678,20 @@ _dcz_rbl:
 	j	_dcz_rbl
 _dcz_rbl_done:
 
+	# Validate: at least one book code length must be non-zero
+	li	t0, 0
+	mv	t1, s4
+	li	t2, CZ_MAX_BOOK_CODES
+_dcz_vbook:
+	beqz	t2, _dcz_vbook_done
+	lhu	t3, CZ_CL_LEN(t1)
+	add	t0, t0, t3			# accumulate lengths
+	addi	t1, t1, CZ_CL_SIZE
+	addi	t2, t2, -1
+	j	_dcz_vbook
+_dcz_vbook_done:
+	beqz	t0, _dcz_error_bcl		# all zero = no valid book codes
+
 	# calculate book codes
 	mv	a0, s4
 	li	a1, CZ_MAX_BOOK_CODES
@@ -1803,6 +1817,20 @@ _dcz_rzl_loop:
 	j	_dcz_rzl_loop
 
 _dcz_rcl_done:
+	# Validate: at least one main code length must be non-zero
+	li	t0, 0
+	mv	t1, s4
+	li	t2, CZ_SYMBOL_COUNT
+_dcz_vmain:
+	beqz	t2, _dcz_vmain_done
+	lhu	t3, CZ_CL_LEN(t1)
+	add	t0, t0, t3
+	addi	t1, t1, CZ_CL_SIZE
+	addi	t2, t2, -1
+	j	_dcz_vmain
+_dcz_vmain_done:
+	beqz	t0, _dcz_error_book		# all zero = no valid main codes
+
 	# calculate main codes
 	mv	a0, s4
 	li	a1, CZ_SYMBOL_COUNT
@@ -1922,8 +1950,21 @@ _dcz_done:
 	mv	a0, s2				# return decompressed size
 	j	_dcz_cleanup
 
+_dcz_error_bcl:
+	# Error after only book_cl allocated
+	li	a0, -1
+	addi	sp, sp, 60			# book_cl
+	j	_dcz_cleanup_ret
+
+_dcz_error_blt:
+	# Error after book_cl + book_lookup allocated
+	li	a0, -1
+	addi	sp, sp, 512			# book_lookup
+	addi	sp, sp, 60			# book_cl
+	j	_dcz_cleanup_ret
+
 _dcz_error_book:
-	# Error during book/RLE reading (main_cl allocated but not main_lookup)
+	# Error after book_cl + book_lookup + main_cl allocated
 	li	a0, -1
 	addi	sp, sp, 1540			# main_cl
 	addi	sp, sp, 512			# book_lookup
