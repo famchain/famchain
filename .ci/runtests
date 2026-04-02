@@ -80,12 +80,20 @@ run_unit_test() {
 	if [ -n "$TRACE_DIR" ]; then
 		trace_flags="-d in_asm -D $TRACE_DIR/$1.log"
 	fi
-	if timeout 10 qemu-system-riscv32 \
+	local output
+	output=$(timeout 10 qemu-system-riscv32 \
 		-machine virt -nographic -bios none -smp 1 \
 		$trace_flags \
 		-device loader,file="tmp/$1.bin",addr=0x80000000 \
-		</dev/null 2>/dev/null; then
-		pass "$1"
+		</dev/null 2>/dev/null)
+	local rc=$?
+	echo "$output"
+	if [ "$rc" -eq 0 ]; then
+		# Count individual PASS/FAIL from binary output
+		local p=$(echo "$output" | grep -c "PASS")
+		local f=$(echo "$output" | grep -c "FAIL")
+		PASS=$((PASS + p))
+		FAIL=$((FAIL + f))
 	else
 		fail "$1"
 	fi

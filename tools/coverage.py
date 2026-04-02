@@ -32,13 +32,20 @@ def get_labels(binfile):
                 labels[addr] = name
     return labels
 
-def get_all_pcs(binfile):
-    """Get all instruction PCs from objdump."""
-    result = subprocess.run(
-        ['riscv64-unknown-elf-objdump', '-D', '-m', 'riscv:rv32', '-b', 'binary', binfile],
-        capture_output=True, text=True
-    )
+def get_all_pcs_and_validity(binfile, stop_addr=None):
+    """Get all instruction PCs and validity flags from objdump.
+    Returns (pcs: set, pcs_valid: dict[int, bool])."""
+    cmd = ['riscv64-unknown-elf-objdump', '-D', '-m', 'riscv:rv32', '-b', 'binary']
+    if stop_addr:
+        cmd += [f'--stop-address=0x{stop_addr:x}']
+    cmd.append(binfile)
+    result = subprocess.run(cmd, capture_output=True, text=True)
+
+    invalid_markers = {'.insn', 'unimp', '???'}
+    fp_prefixes = {'fsw', 'flw', 'fsd', 'fld', 'fmv', 'fadd', 'fsub', 'fmul', 'fdiv'}
+
     pcs = set()
+    pcs_valid = {}
     for line in result.stdout.splitlines():
         line = line.strip()
         if not line or line[0] not in '0123456789abcdef':
@@ -49,9 +56,15 @@ def get_all_pcs(binfile):
         try:
             pc = int(parts[0].rstrip(':'), 16)
             pcs.add(pc)
-        except ValueError:
+            asm = '\t'.join(parts[2:]).strip()
+            mnemonic = asm.split()[0] if asm else '???'
+            is_valid = (mnemonic not in invalid_markers and
+                       mnemonic not in fp_prefixes and
+                       not (mnemonic.startswith('f') and mnemonic not in ('fence',)))
+            pcs_valid[pc] = is_valid
+        except (ValueError, IndexError):
             continue
-    return pcs
+    return pcs, pcs_valid
 
 def parse_trace(tracefile, base):
     """Parse QEMU -d in_asm trace log for executed PCs."""
@@ -76,52 +89,14 @@ def find_function(pc, labels):
             best_name = name
     return best_name or f"<unknown@0x{pc:x}>"
 
-def find_data_start(binfile):
-    """Detect where data section starts (same heuristic as bin2fam0.py)."""
-    result = subprocess.run(
-        ['riscv64-unknown-elf-objdump', '-D', '-m', 'riscv:rv32', '-b', 'binary', binfile],
-        capture_output=True, text=True
-    )
-    invalid_markers = {'.insn', 'unimp', '???'}
-    fp_prefixes = {'fsw', 'flw', 'fsd', 'fld', 'fmv', 'fadd', 'fsub', 'fmul', 'fdiv'}
-
-    pcs_valid = {}
-    for line in result.stdout.splitlines():
-        line = line.strip()
-        if not line or line[0] not in '0123456789abcdef':
-            continue
-        parts = line.split('\t')
-        if len(parts) < 3:
-            continue
-        try:
-            pc = int(parts[0].rstrip(':'), 16)
-            asm = '\t'.join(parts[2:]).strip()
-            mnemonic = asm.split()[0] if asm else '???'
-            is_valid = (mnemonic not in invalid_markers and
-                       mnemonic not in fp_prefixes and
-                       not (mnemonic.startswith('f') and mnemonic not in ('fence',)))
-            pcs_valid[pc] = is_valid
-        except (ValueError, IndexError):
-            continue
-
-    # Find the final code-to-data transition.
-    # Skip small embedded data (IV tables etc.) — only trigger on a sustained
-    # run of bad instructions near the end of the binary.
-    sorted_pcs = sorted(pcs_valid.keys())
-    WINDOW = 16
-    # Scan backwards from the end to find where code last resumes
-    for i in range(len(sorted_pcs) - 1, -1, -1):
-        if pcs_valid[sorted_pcs[i]]:
-            # Found last valid instruction. Data starts after the next
-            # sustained run of bad instructions following it.
-            for j in range(i + 1, len(sorted_pcs)):
-                if not pcs_valid[sorted_pcs[j]]:
-                    end = min(j + WINDOW, len(sorted_pcs))
-                    bad = sum(1 for k in range(j, end) if not pcs_valid[sorted_pcs[k]])
-                    if bad >= (end - j) * 3 // 4:
-                        return sorted_pcs[j]
-            return max(pcs_valid.keys()) + 4
-    return max(pcs_valid.keys()) + 4 if pcs_valid else 0
+def find_data_start(binfile, labels):
+    """Find where data section starts using nm labels.
+    Uses the last code label (by address) as a reference, then adds a margin."""
+    if not labels:
+        return 0
+    # The last label is typically _test_data or similar
+    max_addr = max(labels.keys())
+    return max_addr + 4
 
 def main():
     if len(sys.argv) < 3:
@@ -138,44 +113,17 @@ def main():
         if arg == '--min' and i + 1 < len(sys.argv):
             min_coverage = float(sys.argv[i + 1])
 
-    # Get all instruction PCs and data boundary
-    all_pcs = get_all_pcs(binfile)
-    data_start = find_data_start(binfile)
-    code_pcs = {pc for pc in all_pcs if pc < data_start}
-
-    # Get labels
+    # Get labels first (fast — just nm), then compute data boundary
     labels = get_labels(binfile)
+    data_start = find_data_start(binfile, labels)
+
+    # Disassemble only code region (skip embedded data like bible.txt)
+    all_pcs, all_pcs_valid = get_all_pcs_and_validity(binfile, stop_addr=data_start)
+    code_pcs = {pc for pc in all_pcs if pc < data_start}
 
     # Parse trace
     executed = parse_trace(tracefile, base)
     executed_code = executed & code_pcs
-
-    # Identify embedded data islands: label ranges where most instructions are invalid.
-    # Also detect via pcs_valid from objdump — data bytes often decode as invalid.
-    all_pcs_valid = {}
-    result = subprocess.run(
-        ['riscv64-unknown-elf-objdump', '-D', '-m', 'riscv:rv32', '-b', 'binary', binfile],
-        capture_output=True, text=True
-    )
-    invalid_markers = {'.insn', 'unimp', '???'}
-    fp_prefixes = {'fsw', 'flw', 'fsd', 'fld', 'fmv', 'fadd', 'fsub', 'fmul', 'fdiv'}
-    for line in result.stdout.splitlines():
-        line = line.strip()
-        if not line or line[0] not in '0123456789abcdef':
-            continue
-        parts = line.split('\t')
-        if len(parts) < 3:
-            continue
-        try:
-            pc = int(parts[0].rstrip(':'), 16)
-            asm = '\t'.join(parts[2:]).strip()
-            mnemonic = asm.split()[0] if asm else '???'
-            is_valid = (mnemonic not in invalid_markers and
-                       mnemonic not in fp_prefixes and
-                       not (mnemonic.startswith('f') and mnemonic not in ('fence',)))
-            all_pcs_valid[pc] = is_valid
-        except (ValueError, IndexError):
-            continue
 
     # Known data label prefixes (constants, strings, test vectors)
     DATA_PREFIXES = ('tv_', 'tn_', '_str_', '_b2s_iv', '_b2s_h_init', '_b2s_sigma',
