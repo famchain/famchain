@@ -150,22 +150,79 @@ def main():
     executed = parse_trace(tracefile, base)
     executed_code = executed & code_pcs
 
-    # Overall coverage
+    # Identify embedded data islands: label ranges where most instructions are invalid.
+    # Also detect via pcs_valid from objdump — data bytes often decode as invalid.
+    all_pcs_valid = {}
+    result = subprocess.run(
+        ['riscv64-unknown-elf-objdump', '-D', '-m', 'riscv:rv32', '-b', 'binary', binfile],
+        capture_output=True, text=True
+    )
+    invalid_markers = {'.insn', 'unimp', '???'}
+    fp_prefixes = {'fsw', 'flw', 'fsd', 'fld', 'fmv', 'fadd', 'fsub', 'fmul', 'fdiv'}
+    for line in result.stdout.splitlines():
+        line = line.strip()
+        if not line or line[0] not in '0123456789abcdef':
+            continue
+        parts = line.split('\t')
+        if len(parts) < 3:
+            continue
+        try:
+            pc = int(parts[0].rstrip(':'), 16)
+            asm = '\t'.join(parts[2:]).strip()
+            mnemonic = asm.split()[0] if asm else '???'
+            is_valid = (mnemonic not in invalid_markers and
+                       mnemonic not in fp_prefixes and
+                       not (mnemonic.startswith('f') and mnemonic not in ('fence',)))
+            all_pcs_valid[pc] = is_valid
+        except (ValueError, IndexError):
+            continue
+
+    # Known data label prefixes (constants, strings, test vectors)
+    DATA_PREFIXES = ('tv_', 'tn_', '_str_', '_b2s_iv', '_b2s_h_init', '_b2s_sigma',
+                     'b2s_iv', 'b2s_sigma', 'b2s_g_idx', 'expected_hash',
+                     '_wots_domain', '_test_data')
+
+    data_labels = set()
+    func_addrs = sorted(labels.keys())
+    for i, addr in enumerate(func_addrs):
+        name = labels[addr]
+        end = func_addrs[i + 1] if i + 1 < len(func_addrs) else data_start
+        if addr >= data_start:
+            continue
+        # Exclude by name pattern
+        if any(name.startswith(p) or name == p for p in DATA_PREFIXES):
+            data_labels.add(name)
+            continue
+        # Exclude by content heuristic: mostly invalid instructions = data
+        range_pcs = [pc for pc in sorted(all_pcs_valid.keys()) if addr <= pc < end]
+        if not range_pcs:
+            continue
+        invalid_count = sum(1 for pc in range_pcs if not all_pcs_valid.get(pc, True))
+        if invalid_count > len(range_pcs) * 0.4:
+            data_labels.add(name)
+
+    # Exclude data islands from code PCs
+    for i, addr in enumerate(func_addrs):
+        if labels.get(addr) in data_labels:
+            end = func_addrs[i + 1] if i + 1 < len(func_addrs) else data_start
+            code_pcs -= {pc for pc in code_pcs if addr <= pc < end}
+
+    # Recompute coverage with data excluded
     total = len(code_pcs)
-    hit = len(executed_code)
+    hit = len(executed_code & code_pcs)
     missed = code_pcs - executed_code
     pct = (hit / total * 100) if total > 0 else 0
 
     print(f"Code coverage: {hit}/{total} instructions ({pct:.1f}%)")
-    print(f"Data section starts at: 0x{data_start:x}")
+    if data_labels:
+        print(f"Data labels excluded: {len(data_labels)} ({', '.join(sorted(data_labels)[:5])}{'...' if len(data_labels) > 5 else ''})")
     print()
 
     # Per-function coverage
-    func_addrs = sorted(labels.keys())
     func_ranges = []
     for i, addr in enumerate(func_addrs):
         end = func_addrs[i + 1] if i + 1 < len(func_addrs) else data_start
-        if addr < data_start:
+        if addr < data_start and labels[addr] not in data_labels:
             func_ranges.append((addr, end, labels[addr]))
 
     print(f"{'Function':<30s} {'Hit':>5s} {'Total':>5s} {'Pct':>6s}  {'Status'}")

@@ -230,73 +230,20 @@ _start:
 	RUN_TEST tn_cz_rt
 	LOAD_ADDRESS	a0, tv_cz_repeat
 	li	a1, 24
-	li	t0, 0x10000
-	add	a2, gp, t0
-	li	t0, 0x20000
-	add	a3, gp, t0
-	jal	compress_block
-	blez	a0, test_fail
-	mv	s0, a0
-	li	t0, 0x10000
-	add	a0, gp, t0
-	mv	a1, s0
-	li	t0, 0x30000
-	add	a2, gp, t0
-	li	a3, 256
-	jal	decompress_block
-	li	t0, 24
-	bne	a0, t0, test_fail
-	LOAD_ADDRESS	t0, tv_cz_repeat
-	mv	t3, gp
-	li	t4, 0x30000
-	add	t1, t3, t4
-	li	t2, 24
-_cz_cmp1:
-	beqz	t2, _cz_cmp1_ok
-	lbu	t3, 0(t0)
-	lbu	t4, 0(t1)
-	bne	t3, t4, test_fail
-	addi	t0, t0, 1
-	addi	t1, t1, 1
-	addi	t2, t2, -1
-	j	_cz_cmp1
-_cz_cmp1_ok:
+	jal	check_roundtrip
 	PASS_TEST
 
 	RUN_TEST tn_cz_short
 	LOAD_ADDRESS	a0, tv_cz_short
 	li	a1, 5
-	li	t0, 0x10000
-	add	a2, gp, t0
-	li	t0, 0x20000
-	add	a3, gp, t0
-	jal	compress_block
-	blez	a0, test_fail
-	mv	s0, a0
-	li	t0, 0x10000
-	add	a0, gp, t0
-	mv	a1, s0
-	li	t0, 0x30000
-	add	a2, gp, t0
-	li	a3, 256
-	jal	decompress_block
-	li	t0, 5
-	bne	a0, t0, test_fail
-	LOAD_ADDRESS	t0, tv_cz_short
-	mv	t3, gp
-	li	t4, 0x30000
-	add	t1, t3, t4
-	li	t2, 5
-_cz_cmp2:
-	beqz	t2, _cz_cmp2_ok
-	lbu	t3, 0(t0)
-	lbu	t4, 0(t1)
-	bne	t3, t4, test_fail
-	addi	t0, t0, 1
-	addi	t1, t1, 1
-	addi	t2, t2, -1
-	j	_cz_cmp2
-_cz_cmp2_ok:
+	jal	check_roundtrip
+	PASS_TEST
+
+	RUN_TEST tn_cz_large
+	LOAD_ADDRESS	a0, tv_cz_large
+	LOAD_ADDRESS	a1, tv_cz_large_end
+	sub	a1, a1, a0
+	jal	check_roundtrip
 	PASS_TEST
 
 	# ══════════════════════════════════════════════════
@@ -318,6 +265,47 @@ test_fail:
 # ──────────────────────────────────────────────────────────────────────────────
 # Helpers
 # ──────────────────────────────────────────────────────────────────────────────
+
+# check_roundtrip: compress a0/a1, decompress, verify match
+# a0 = input ptr, a1 = input len. Jumps to test_fail on error.
+check_roundtrip:
+	SETUP	s0, s1, s2
+	mv	s0, a0				# input
+	mv	s1, a1				# len
+
+	# compress
+	li	t0, 0x10000
+	add	a2, gp, t0			# output
+	li	t0, 0x20000
+	add	a3, gp, t0			# match_array
+	jal	compress_block
+	blez	a0, test_fail
+	mv	s2, a0				# compressed size
+
+	# decompress
+	li	t0, 0x10000
+	add	a0, gp, t0
+	mv	a1, s2
+	li	t0, 0x30000
+	add	a2, gp, t0
+	li	a3, 0x10000			# 64K capacity
+	jal	decompress_block
+	bne	a0, s1, test_fail		# size mismatch
+
+	# byte compare
+	mv	t0, s0				# original
+	li	t1, 0x30000
+	add	t1, gp, t1			# decompressed
+	mv	t2, s1
+1:	beqz	t2, 2f
+	lbu	t3, 0(t0)
+	lbu	t4, 0(t1)
+	bne	t3, t4, test_fail
+	addi	t0, t0, 1
+	addi	t1, t1, 1
+	addi	t2, t2, -1
+	j	1b
+2:	RETURN
 
 # check_hash_32: compare 32 bytes at a0 against expected at t0
 check_hash_32:
@@ -386,6 +374,7 @@ tn_wots_tsig:	.asciz	"wots tampered sig   "
 tn_wots_tpk:	.asciz	"wots tampered pk    "
 tn_cz_rt:	.asciz	"compress round-trip "
 tn_cz_short:	.asciz	"compress short      "
+tn_cz_large:	.asciz	"compress with match "
 
 # ── blake2s vectors ──
 
@@ -441,6 +430,22 @@ tv_cz_repeat:
 
 tv_cz_short:
 	.ascii	"Hello"
+	.balign 4
+
+# 500 bytes: repeating pattern that triggers LZ77 match finding (needs > 288 bytes)
+tv_cz_large:
+	.ascii	"The quick brown fox jumps over the lazy dog. "
+	.ascii	"The quick brown fox jumps over the lazy dog. "
+	.ascii	"The quick brown fox jumps over the lazy dog. "
+	.ascii	"The quick brown fox jumps over the lazy dog. "
+	.ascii	"The quick brown fox jumps over the lazy dog. "
+	.ascii	"The quick brown fox jumps over the lazy dog. "
+	.ascii	"The quick brown fox jumps over the lazy dog. "
+	.ascii	"The quick brown fox jumps over the lazy dog. "
+	.ascii	"The quick brown fox jumps over the lazy dog. "
+	.ascii	"The quick brown fox jumps over the lazy dog. "
+	.ascii	"The quick brown fox jumps over "
+tv_cz_large_end:
 	.balign 4
 
 _test_data:
