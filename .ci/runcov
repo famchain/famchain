@@ -24,6 +24,6 @@ echo ""
 echo "══════════════════════════════════════════════════════════════════"
 echo " Library Coverage"
 echo "══════════════════════════════════════════════════════════════════"
-python3 tools/coverage.py tmp/test_all.bin "$TRACE_DIR/test_all.log" --min $MIN_COVERAGE || RC=1
+python3 tools/coverage.py tmp/test_all_rv32i.bin "$TRACE_DIR/test_all_rv32i.log" --min $MIN_COVERAGE || RC=1
 
 exit $RC
