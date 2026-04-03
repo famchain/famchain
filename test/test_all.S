@@ -1453,6 +1453,64 @@ _pow_diff_check:
 	PASS_TEST
 
 	# ══════════════════════════════════════════════════
+	# Prover tests
+	# ══════════════════════════════════════════════════
+
+	RUN_TEST tn_prover_rt
+	# Prove a+b=c with trace_len=4, then verify the proof
+	# Trace: a=[1,4,7,10] b=[2,5,8,11] c=[3,9,15,21]
+	# Use gp-relative buffers:
+	#   0x60000: trace (3×4 = 12 words = 48 bytes)
+	#   0x60100: work buffer (8KB)
+	#   0x62100: proof buffer (4KB)
+	li	t0, 0x60000
+	add	t1, gp, t0
+	# trace_a
+	li	t2, 1
+	sw	t2, 0(t1)
+	li	t2, 4
+	sw	t2, 4(t1)
+	li	t2, 7
+	sw	t2, 8(t1)
+	li	t2, 10
+	sw	t2, 12(t1)
+	# trace_b
+	li	t2, 2
+	sw	t2, 16(t1)
+	li	t2, 5
+	sw	t2, 20(t1)
+	li	t2, 8
+	sw	t2, 24(t1)
+	li	t2, 11
+	sw	t2, 28(t1)
+	# trace_c
+	li	t2, 3
+	sw	t2, 32(t1)
+	li	t2, 9
+	sw	t2, 36(t1)
+	li	t2, 15
+	sw	t2, 40(t1)
+	li	t2, 21
+	sw	t2, 44(t1)
+	# Call stark_prove
+	mv	a0, t1				# trace
+	li	a1, 4				# trace_len
+	li	t0, 0x60100
+	add	a2, gp, t0			# work
+	li	t0, 0x62100
+	add	a3, gp, t0			# proof
+	jal	stark_prove
+	# a0 = proof size in bytes; should be > 0
+	blez	a0, test_fail
+	# Now verify: stark_verify(proof_ptr)
+	li	t0, 0x62100
+	add	a0, gp, t0
+	jal	stark_verify
+	# a0 = 0 if valid
+	bnez	a0, test_fail
+	PASS_TEST
+
+	# ══════════════════════════════════════════════════
 	# All passed
 	# ══════════════════════════════════════════════════
 	li		t0, EXIT_ADDR
@@ -1747,6 +1805,7 @@ tn_ntt_identity:	.asciz	"ntt identity        "
 tn_ntt_fwd4:		.asciz	"ntt forward len=4   "
 tn_ntt_rt4:		.asciz	"ntt round-trip 4    "
 tn_ntt_rt8:		.asciz	"ntt round-trip 8    "
+tn_prover_rt:		.asciz	"prover round-trip   "
 
 # ── blake2s vectors ──
 
