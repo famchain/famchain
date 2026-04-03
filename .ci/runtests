@@ -19,6 +19,21 @@ if [ -n "$TRACE_DIR" ]; then
 	rm -f "$TRACE_DIR"/*.log
 fi
 
+# ── Auto-generate library includes from inc/*.inc ──
+# lib_includes.inc: .include directives (macros.inc first, then all libraries)
+# lib_defines.inc:  DEFINE_* macro calls for each library
+echo '.include "macros.inc"' > tmp/lib_includes.inc
+: > tmp/lib_defines.inc
+for f in inc/*.inc; do
+	name=$(basename "$f")
+	case "$name" in macros.inc|bin_config.inc) continue ;; esac
+	echo ".include \"$name\"" >> tmp/lib_includes.inc
+	macro=$(grep '\.macro DEFINE_' "$f" | sed 's/.*\.macro //' | head -1)
+	if [ -n "$macro" ]; then
+		echo "$macro" >> tmp/lib_defines.inc
+	fi
+done
+
 # ── helpers ──
 
 build_node() {
@@ -74,7 +89,7 @@ run_qemu() {
 run_unit_test() {
 	# $1 = test name, $2 = source file, $3 = timeout (default 10), $4 = extra qemu flags
 	echo "=== Unit: $1 ==="
-	$AS $MARCH -I inc -o "tmp/$1.o" "$2" || { fail "$1 (build)"; return; }
+	$AS $MARCH -I inc -I tmp -o "tmp/$1.o" "$2" || { fail "$1 (build)"; return; }
 	$OBJCOPY -O binary "tmp/$1.o" "tmp/$1.bin" || { fail "$1 (objcopy)"; return; }
 	local trace_flags=""
 	if [ -n "$TRACE_DIR" ]; then

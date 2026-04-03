@@ -31,11 +31,7 @@
 .equ	POW_TABLE_ADDR,		0x82000000
 .equ	POW_DISK_MAGIC,		0x42494246
 
-.include "macros.inc"
-.include "blake2s.inc"
-.include "wots.inc"
-.include "compress.inc"
-.include "pow.inc"
+.include "lib_includes.inc"
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Test macros
@@ -499,6 +495,75 @@ _trunc_done:
 	li	t0, -1
 	bne	a0, t0, test_fail
 
+	PASS_TEST
+
+	# ══════════════════════════════════════════════════
+	# BabyBear field arithmetic
+	# ══════════════════════════════════════════════════
+
+	RUN_TEST tn_fp_add
+	li	a0, 1
+	li	a1, 2
+	jal	fp_add
+	li	t0, 3
+	bne	a0, t0, test_fail
+	# wrap: (p-1) + 1 = 0
+	li	a0, FP_P - 1
+	li	a1, 1
+	jal	fp_add
+	bnez	a0, test_fail
+	PASS_TEST
+
+	RUN_TEST tn_fp_sub
+	li	a0, 5
+	li	a1, 3
+	jal	fp_sub
+	li	t0, 2
+	bne	a0, t0, test_fail
+	# underflow: 0 - 1 = p-1
+	li	a0, 0
+	li	a1, 1
+	jal	fp_sub
+	li	t0, FP_P - 1
+	bne	a0, t0, test_fail
+	PASS_TEST
+
+	RUN_TEST tn_fp_mul
+	li	a0, 3
+	li	a1, 7
+	jal	fp_mul
+	li	t0, 21
+	bne	a0, t0, test_fail
+	# large: (p-1) * 2 = p-2
+	li	a0, FP_P - 1
+	li	a1, 2
+	jal	fp_mul
+	li	t0, FP_P - 2
+	bne	a0, t0, test_fail
+	PASS_TEST
+
+	RUN_TEST tn_fp_inv
+	# inv(1) = 1
+	li	a0, 1
+	jal	fp_inv
+	li	t0, 1
+	bne	a0, t0, test_fail
+	# 42 * inv(42) = 1
+	li	a0, 42
+	jal	fp_inv
+	mv	a1, a0
+	li	a0, 42
+	jal	fp_mul
+	li	t0, 1
+	bne	a0, t0, test_fail
+	# (p-1) * inv(p-1) = 1
+	li	a0, FP_P - 1
+	jal	fp_inv
+	mv	a1, a0
+	li	a0, FP_P - 1
+	jal	fp_mul
+	li	t0, 1
+	bne	a0, t0, test_fail
 	PASS_TEST
 
 	# ══════════════════════════════════════════════════
@@ -1049,10 +1114,7 @@ disk_write:
 	ret
 
 
-DEFINE_BLAKE2S
-DEFINE_WOTS
-DEFINE_COMPRESS
-DEFINE_POW
+.include "lib_defines.inc"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1088,6 +1150,10 @@ tn_cz_corrupt:	.asciz	"decompress corrupt  "
 tn_cz_fuzz:	.asciz	"decompress fuzz     "
 tn_cz_trunc:	.asciz	"decompress truncate "
 tn_cz_edge:	.asciz	"decompress edge     "
+tn_fp_add:	.asciz	"fp_add              "
+tn_fp_sub:	.asciz	"fp_sub              "
+tn_fp_mul:	.asciz	"fp_mul              "
+tn_fp_inv:	.asciz	"fp_inv              "
 tn_pow_expand:	.asciz	"bible_expand        "
 tn_pow_hash:	.asciz	"pow_hash non-zero   "
 tn_pow_determ:	.asciz	"pow_hash determinism"
