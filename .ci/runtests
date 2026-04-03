@@ -206,6 +206,39 @@ fi
 stop_server
 
 # ══════════════════════════════════════════════════════════════════════════════
+# Test 6: EOT immediately after port (no trailing newline)
+# Exercises parse_eot -> store_port path
+# ══════════════════════════════════════════════════════════════════════════════
+echo "=== Test 6: EOT after port (no newline) ==="
+build_node test/node.S
+build_bootloader
+reset_disk
+start_server
+
+trace_flags=""
+if [ -n "$TRACE_DIR" ]; then
+	trace_flags="-d in_asm -D $TRACE_DIR/09_eot_port.log"
+fi
+# printf avoids the trailing newline that echo adds
+output=$(printf '127.0.0.1:3737\004' | timeout 10 qemu-system-riscv32 \
+	-machine virt -nographic -bios none -smp 2 \
+	$trace_flags \
+	-device loader,file=./tmp/famchain.bin,addr=0x80000000 \
+	-netdev user,id=net0,hostfwd=tcp::2222-:22 \
+	-drive file=./tmp/disk.img,if=none,format=raw,id=dr0 \
+	-device virtio-blk-device,drive=dr0,bus=virtio-mmio-bus.0 \
+	-device virtio-net-device,netdev=net0,bus=virtio-mmio-bus.1 \
+	2>/dev/null)
+rc=$?
+if [ "$rc" -eq 0 ] && echo "$output" | grep -q "WOK"; then
+	pass "EOT after port"
+else
+	fail "EOT after port (rc=$rc, output=$output)"
+fi
+
+stop_server
+
+# ══════════════════════════════════════════════════════════════════════════════
 # Summary
 # ══════════════════════════════════════════════════════════════════════════════
 echo ""
