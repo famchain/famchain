@@ -668,6 +668,93 @@ _p2t_det_ok:
 	PASS_TEST
 
 	# ══════════════════════════════════════════════════
+	# Merkle tree
+	# ══════════════════════════════════════════════════
+
+	RUN_TEST tn_mk_build
+	# Build a tree with 4 leaves, verify root is non-zero
+	# Leaves: [1,0..0], [2,0..0], [3,0..0], [4,0..0]
+	# Tree needs 8 nodes × 32 bytes = 256 bytes
+	addi	sp, sp, -384			# 128 (leaves) + 256 (tree)
+	mv	t0, sp
+	li	t1, 96				# zero 384 bytes = 96 words
+_mkt_zero:
+	sw	zero, 0(t0)
+	addi	t0, t0, 4
+	addi	t1, t1, -1
+	bnez	t1, _mkt_zero
+	# Set leaf values
+	li	t0, 1
+	sw	t0, 0(sp)			# leaf[0][0] = 1
+	li	t0, 2
+	sw	t0, 32(sp)			# leaf[1][0] = 2
+	li	t0, 3
+	sw	t0, 64(sp)			# leaf[2][0] = 3
+	li	t0, 4
+	sw	t0, 96(sp)			# leaf[3][0] = 4
+	# Build tree
+	mv	a0, sp				# leaves
+	li	a1, 4				# num_leaves
+	addi	a2, sp, 128			# tree (after leaves)
+	jal	merkle_build
+	# a0 = root ptr, check non-zero
+	lw	t0, 0(a0)
+	beqz	t0, test_fail
+	PASS_TEST
+
+	RUN_TEST tn_mk_prove
+	# Prove leaf 2 and verify
+	addi	a0, sp, 128			# tree
+	li	a1, 4				# num_leaves
+	li	a2, 2				# leaf_index
+	# proof needs depth=2 siblings × 32 bytes = 64 bytes
+	addi	sp, sp, -64
+	mv	a3, sp				# proof
+	jal	merkle_prove
+	li	t0, 2				# expect depth 2
+	bne	a0, t0, test_fail
+	PASS_TEST
+
+	RUN_TEST tn_mk_verify
+	# Verify the proof we just generated
+	# root is at tree + 32
+	addi	a0, sp, 64 + 128 + 32		# root = tree_base + 32
+	addi	a1, sp, 64 + 64			# leaf[2] = leaves + 2*32
+	li	a2, 2				# leaf_index
+	mv	a3, sp				# proof
+	addi	sp, sp, -4
+	li	t0, 2
+	sw	t0, 0(sp)			# depth = 2
+	jal	merkle_verify
+	addi	sp, sp, 4
+	bnez	a0, test_fail			# should return 0 (valid)
+	PASS_TEST
+
+	RUN_TEST tn_mk_tamper
+	# Tamper with the leaf and verify fails
+	addi	t0, sp, 64 + 64		# leaf[2]
+	lw	t1, 0(t0)
+	xori	t1, t1, 1			# flip bit
+	sw	t1, 0(t0)
+	addi	a0, sp, 64 + 128 + 32		# root
+	addi	a1, sp, 64 + 64			# tampered leaf
+	li	a2, 2
+	mv	a3, sp				# proof
+	addi	sp, sp, -4
+	li	t0, 2
+	sw	t0, 0(sp)
+	jal	merkle_verify
+	addi	sp, sp, 4
+	beqz	a0, test_fail			# should return -1 (invalid)
+	# Restore leaf
+	addi	t0, sp, 64 + 64
+	lw	t1, 0(t0)
+	xori	t1, t1, 1
+	sw	t1, 0(t0)
+	addi	sp, sp, 64 + 384		# cleanup all merkle allocations
+	PASS_TEST
+
+	# ══════════════════════════════════════════════════
 	# PoW (requires disk for 16MB table cache)
 	# ══════════════════════════════════════════════════
 
@@ -1255,6 +1342,10 @@ tn_fp_add:	.asciz	"fp_add              "
 tn_fp_sub:	.asciz	"fp_sub              "
 tn_fp_mul:	.asciz	"fp_mul              "
 tn_fp_inv:	.asciz	"fp_inv              "
+tn_mk_build:	.asciz	"merkle build        "
+tn_mk_prove:	.asciz	"merkle prove        "
+tn_mk_verify:	.asciz	"merkle verify       "
+tn_mk_tamper:	.asciz	"merkle tamper reject"
 tn_p2_perm:	.asciz	"poseidon2 perm      "
 tn_p2_determ:	.asciz	"poseidon2 determinism"
 tn_p2_hash:	.asciz	"poseidon2 hash      "
