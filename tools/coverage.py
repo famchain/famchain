@@ -12,13 +12,15 @@ import subprocess
 import sys
 import os
 
+PREFIX = os.environ.get('RISCV_PREFIX', 'riscv64-unknown-elf')
+
 def get_labels(binfile):
     """Get label addresses from nm if .o file exists, otherwise from objdump."""
     ofile = binfile.replace('.bin', '.o')
     labels = {}
     if os.path.exists(ofile):
         result = subprocess.run(
-            ['riscv64-unknown-elf-nm', ofile],
+            [f'{PREFIX}-nm', ofile],
             capture_output=True, text=True
         )
         for line in result.stdout.splitlines():
@@ -35,7 +37,7 @@ def get_labels(binfile):
 def get_all_pcs_and_validity(binfile, stop_addr=None):
     """Get all instruction PCs and validity flags from objdump.
     Returns (pcs: set, pcs_valid: dict[int, bool])."""
-    cmd = ['riscv64-unknown-elf-objdump', '-D', '-m', 'riscv:rv32', '-b', 'binary']
+    cmd = [f'{PREFIX}-objdump', '-D', '-m', 'riscv:rv32', '-b', 'binary']
     if stop_addr:
         cmd += [f'--stop-address=0x{stop_addr:x}']
     cmd.append(binfile)

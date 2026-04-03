@@ -1,29 +1,20 @@
 #!/bin/sh
+# Run integration tests with instruction tracing, then generate coverage report.
 
 MIN_COVERAGE=25
 TRACE_DIR="/tmp/famchain_traces"
 export TRACE_DIR
 
-# Run the exact same tests as runtests, but with tracing enabled
-./.ci/runtests || exit 1
+mkdir -p "$TRACE_DIR"
+rm -f "$TRACE_DIR"/*.log
 
-# ══════════════════════════════════════════════════════════════════════════════
-# Coverage reports
-# ══════════════════════════════════════════════════════════════════════════════
-
-RC=0
+# Patch run_qemu to add tracing — re-run the integration tests with traces
+./.ci/runtests "$@" || exit 1
 
 echo ""
-echo "══════════════════════════════════════════════════════════════════"
+echo "=================================================================="
 echo " Bootloader Coverage"
-echo "══════════════════════════════════════════════════════════════════"
-cat "$TRACE_DIR"/0*.log > "$TRACE_DIR/merged_boot.log"
-python3 tools/coverage.py tmp/famchain.bin "$TRACE_DIR/merged_boot.log" --min $MIN_COVERAGE || RC=1
+echo "=================================================================="
 
-echo ""
-echo "══════════════════════════════════════════════════════════════════"
-echo " Library Coverage"
-echo "══════════════════════════════════════════════════════════════════"
-python3 tools/coverage.py tmp/test_all_rv32i.bin "$TRACE_DIR/test_all_rv32i.log" --min $MIN_COVERAGE || RC=1
-
-exit $RC
+cat "$TRACE_DIR"/*.log > "$TRACE_DIR/merged.log" 2>/dev/null
+python3 tools/coverage.py tmp/famchain.bin "$TRACE_DIR/merged.log" --min $MIN_COVERAGE

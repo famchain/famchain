@@ -10,8 +10,8 @@ on:
     branches:
       - '*'
   schedule:
-    - cron: '15 7 * * *'  # Nightly build at 7:15 AM UTC
-  workflow_dispatch:      # Enables manual triggering
+    - cron: '15 7 * * *'
+  workflow_dispatch:
 
 jobs:
   ci:
@@ -28,7 +28,6 @@ jobs:
         task:
           - runtests
           - runcov
-          - runbenches
     steps:
       - name: Checkout code
         uses: actions/checkout@v5

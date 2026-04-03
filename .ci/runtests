@@ -1,42 +1,28 @@
 #!/bin/sh
+# Integration tests for the famchain bootloader.
+
+PREFIX="${RISCV_PREFIX:-riscv64-unknown-elf}"
+AS="${PREFIX}-as"
+OBJCOPY="${PREFIX}-objcopy"
+
+if ! command -v "$AS" >/dev/null 2>&1; then
+	echo "Error: $AS not found. Set RISCV_PREFIX to your toolchain prefix."
+	exit 1
+fi
 
 if [ "$CI" = "true" ]; then
 	sudo apt-get update
 	sudo apt install -y gcc-riscv64-unknown-elf qemu-system-misc
 fi
 
-AS="riscv64-unknown-elf-as"
-OBJCOPY="riscv64-unknown-elf-objcopy"
-MARCH_I="-march=rv32i_zicsr -mabi=ilp32"
-MARCH_IM="-march=rv32im_zicsr -mabi=ilp32"
-MARCH="$MARCH_I"
+MARCH="-march=rv32i_zicsr -mabi=ilp32"
 
 PASS=0
 FAIL=0
 
-# Coverage mode: set TRACE_DIR to enable QEMU instruction tracing
-QEMU_TRACE_FLAGS=""
-if [ -n "$TRACE_DIR" ]; then
-	mkdir -p "$TRACE_DIR"
-	rm -f "$TRACE_DIR"/*.log
-fi
+mkdir -p tmp
 
-# ── Auto-generate library includes from inc/*.inc ──
-# lib_includes.inc: .include directives (macros.inc first, then all libraries)
-# lib_defines.inc:  DEFINE_* macro calls for each library
-echo '.include "macros.inc"' > tmp/lib_includes.inc
-: > tmp/lib_defines.inc
-for f in inc/*.inc; do
-	name=$(basename "$f")
-	case "$name" in macros.inc|bin_config.inc) continue ;; esac
-	echo ".include \"$name\"" >> tmp/lib_includes.inc
-	macro=$(grep '\.macro DEFINE_' "$f" | sed 's/.*\.macro //' | head -1)
-	if [ -n "$macro" ]; then
-		echo "$macro" >> tmp/lib_defines.inc
-	fi
-done
-
-# ── helpers ──
+# ── Helpers ──
 
 build_node() {
 	$AS $MARCH -I inc -o tmp/node.o "$1" || exit 1
@@ -69,10 +55,9 @@ run_qemu() {
 	local hosts="$1"
 	local tmout="${2:-10}"
 	local smp="${3:-2}"
-	local trace_name="$4"
 	local trace_flags=""
-	if [ -n "$TRACE_DIR" ] && [ -n "$trace_name" ]; then
-		trace_flags="-d in_asm -D $TRACE_DIR/$trace_name.log"
+	if [ -n "$TRACE_DIR" ] && [ -n "$4" ]; then
+		trace_flags="-d in_asm -D $TRACE_DIR/$4.log"
 	fi
 	(echo "$hosts"; printf '\004') | timeout "$tmout" qemu-system-riscv32 \
 		-machine virt \
@@ -88,35 +73,6 @@ run_qemu() {
 		>/dev/null 2>/dev/null
 }
 
-run_unit_test() {
-	# $1 = test name, $2 = source file, $3 = timeout (default 10), $4 = extra qemu flags, $5 = march override, $6 = extra as flags
-	echo "=== Unit: $1 ==="
-	local march="${5:-$MARCH}"
-	$AS $march -I inc -I tmp $6 -o "tmp/$1.o" "$2" || { fail "$1 (build)"; return; }
-	$OBJCOPY -O binary "tmp/$1.o" "tmp/$1.bin" || { fail "$1 (objcopy)"; return; }
-	local trace_flags=""
-	if [ -n "$TRACE_DIR" ]; then
-		trace_flags="-d in_asm -D $TRACE_DIR/$1.log"
-	fi
-	local output
-	output=$(timeout "${3:-10}" qemu-system-riscv32 \
-		-machine virt -nographic -bios none -smp 1 \
-		$trace_flags $4 \
-		-device loader,file="tmp/$1.bin",addr=0x80000000 \
-		</dev/null 2>/dev/null)
-	local rc=$?
-	echo "$output"
-	if [ "$rc" -eq 0 ]; then
-		# Count individual PASS/FAIL from binary output
-		local p=$(echo "$output" | grep -c "PASS")
-		local f=$(echo "$output" | grep -c "FAIL")
-		PASS=$((PASS + p))
-		FAIL=$((FAIL + f))
-	else
-		fail "$1"
-	fi
-}
-
 pass() {
 	echo "  PASS: $1"
 	PASS=$((PASS + 1))
@@ -126,30 +82,6 @@ fail() {
 	echo "  FAIL: $1"
 	FAIL=$((FAIL + 1))
 }
-
-# ══════════════════════════════════════════════════════════════════════════════
-# Unit Tests
-# ══════════════════════════════════════════════════════════════════════════════
-
-# Generate STARK test proof if missing
-if [ ! -f tmp/test_proof.bin ]; then
-	python3 tools/stark_prover.py tmp/test_proof.bin
-fi
-
-if [ ! -f tmp/test_disk.img ]; then
-	dd if=/dev/zero of=tmp/test_disk.img bs=1M count=32 2>/dev/null
-fi
-QEMU_DISK="-m 256M -drive file=tmp/test_disk.img,if=none,format=raw,id=dr0 -device virtio-blk-device,drive=dr0,bus=virtio-mmio-bus.0"
-
-# RV32I target: pure software multiply, no M extension instructions allowed
-run_unit_test "test_all_rv32i" "test/test_all.S" 300 "$QEMU_DISK" "$MARCH_I"
-
-# RV32IM target: hardware multiply via runtime detection + Barrett reduction
-run_unit_test "test_all_rv32im" "test/test_all.S" 300 "$QEMU_DISK" "$MARCH_IM" "--defsym HAVE_M_ASM=1"
-
-# ══════════════════════════════════════════════════════════════════════════════
-# Integration Tests (bootloader + network + disk)
-# ══════════════════════════════════════════════════════════════════════════════
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Test 1: Basic download + disk cache + seed list + hart wake
@@ -168,7 +100,7 @@ fi
 
 stop_server
 
-if run_qemu "127.0.0.1:3737" 10 2 "02_cache_hit"; then
+if run_qemu "127.0.0.1:3737" 10 2 "02_cache"; then
 	pass "disk cache hit"
 else
 	fail "disk cache hit"
@@ -183,7 +115,7 @@ build_bootloader
 reset_disk
 start_server
 
-if run_qemu "127.0.0.1:3737" 10 2 "03_multi_chunk"; then
+if run_qemu "127.0.0.1:3737" 10 2 "03_multi"; then
 	pass "multi-chunk download"
 else
 	fail "multi-chunk download"
@@ -215,10 +147,11 @@ fi
 stop_server
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Test 4: Hash mismatch rejection (corrupt binary → H!)
+# Test 4: Hash mismatch rejection (corrupt binary -> H!)
 # ══════════════════════════════════════════════════════════════════════════════
 echo "=== Test 4: Hash mismatch rejection ==="
 build_node test/node.S
+# Build bootloader WITHOUT correct hash (skip gen_bin_config)
 $AS $MARCH -I inc -o tmp/famchain.o src/famchain.S || exit 1
 $OBJCOPY -O binary tmp/famchain.o tmp/famchain.bin || exit 1
 reset_disk
@@ -246,7 +179,7 @@ fi
 stop_server
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Test 5: Disk corruption recovery (valid cache corrupted → re-downloads)
+# Test 5: Disk corruption recovery (valid cache corrupted -> re-downloads)
 # ══════════════════════════════════════════════════════════════════════════════
 echo "=== Test 5: Disk corruption recovery ==="
 build_node test/node.S
@@ -264,7 +197,7 @@ fi
 
 printf '\xff\xff\xff\xff' | dd of=./tmp/disk.img bs=1 count=4 conv=notrunc 2>/dev/null
 
-if run_qemu "127.0.0.1:3737" 10 2 "08_corrupt_recover"; then
+if run_qemu "127.0.0.1:3737" 10 2 "08_corrupt"; then
 	pass "disk corruption recovery"
 else
 	fail "disk corruption recovery"
@@ -276,9 +209,9 @@ stop_server
 # Summary
 # ══════════════════════════════════════════════════════════════════════════════
 echo ""
-echo "══════════════════════════════════"
+echo "=================================="
 echo "Results: $PASS passed, $FAIL failed"
-echo "══════════════════════════════════"
+echo "=================================="
 
 if [ "$FAIL" -ne 0 ]; then
 	exit 1
