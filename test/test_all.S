@@ -103,6 +103,9 @@ _start:
 	sw	t1, VIO_STATUS(t0)
 _skip_disk:
 
+	# Detect M extension (sets _fp_has_m flag for fp_mul dispatch)
+	jal	fp_probe_m_ext
+
 	# ══════════════════════════════════════════════════
 	# Blake2s
 	# ══════════════════════════════════════════════════

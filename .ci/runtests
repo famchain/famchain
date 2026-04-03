@@ -7,7 +7,9 @@ fi
 
 AS="riscv64-unknown-elf-as"
 OBJCOPY="riscv64-unknown-elf-objcopy"
-MARCH="-march=rv32i_zicsr -mabi=ilp32"
+MARCH_I="-march=rv32i_zicsr -mabi=ilp32"
+MARCH_IM="-march=rv32im_zicsr -mabi=ilp32"
+MARCH="$MARCH_I"
 
 PASS=0
 FAIL=0
@@ -87,9 +89,10 @@ run_qemu() {
 }
 
 run_unit_test() {
-	# $1 = test name, $2 = source file, $3 = timeout (default 10), $4 = extra qemu flags
+	# $1 = test name, $2 = source file, $3 = timeout (default 10), $4 = extra qemu flags, $5 = march override, $6 = extra as flags
 	echo "=== Unit: $1 ==="
-	$AS $MARCH -I inc -I tmp -o "tmp/$1.o" "$2" || { fail "$1 (build)"; return; }
+	local march="${5:-$MARCH}"
+	$AS $march -I inc -I tmp $6 -o "tmp/$1.o" "$2" || { fail "$1 (build)"; return; }
 	$OBJCOPY -O binary "tmp/$1.o" "tmp/$1.bin" || { fail "$1 (objcopy)"; return; }
 	local trace_flags=""
 	if [ -n "$TRACE_DIR" ]; then
@@ -137,7 +140,12 @@ if [ ! -f tmp/test_disk.img ]; then
 	dd if=/dev/zero of=tmp/test_disk.img bs=1M count=32 2>/dev/null
 fi
 QEMU_DISK="-m 256M -drive file=tmp/test_disk.img,if=none,format=raw,id=dr0 -device virtio-blk-device,drive=dr0,bus=virtio-mmio-bus.0"
-run_unit_test "test_all" "test/test_all.S" 300 "$QEMU_DISK"
+
+# RV32I target: pure software multiply, no M extension instructions allowed
+run_unit_test "test_all_rv32i" "test/test_all.S" 300 "$QEMU_DISK" "$MARCH_I"
+
+# RV32IM target: hardware multiply via runtime detection + Barrett reduction
+run_unit_test "test_all_rv32im" "test/test_all.S" 300 "$QEMU_DISK" "$MARCH_IM" "--defsym HAVE_M_ASM=1"
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Integration Tests (bootloader + network + disk)
