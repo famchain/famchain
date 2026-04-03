@@ -126,49 +126,19 @@ def poseidon2_perm(state, initial_mds=False):
         state = external_round(state, RC_EXT_FINAL[r])
     return state
 
-# Test vector from Plonky3
-inp = [894848333, 1437655012, 1200606629, 1690012884,
-       71131202, 1749206695, 1717947831, 120589055,
-       19776022, 42382981, 1831865506, 724844064,
-       171220207, 1299207443, 227047920, 1783754913]
-
-expected = [516096821, 90309867, 1101817252, 1660784290,
-            360715097, 1789519026, 1788910906, 563338433,
-            319524748, 1741414159, 1650859320, 894311162,
-            1121347488, 1692793758, 1052633829, 1344246938]
-
-print("Without initial MDS:")
-result = poseidon2_perm(inp, initial_mds=False)
-
-print("Input:   ", [hex(x) for x in inp[:4]], "...")
-print("Expected:", [hex(x) for x in expected[:4]], "...")
-print("Got:     ", [hex(x) for x in result[:4]], "...")
-print()
-
-if result == expected:
-    print("MATCH — Python reference matches Plonky3 test vector")
-else:
-    print("MISMATCH")
-    print()
-    print("With initial MDS:")
-    result2 = poseidon2_perm(inp, initial_mds=True)
-    if result2 == expected:
-        print("MATCH with initial MDS!")
+if __name__ == '__main__':
+    inp = [894848333, 1437655012, 1200606629, 1690012884,
+           71131202, 1749206695, 1717947831, 120589055,
+           19776022, 42382981, 1831865506, 724844064,
+           171220207, 1299207443, 227047920, 1783754913]
+    expected = [516096821, 90309867, 1101817252, 1660784290,
+                360715097, 1789519026, 1788910906, 563338433,
+                319524748, 1741414159, 1650859320, 894311162,
+                1121347488, 1692793758, 1052633829, 1344246938]
+    result = poseidon2_perm(inp, initial_mds=True)
+    if result == expected:
+        print("MATCH — Poseidon2 reference matches Plonky3 test vector")
     else:
-        print(f"Still mismatch: {[hex(x) for x in result2[:4]]}...")
-
-    print()
-    print("Checking step by step (no initial MDS)...")
-    # Run step by step
-    state = list(inp)
-    for r in range(4):
-        state = external_round(state, RC_EXT_INIT[r])
-        print(f"After ext_init round {r}: {[hex(x) for x in state[:4]]}...")
-
-    for r in range(13):
-        state = internal_round(state, RC_INT[r])
-    print(f"After 13 internal rounds: {[hex(x) for x in state[:4]]}...")
-
-    for r in range(4):
-        state = external_round(state, RC_EXT_FINAL[r])
-        print(f"After ext_final round {r}: {[hex(x) for x in state[:4]]}...")
+        print("MISMATCH")
+        print(f"Expected: {[hex(x) for x in expected[:4]]}...")
+        print(f"Got:      {[hex(x) for x in result[:4]]}...")

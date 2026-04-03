@@ -154,4 +154,37 @@ _fpi_done:
 	mv	a0, s1
 	RETURN
 
+# ══════════════════════════════════════════════════════════════════════════════
+# fp_pow: a0 = a0^a1 mod p (modular exponentiation via square-and-multiply)
+# Clobbers: t0-t6 (via fp_mul). Uses SETUP for s-regs.
+# ══════════════════════════════════════════════════════════════════════════════
+fp_pow:
+	SETUP	s0, s1, s2
+
+	mv	s0, a0				# base
+	li	s1, 1				# result = 1
+	mv	s2, a1				# exponent
+
+_fpp_loop:
+	beqz	s2, _fpp_done
+	andi	t0, s2, 1
+	beqz	t0, _fpp_sq
+	# result *= base
+	mv	a0, s1
+	mv	a1, s0
+	jal	fp_mul
+	mv	s1, a0
+_fpp_sq:
+	# base *= base
+	mv	a0, s0
+	mv	a1, s0
+	jal	fp_mul
+	mv	s0, a0
+	srli	s2, s2, 1
+	j	_fpp_loop
+
+_fpp_done:
+	mv	a0, s1
+	RETURN
+
 .endm	# DEFINE_FIELD
