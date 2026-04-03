@@ -21,7 +21,7 @@
 # SOFTWARE.
 
 # ──────────────────────────────────────────────────────────────────────────────
-# file: famchain.S - famchain full node
+# file: famchain.S - famchain network bootloader
 # ──────────────────────────────────────────────────────────────────────────────
 
 .equ	UART_BASE,		0x10000000
@@ -1354,8 +1354,8 @@ fatal:
 1:	wfi
 	j	1b
 
-# Secondary harts poll hart_mailbox for a jump target from the full node.
-# t0 = mhartid (set in _start before branching here)
+# Secondary harts poll hart_mailbox for a jump target from the loaded binary.
+# tp = mhartid (set in _start before branching here)
 secondary_park:
 	LOAD_ADDRESS t1, hart_mailbox
 1:	fence	r, r

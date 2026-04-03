@@ -16,6 +16,8 @@ import subprocess
 import sys
 import os
 
+PREFIX = os.environ.get('RISCV_PREFIX', 'riscv64-unknown-elf')
+
 # Instructions that objdump emits for invalid/data bytes
 INVALID_MARKERS = {'???', '.insn', 'unimp'}
 
@@ -63,7 +65,7 @@ def main():
 
     # Run objdump to get disassembly
     result = subprocess.run(
-        ['riscv64-unknown-elf-objdump', '-D', '-m', 'riscv:rv32', '-b', 'binary', binfile],
+        [f'{PREFIX}-objdump', '-D', '-m', 'riscv:rv32', '-b', 'binary', binfile],
         capture_output=True, text=True
     )
     if result.returncode != 0:
