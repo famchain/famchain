@@ -511,17 +511,10 @@ disk_read:
 
 # write_guest_mac: write 6-byte guest MAC to address in a0. Clobbers t0.
 write_guest_mac:
-	li	t0, GUEST_MAC_0
-	sb t0, 0(a0)
-	li	t0, GUEST_MAC_1
-	sb t0, 1(a0)
-	sb	zero, 2(a0)			# GUEST_MAC_2 = 0
-	li	t0, GUEST_MAC_3
-	sb t0, 3(a0)
-	li	t0, GUEST_MAC_4
-	sb t0, 4(a0)
-	li	t0, GUEST_MAC_5
-	sb t0, 5(a0)
+	li	t0, 0x12005452		# First 4 bytes LE: 52 54 00 12
+	sw	t0, 0(a0)
+	li	t0, 0x5634		# Last 2 bytes LE: 34 56
+	sh	t0, 4(a0)
 	ret
 
 # check_hash: compare 32-byte hash at a0 against expected BIN_HASH values
@@ -886,18 +879,10 @@ send_arp_reply:
 	sw	zero, 8(a1)
 
 	# Ethernet dst MAC = ARP sender MAC from RX (same bytes reused for ARP target MAC below)
-	lbu	t0, 34(a0)
-	sb t0, 12(a1)
-	lbu	t0, 35(a0)
-	sb t0, 13(a1)
-	lbu	t0, 36(a0)
-	sb t0, 14(a1)
-	lbu	t0, 37(a0)
-	sb t0, 15(a1)
-	lbu	t0, 38(a0)
-	sb t0, 16(a1)
-	lbu	t0, 39(a0)
-	sb t0, 17(a1)
+	lw	t0, 34(a0)
+	sw	t0, 12(a1)
+	lhu	t0, 38(a0)
+	sh	t0, 16(a1)
 
 	# Ethernet src MAC = guest MAC
 	mv	t2, a0
@@ -934,39 +919,19 @@ send_arp_reply:
 	jal	write_guest_mac
 	mv	a0, t2
 
-	# ARP sender IP = guest IP
-	li	t0, GUEST_IP_0
-	sb t0, 40(a1)
-	li	t0, GUEST_IP_1
-	sb t0, 41(a1)
-	li	t0, GUEST_IP_2
-	sb t0, 42(a1)
-	li	t0, GUEST_IP_3
-	sb t0, 43(a1)
+	# ARP sender IP = guest IP (10.0.2.15)
+	li	t0, 0x0F02000A
+	sw	t0, 40(a1)
 
 	# ARP target MAC = ARP sender MAC from RX (same source as Ethernet dst above)
-	lbu	t0, 34(a0)
-	sb t0, 44(a1)
-	lbu	t0, 35(a0)
-	sb t0, 45(a1)
-	lbu	t0, 36(a0)
-	sb t0, 46(a1)
-	lbu	t0, 37(a0)
-	sb t0, 47(a1)
-	lbu	t0, 38(a0)
-	sb t0, 48(a1)
-	lbu	t0, 39(a0)
-	sb t0, 49(a1)
+	lw	t0, 34(a0)
+	sw	t0, 44(a1)
+	lhu	t0, 38(a0)
+	sh	t0, 48(a1)
 
 	# ARP target IP = ARP sender IP from RX
-	lbu	t0, 40(a0)
-	sb t0, 50(a1)
-	lbu	t0, 41(a0)
-	sb t0, 51(a1)
-	lbu	t0, 42(a0)
-	sb t0, 52(a1)
-	lbu	t0, 43(a0)
-	sb t0, 53(a1)
+	lw	t0, 40(a0)
+	sw	t0, 50(a1)
 
 	mv	a0, a1
 	li	a1, 54
@@ -996,43 +961,26 @@ send_req_range:
 	sw	zero,  8(s0)
 
 	# Ethernet dst: 52:55:0A:00:02:02 (QEMU NAT gateway)
-	li	t0, 0x52
-	sb t0, 12(s0)
-	li	t0, 0x55
-	sb t0, 13(s0)
-	li	t0, 0x0A
-	sb t0, 14(s0)
-	sb	zero,      15(s0)
-	li	t0, 0x02
-	sb t0, 16(s0)
-	li	t0, 0x02
-	sb t0, 17(s0)
+	li	t0, 0x000A5552
+	sw	t0, 12(s0)
+	li	t0, 0x0202
+	sh	t0, 16(s0)
 
 	# Ethernet src: guest MAC
 	addi	a0, s0, 18
 	jal	write_guest_mac
 
 	# EtherType: 0x0800 (IPv4)
-	li	t0, 0x08
-	sb t0, 24(s0)
-	sb	zero,      25(s0)
+	li	t0, 0x0008
+	sh	t0, 24(s0)
 
 	# IPv4 header (fixed fields)
-	li	t0, 0x45
-	sb t0, 26(s0)	# version=4, IHL=5
-	sb	zero,      27(s0)		# DSCP/ECN
-	sb	zero,      28(s0)		# total length hi
-	li	t0, 0x25
-	sb t0, 29(s0)	# total length lo = 37 (20+8+9)
-	sb	zero,      30(s0)		# identification hi
-	li	t0, 0x01
-	sb t0, 31(s0)	# identification lo
-	sb	zero,      32(s0)		# flags/frag hi
-	sb	zero,      33(s0)		# flags/frag lo
-	li	t0, 64
-	sb t0, 34(s0)	# TTL
-	li	t0, 17
-	sb t0, 35(s0)	# protocol = UDP
+	li	t0, 0x25000045
+	sw	t0, 26(s0)
+	li	t0, 0x00000100
+	sw	t0, 30(s0)
+	li	t0, 0x1140
+	sh	t0, 34(s0)
 
 	# dst IP from host ptr (s3)
 	lbu	t0, 0(s3)
@@ -1057,52 +1005,30 @@ send_req_range:
 	add	t2, t2, t0
 	add	t2, t2, t1			# sum = fixed + dst_hi + dst_lo
 	srli	t3, t2, 16
-	slli	t2, t2, 16
-	srli t2, t2, 16	# zero upper 16 bits
 	add	t2, t2, t3			# fold carry
 	xori	t2, t2, -1			# ones complement
-	slli	t2, t2, 16
-	srli t2, t2, 16	# mask to 16 bits
 	srli	t3, t2, 8
 	sb t3, 36(s0)	# checksum hi
 	andi	t3, t2, 0xFF
 	sb t3, 37(s0)	# checksum lo
 
-	# src IP (fixed: guest)
-	li	t0, GUEST_IP_0
-	sb t0, 38(s0)
-	li	t0, GUEST_IP_1
-	sb t0, 39(s0)
-	li	t0, GUEST_IP_2
-	sb t0, 40(s0)
-	li	t0, GUEST_IP_3
-	sb t0, 41(s0)
+	# src IP (fixed: guest 10.0.2.15)
+	li	t0, 0x0F02000A
+	sw	t0, 38(s0)
 
-	# UDP header
-	li	t0, (CLIENT_PORT >> 8)
-	sb t0, 46(s0)	# src port hi
-	li	t0, (CLIENT_PORT & 0xFF)
-	sb t0, 47(s0)	# src port lo
-	lbu	t0, 4(s3)
-	sb t0, 48(s0)	# dst port hi from host ptr
-	lbu	t0, 5(s3)
-	sb t0, 49(s0)	# dst port lo from host ptr
-	sb	zero,      50(s0)		# UDP length hi
-	li	t0, 0x11
-	sb t0, 51(s0)	# UDP length lo = 17 (8+9)
-	sh	zero,      52(s0)		# checksum = 0
+	# UDP header + FAMC magic (packed)
+	li	t0, 0xD204		# CLIENT_PORT=1234 (0x04D2) in network order
+	sh	t0, 46(s0)
+	lhu	t0, 4(s3)
+	sh	t0, 48(s0)
+	li	t0, 0x00001100
+	sw	t0, 50(s0)
 
-	# Payload: "FAMC" + CMD_REQ_RANGE + start (BE u16) + end (BE u16)
-	li	t0, 'F'
-	sb t0, 54(s0)
-	li	t0, 'A'
-	sb t0, 55(s0)
-	li	t0, 'M'
-	sb t0, 56(s0)
-	li	t0, 'C'
-	sb t0, 57(s0)
+	# FAMC protocol: magic + command
+	li	t0, 0x434D4146
+	sw	t0, 54(s0)
 	li	t0, FAMC_CMD_REQ_RANGE
-	sb t0, 58(s0)
+	sb	t0, 58(s0)
 	srli	t0, s1, 8
 	sb t0, 59(s0)	# start hi
 	andi	t0, s1, 0xFF
@@ -1118,6 +1044,16 @@ send_req_range:
 
 	RETURN
 
+# Zero bitmap at s2 (clears BITMAP_SIZE bytes)
+zero_bitmap:
+	li	t0, BITMAP_SIZE / 4
+	mv	t1, s2
+1:	sw	zero, 0(t1)
+	addi	t1, t1, 4
+	addi	t0, t0, -1
+	bnez	t0, 1b
+	ret
+
 hash_mismatch:
 	# ── allocate bitmap on stack ──
 	li	t0, BITMAP_SIZE
@@ -1125,12 +1061,7 @@ hash_mismatch:
 	mv	s2, sp				# s2 = bitmap base
 
 	# zero bitmap
-	li	t0, BITMAP_SIZE / 4
-	mv	t1, s2
-1:	sw	zero, 0(t1)
-	addi	t1, t1, 4
-	addi	t0, t0, -1
-	bnez	t0, 1b
+	jal	zero_bitmap
 
 	# ── load seed list from data region (parsed at boot) ──
 	li	t0, SEED_LIST_LOC
@@ -1151,12 +1082,7 @@ try_next_host:
 	beqz	s5, all_hosts_failed
 
 	# reset bitmap and received count
-	li	t0, BITMAP_SIZE / 4
-	mv	t1, s2
-1:	sw	zero, 0(t1)
-	addi	t1, t1, 4
-	addi	t0, t0, -1
-	bnez	t0, 1b
+	jal	zero_bitmap
 	li	s3, 0
 
 	# snapshot cycle counter for timeout
